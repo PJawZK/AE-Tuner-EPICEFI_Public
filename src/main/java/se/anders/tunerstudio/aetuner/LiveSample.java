@@ -30,11 +30,25 @@ final class LiveSample {
         this.mapDot = mapDot;
     }
 
-    long getNanoTime() { return nanoTime; }
-    double getSeconds() { return seconds; }
-    double get(ChannelRole role) { return values[role.ordinal()]; }
-    double getTpsDot() { return tpsDot; }
-    double getMapDot() { return mapDot; }
+    long getNanoTime() {
+        return nanoTime;
+    }
+
+    double getSeconds() {
+        return seconds;
+    }
+
+    double get(ChannelRole role) {
+        return values[role.ordinal()];
+    }
+
+    double getTpsDot() {
+        return tpsDot;
+    }
+
+    double getMapDot() {
+        return mapDot;
+    }
 
     boolean bool(ChannelRole role) {
         double value = get(role);
