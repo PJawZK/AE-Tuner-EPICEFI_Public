@@ -1,0 +1,89 @@
+name: Apply v0.3.19 candidate publication
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/apply-candidate-publication.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-candidate-v0.3.19
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PAYLOAD_URL: 'https://sdmntprnortheu.oaiusercontent.com/files/00000000-c770-81f4-9c9d-b15f78ef9d8a/raw?se=2026-08-02T08:42:14Z&sp=r&sv=2026-02-06&sr=b&scid=fd052deb-e1ec-51e0-820f-6af878be0cf1&skoid=061609b8-1cdb-4a5b-9e68-c7ab9a523a8f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-08-02T06:36:44Z&ske=2026-08-03T06:36:44Z&sks=b&skv=2026-02-06&sig=P6AsAE5iW0jqm%2Bx8tQI0gqX/g6t6xAGOsSBljRRLNSU%3D'
+      EXPECTED_ZIP_SHA256: 'f9c0ec75974e29066cb235b9c38eca0696966dbb9460700298b948c068f10fc0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: candidate/v0.3.19
+
+      - name: Download and verify validated candidate export
+        run: |
+          curl --fail --location --retry 3 "$PAYLOAD_URL" --output /tmp/candidate-export.zip
+          echo "$EXPECTED_ZIP_SHA256  /tmp/candidate-export.zip" | sha256sum --check --strict
+          mkdir -p /tmp/candidate-export
+          unzip -q /tmp/candidate-export.zip -d /tmp/candidate-export
+          test -s /tmp/candidate-export/public-export/README.md
+          test -s /tmp/candidate-export/public-export/LICENSE
+          test -s /tmp/candidate-export/public-export/src/main/java/se/anders/tunerstudio/aetuner/AeTunerPanel.java
+          grep -Fq 'public static final String VERSION = "0.3.19"' \
+            /tmp/candidate-export/public-export/src/main/java/se/anders/tunerstudio/aetuner/AeTunerPlugin.java
+          test ! -e /tmp/candidate-export/public-export/lib/TunerStudioPluginAPI.jar
+
+      - name: Replace candidate tree with sanitized source
+        run: |
+          find . -mindepth 1 -maxdepth 1 \
+            ! -name '.git' \
+            ! -name '.github' \
+            ! -name '.gitignore' \
+            -exec rm -rf {} +
+          cp -a /tmp/candidate-export/public-export/. .
+          rm -rf .publication
+
+          cat > PUBLIC_PROVENANCE.md <<'PROVENANCE'
+          # Public export provenance
+
+          - Project: AE Tuner (EPICEFI)
+          - Plugin version: `0.3.19`
+          - Private authority: `PJawZK/AE-Tuner-EPICEFI-`
+          - Public downstream: `PJawZK/AE-Tuner-EPICEFI_Public`
+          - Frozen production candidate branch: `agent/per-rpm-blend-duration-evidence`
+          - Frozen production candidate commit: `dc89032595a043e4d894ae039987529d55cf63ed`
+          - Publication-policy branch: `agent/publication-license-readme`
+          - Publication-policy commit: `cc4aae5fdfd540aff55eaae0d8cebe77c35bdea1`
+          - Candidate build and validate run: `30717714435` — passed
+          - Candidate synthetic integration run: `30717714433` — passed
+          - Canonical candidate JAR SHA-256: `e009f0ebf2ed386b11bf42e849f998995752a4bb76cd3eb884c1374bd11a130b`
+          - Sanitized candidate-export run: `30739139842` — passed
+          - Sanitized export artifact ID: `8830664407`
+          - Artifact ZIP SHA-256: `f9c0ec75974e29066cb235b9c38eca0696966dbb9460700298b948c068f10fc0`
+          - Public branch: `candidate/v0.3.19`
+          - Release status: candidate; physical held-opening evidence pending
+          - Publication date: `2026-08-02`
+
+          This public tree is a sanitized Apache-2.0 publication of the exact v0.3.19 candidate source plus publication-only licence and end-user documentation. It is not an accepted stable release. `TunerStudioPluginAPI.jar`, private evidence, tune files, logs, generated reports, credentials and private continuation documents are intentionally excluded.
+          PROVENANCE
+
+          test ! -e lib/TunerStudioPluginAPI.jar
+          grep -Fq 'You do not need to compile or modify code to use the plugin' README.md
+          grep -Fq 'Version 2.0, January 2004' LICENSE
+
+      - name: Commit candidate publication and remove one-shot workflow
+        run: |
+          rm -f .github/workflows/apply-candidate-publication.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Publish sanitized v0.3.19 candidate source [skip ci]'
+          git push origin HEAD:candidate/v0.3.19
