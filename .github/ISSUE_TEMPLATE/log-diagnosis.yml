@@ -1,0 +1,109 @@
+name: Log diagnosis / test feedback
+description: Submit matched AE Tuner and TunerStudio evidence for public diagnosis.
+title: "[Log diagnosis] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Public evidence submission
+
+        This repository and all issue attachments are public. Review every file before uploading it.
+
+        Do not include credentials, licence or registration files, private keys, personal addresses, or anything else you do not want publicly accessible.
+
+        For useful diagnosis, attach one ZIP containing matched files from the same test session where practical:
+
+        - TunerStudio `.msl` log;
+        - AE Tuner captured-events `.csv`;
+        - AE Tuner MAP Predict report;
+        - optional screenshots or intentionally shared project/tune details needed to interpret the event.
+
+        Do not perform unsafe driving or force an exact RPM/load point merely to collect evidence.
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: AE Tuner version and JAR SHA-256
+      description: State the exact stable or RC version. Include the JAR checksum when available.
+      placeholder: "Example: v0.3.19-rc.1 — d62e940fe772796301c480a75a349a5bd7b65b5ad88c8b426f0e5736d8f829a9"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: TunerStudio, Java, and operating system
+      placeholder: "Example: TunerStudio 3.3.00, Java 17, Linux"
+    validations:
+      required: true
+
+  - type: input
+    id: ecu-project
+    attributes:
+      label: EpicEFI firmware and project identity
+      description: Include enough information to identify the firmware/configuration without exposing private information.
+      placeholder: "Firmware version, ECU type, project/tune revision"
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened?
+      description: Describe the observed behaviour, what you expected, and why the event needs diagnosis.
+      placeholder: |
+        Observed:
+        Expected:
+        Relevant warning/recommendation:
+    validations:
+      required: true
+
+  - type: textarea
+    id: conditions
+    attributes:
+      label: Test conditions and reproduction steps
+      description: Include gear, approximate RPM/load, throttle action, operating temperature, and any disturbances such as shifting or wheelspin.
+      placeholder: |
+        1. Establish stable precondition...
+        2. Apply throttle...
+        3. Event occurs...
+    validations:
+      required: true
+
+  - type: input
+    id: event-location
+    attributes:
+      label: Exact event time, marker, or event ID
+      description: Identify the relevant location in the MSL/report/CSV so reviewers do not have to guess.
+      placeholder: "Example: MSL 00:06:42.5, AE Tuner event 17"
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence package
+      description: Drag the ZIP file into this field. If GitHub rejects it as too large, trim the log to the relevant period or split the evidence into clearly named archives.
+      placeholder: "Drag and drop the matched evidence ZIP here."
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add recent tune changes, known sensor faults, test limitations, or other information needed to interpret the evidence.
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Public-data and safety confirmations
+      options:
+        - label: I reviewed the submitted files and understand that the issue and attachments will be publicly accessible.
+          required: true
+        - label: I removed credentials, licence/registration files, private keys, and personal information that should not be public.
+          required: true
+        - label: The attached files come from the same test session, or I clearly identified any exceptions.
+          required: true
+        - label: I did not perform unsafe testing solely to create this report.
+          required: true
