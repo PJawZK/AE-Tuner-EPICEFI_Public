@@ -11,7 +11,9 @@ AE Tuner does not write ECU RAM values, burn settings, automatically apply table
 
 This branch contains the physically accepted **v0.3.18** source baseline.
 
-A newer v0.3.19 candidate may be available on a separately labelled candidate branch. Candidate source must not be treated as an accepted release until its physical validation is complete.
+A prebuilt `ae-tuner-epicefi-0.3.18.jar` and `SHA256SUMS.txt` are available from the `v0.3.18` GitHub Release.
+
+A newer v0.3.19 candidate is available on the separately labelled `candidate/v0.3.19` branch. Candidate source must not be treated as an accepted release until its physical validation is complete.
 
 ## What v0.3.18 does
 
@@ -42,7 +44,7 @@ The plugin targets **Java 8 bytecode** for broad TunerStudio compatibility.
 
 ## Installation
 
-1. Download the stable plugin JAR from **Releases**.
+1. Download `ae-tuner-epicefi-0.3.18.jar` from the `v0.3.18` release.
 2. Close TunerStudio.
 3. Remove older `ae-tuner-epicefi-*.jar` files from the TunerStudio plugins directory.
 4. Copy in only the downloaded JAR.
@@ -50,8 +52,6 @@ The plugin targets **Java 8 bytecode** for broad TunerStudio compatibility.
 6. Open **AE Tuner (EPICEFI)** and confirm the displayed version is `0.3.18`.
 
 The plugin JAR does **not** contain `TunerStudioPluginAPI.jar`; normal users do not need to install that developer dependency separately.
-
-Until the first public binary is attached, this repository provides the licensed source and documentation but not a complete no-build download.
 
 ## Quick start
 
