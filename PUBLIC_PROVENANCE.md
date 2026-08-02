@@ -16,8 +16,11 @@
 - Release tag source commit: `bda28a0d7e6928b7af67ff0a7d8adbd42bae565b`
 - Released JAR: `ae-tuner-epicefi-0.3.18.jar`
 - Released JAR SHA-256: `2d22c6a11407eea744df3ca81524732f0c30de90cb4c2562eb4bd9456ec44828`
+- Public documentation branch: `agent/publication-license-readme`
+- Public roadmap source commit: `5584f251820d992ef61d0b66c559407f935c40ab`
+- Public roadmap status: published and required to track completed work and approved plan changes
 - Public branch: `main`
 - Release status: stable
 - Publication date: `2026-08-02`
 
-This public tree is a sanitized Apache-2.0 publication of the physically accepted v0.3.18 source baseline. `TunerStudioPluginAPI.jar`, private evidence, tune files, logs, generated reports, credentials and private continuation documents are intentionally excluded.
+This public tree is a sanitized Apache-2.0 publication of the physically accepted v0.3.18 source baseline with maintained public README and roadmap documentation. The roadmap documentation does not change the accepted plugin binary or source baseline. `TunerStudioPluginAPI.jar`, private evidence, tune files, logs, generated reports, credentials and private continuation documents are intentionally excluded.
