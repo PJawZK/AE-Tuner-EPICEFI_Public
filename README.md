@@ -121,19 +121,31 @@ Legacy TPS cycle AE remains available for compatibility and diagnostics, but it 
 
 Always review proposed values against the original log, tune and test conditions before making manual ECU changes.
 
-## Getting help or reporting a problem
+## Getting help or submitting logs for diagnosis
 
-When opening an issue, include where practical:
+Use the public **[Log diagnosis / test feedback](https://github.com/PJawZK/AE-Tuner-EPICEFI_Public/issues/new?template=log-diagnosis.yml)** issue form for matched log review and test feedback.
 
-- AE Tuner version;
-- TunerStudio version;
-- Java version and operating system;
+For the most useful diagnosis, attach one ZIP containing files from the same test session where practical:
+
+- the matching TunerStudio `.msl` log;
+- the AE Tuner captured-events `.csv`;
+- the AE Tuner MAP Predict report;
+- optional screenshots or intentionally shared project/tune details needed to interpret the event.
+
+Also provide:
+
+- AE Tuner version and JAR SHA-256;
+- TunerStudio, Java and operating-system versions;
 - EpicEFI firmware/project identity;
-- exact reproduction steps;
-- exported report and captured-events CSV;
-- matching TunerStudio log when relevant.
+- observed versus expected behaviour;
+- test conditions and reproduction steps;
+- the exact MSL timestamp, marker or AE Tuner event ID requiring review.
 
-Review files before posting them publicly. Project names, machine details, tune settings and logged vehicle data may be present.
+GitHub issue attachments are public. Review every file before posting and remove credentials, licence or registration files, private keys, personal information, and anything else that should not be publicly accessible. Project names, machine details, tune settings and logged vehicle data may be present.
+
+If GitHub rejects an archive because it is too large, trim the log to the relevant period or split the evidence into clearly named archives. Do not commit diagnostic logs to the repository history.
+
+Do not perform unsafe driving or force an exact RPM/load point solely to collect diagnosis evidence.
 
 ## Building from source — developers only
 
