@@ -14,6 +14,18 @@ AE Tuner does not write ECU RAM values, burn settings, automatically apply table
 
 Use the stable release for ordinary use. Candidate builds are for explicit testing and should not be treated as accepted releases.
 
+## Project roadmap
+
+See [`ROADMAP.md`](ROADMAP.md) for:
+
+- completed milestones;
+- the current physical-validation gate;
+- planned MAP Estimate, Wall Wetting, Instant Fuel, report and diagnostics work;
+- public release and rolling-candidate operations;
+- the read-only safety boundary.
+
+The public roadmap is updated when work is completed, a milestone changes status, or the approved development direction changes.
+
 ## What it does
 
 AE Tuner can:
