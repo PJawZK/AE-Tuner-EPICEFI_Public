@@ -17,7 +17,8 @@
 - Released JAR: `ae-tuner-epicefi-0.3.18.jar`
 - Released JAR SHA-256: `2d22c6a11407eea744df3ca81524732f0c30de90cb4c2562eb4bd9456ec44828`
 - Public documentation branch: `agent/publication-license-readme`
-- Public roadmap source commit: `5584f251820d992ef61d0b66c559407f935c40ab`
+- Public roadmap source commit: `c16f544345850ee84bc8a57b0f3c0f6d1c0a2d56`
+- Public roadmap blob SHA: `9ecbd845feebaa54250b90eebcee65dd6f8ba97b`
 - Public roadmap status: published and required to track completed work and approved plan changes
 - Public branch: `main`
 - Release status: stable
