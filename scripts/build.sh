@@ -46,6 +46,8 @@ MANIFEST
 OUTPUT="dist/ae-tuner-epicefi-${VERSION}.jar"
 rm -f "$OUTPUT"
 
+# Modern JDKs can assign one fixed ZIP timestamp to every entry, making the
+# canonical CI artifact reproducible across independent workflow jobs.
 if jar --help 2>&1 | grep -q -- '--date'; then
   jar --create \
     --file "$OUTPUT" \
@@ -53,6 +55,8 @@ if jar --help 2>&1 | grep -q -- '--date'; then
     --date "$REPRODUCIBLE_JAR_DATE" \
     -C target/classes .
 else
+  # Compatibility fallback for older JDK tooling. The plugin bytecode target
+  # remains Java 8, but deterministic archive timestamps require a modern jar.
   jar cfm "$OUTPUT" target/MANIFEST.MF -C target/classes .
 fi
 
