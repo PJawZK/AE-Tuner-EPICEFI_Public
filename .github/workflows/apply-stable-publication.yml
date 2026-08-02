@@ -1,0 +1,84 @@
+name: Apply stable v0.3.18 publication
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/apply-stable-publication.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-stable-v0.3.18
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PAYLOAD_URL: 'https://sdmntprpolandcentral.oaiusercontent.com/files/00000000-3534-820a-acd8-026f2b93600e/raw?se=2026-08-02T08:39:19Z&sp=r&sv=2026-02-06&sr=b&scid=8508daaa-9935-5a1f-a5c0-9f11aea3f922&skoid=061609b8-1cdb-4a5b-9e68-c7ab9a523a8f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-08-02T04:56:48Z&ske=2026-08-03T04:56:48Z&sks=b&skv=2026-02-06&sig=zdsBDtCG9RfVl64hndMUDhYlFNK%2BHmy0J1SUCrsRbQs%3D'
+      EXPECTED_ZIP_SHA256: '286006e6f20c5ae3e0bbb002310884a888cee927194761ce61563527c03415e8'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download and verify validated stable export
+        run: |
+          curl --fail --location --retry 3 "$PAYLOAD_URL" --output /tmp/stable-export.zip
+          echo "$EXPECTED_ZIP_SHA256  /tmp/stable-export.zip" | sha256sum --check --strict
+          mkdir -p /tmp/stable-export
+          unzip -q /tmp/stable-export.zip -d /tmp/stable-export
+          test -s /tmp/stable-export/public-export/README.md
+          test -s /tmp/stable-export/public-export/LICENSE
+          test -s /tmp/stable-export/public-export/src/main/java/se/anders/tunerstudio/aetuner/AeTunerPanel.java
+          test ! -e /tmp/stable-export/public-export/lib/TunerStudioPluginAPI.jar
+
+      - name: Replace public tree with sanitized stable source
+        run: |
+          find . -mindepth 1 -maxdepth 1 \
+            ! -name '.git' \
+            ! -name '.github' \
+            ! -name '.gitignore' \
+            -exec rm -rf {} +
+          cp -a /tmp/stable-export/public-export/. .
+          rm -rf .publication
+
+          generated_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          cat > PUBLIC_PROVENANCE.md <<PROVENANCE
+          # Public export provenance
+
+          - Project: AE Tuner (EPICEFI)
+          - Plugin version: `0.3.18`
+          - Private authority: `PJawZK/AE-Tuner-EPICEFI-`
+          - Public downstream: `PJawZK/AE-Tuner-EPICEFI_Public`
+          - Production baseline commit: `1c21f254c7b20b4a33a239bf10930fcb452c26fa`
+          - Publication-packaging branch: `agent/public-v0.3.18-bootstrap`
+          - Publication-packaging commit: `b565c16df07fc88af1f9baca0af1d7c43bbf8daf`
+          - Private validation run: `30739326680` — passed
+          - Sanitized stable-export run: `30739326685` — passed
+          - Sanitized export artifact ID: `8830726414`
+          - Artifact ZIP SHA-256: `286006e6f20c5ae3e0bbb002310884a888cee927194761ce61563527c03415e8`
+          - Public branch: `main`
+          - Release status: stable
+          - Publication generated UTC: `$generated_utc`
+
+          This public tree is a sanitized Apache-2.0 publication of the physically accepted v0.3.18 source baseline. `TunerStudioPluginAPI.jar`, private evidence, tune files, logs, generated reports, credentials and private continuation documents are intentionally excluded.
+          PROVENANCE
+
+          test ! -e lib/TunerStudioPluginAPI.jar
+          grep -Fq 'You do not need to compile or modify code to use the plugin' README.md
+          grep -Fq 'Version 2.0, January 2004' LICENSE
+
+      - name: Commit publication and remove one-shot workflow
+        run: |
+          rm -f .github/workflows/apply-stable-publication.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Publish sanitized v0.3.18 stable source [skip ci]'
+          git push origin HEAD:main
