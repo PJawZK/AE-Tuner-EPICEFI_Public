@@ -12,6 +12,10 @@
 - Sanitized export artifact ID: `8830726414`
 - Artifact ZIP SHA-256: `286006e6f20c5ae3e0bbb002310884a888cee927194761ce61563527c03415e8`
 - Published source-tree commit: `6a34bf4cd15a76297cba20d415fb82b5c99ac9fc`
+- Public release tag: `v0.3.18`
+- Release tag source commit: `bda28a0d7e6928b7af67ff0a7d8adbd42bae565b`
+- Released JAR: `ae-tuner-epicefi-0.3.18.jar`
+- Released JAR SHA-256: `2d22c6a11407eea744df3ca81524732f0c30de90cb4c2562eb4bd9456ec44828`
 - Public branch: `main`
 - Release status: stable
 - Publication date: `2026-08-02`
