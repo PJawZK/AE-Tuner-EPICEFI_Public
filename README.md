@@ -15,6 +15,18 @@ A prebuilt `ae-tuner-epicefi-0.3.18.jar` and `SHA256SUMS.txt` are available from
 
 A newer v0.3.19 candidate is available on the separately labelled `candidate/v0.3.19` branch. Candidate source must not be treated as an accepted release until its physical validation is complete.
 
+## Project roadmap
+
+See [`ROADMAP.md`](ROADMAP.md) for:
+
+- completed milestones;
+- the current physical-validation gate;
+- planned MAP Estimate, Wall Wetting, Instant Fuel, report and diagnostics work;
+- public release and rolling-candidate operations;
+- the read-only safety boundary.
+
+The public roadmap is updated when work is completed, a milestone changes status, or the approved development direction changes.
+
 ## What v0.3.18 does
 
 AE Tuner v0.3.18 can:
