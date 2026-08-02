@@ -1,0 +1,105 @@
+name: Publish v0.3.18 stable release
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/publish-v0.3.18-release.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-v0.3.18-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ARTIFACT_URL: 'https://sdmntprpolandcentral.oaiusercontent.com/files/00000000-5580-820a-a0cd-215cd91123f2/raw?se=2026-08-02T08:44:12Z&sp=r&sv=2026-02-06&sr=b&scid=5eab01b3-9d2f-57a6-a0b4-404b81733733&skoid=061609b8-1cdb-4a5b-9e68-c7ab9a523a8f&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-08-02T05:47:26Z&ske=2026-08-03T05:47:26Z&sks=b&skv=2026-02-06&sig=btOK3zWI%2BVCuDUPDqD1BsoGJbxki7DKuZfuI5luy/RQ%3D'
+      EXPECTED_ZIP_SHA256: 'd0d79805fe46a677bfa84eabdec67cecad3299fc634b9da2de8883b41e70abaf'
+      EXPECTED_JAR_SHA256: '2d22c6a11407eea744df3ca81524732f0c30de90cb4c2562eb4bd9456ec44828'
+      RELEASE_SOURCE_COMMIT: 'bda28a0d7e6928b7af67ff0a7d8adbd42bae565b'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download and verify accepted plugin JAR
+        run: |
+          curl --fail --location --retry 3 "$ARTIFACT_URL" --output /tmp/v0.3.18-artifact.zip
+          echo "$EXPECTED_ZIP_SHA256  /tmp/v0.3.18-artifact.zip" | sha256sum --check --strict
+          mkdir -p /tmp/v0.3.18
+          unzip -q /tmp/v0.3.18-artifact.zip -d /tmp/v0.3.18
+          test -s /tmp/v0.3.18/ae-tuner-epicefi-0.3.18.jar
+          echo "$EXPECTED_JAR_SHA256  /tmp/v0.3.18/ae-tuner-epicefi-0.3.18.jar" | sha256sum --check --strict
+          printf '%s  %s\n' "$EXPECTED_JAR_SHA256" 'ae-tuner-epicefi-0.3.18.jar' \
+            > /tmp/v0.3.18/SHA256SUMS.txt
+
+      - name: Create stable GitHub Release
+        run: |
+          cat > /tmp/v0.3.18/RELEASE_NOTES.md <<'NOTES'
+          # AE Tuner (EPICEFI) v0.3.18
+
+          **Stable, physically accepted release.**
+
+          AE Tuner is a read-only TunerStudio plugin for EpicEFI transient-fuelling analysis and guided tuning.
+
+          ## Install
+
+          1. Download `ae-tuner-epicefi-0.3.18.jar` below.
+          2. Close TunerStudio.
+          3. Remove older `ae-tuner-epicefi-*.jar` files from the TunerStudio plugins directory.
+          4. Copy in this JAR and restart TunerStudio.
+          5. Confirm the displayed plugin version is `0.3.18`.
+
+          Ordinary users install only the AE Tuner JAR. `TunerStudioPluginAPI.jar` is not included and is not a separate runtime installation requirement.
+
+          ## Safety
+
+          - strictly read-only;
+          - no ECU RAM writes;
+          - no burns;
+          - no automatic table application;
+          - no hidden tune changes.
+
+          ## Accepted scope
+
+          This release includes the physically accepted operational-state-aware key-off classification, exact EpicEFI channel resolution, actual-cut versus reason-code separation, per-state diagnostic counters, deterministic Swing integration, and temporary Session Guidance history.
+
+          ## Integrity
+
+          `SHA256SUMS.txt` contains the canonical JAR checksum. The release JAR SHA-256 is:
+
+          `2d22c6a11407eea744df3ca81524732f0c30de90cb4c2562eb4bd9456ec44828`
+
+          The public source tag points to the sanitized Apache-2.0 v0.3.18 source tree. The separate `candidate/v0.3.19` branch is not an accepted stable release.
+          NOTES
+
+          if gh release view v0.3.18 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Release v0.3.18 already exists; refusing to replace it.' >&2
+            exit 1
+          fi
+
+          gh release create v0.3.18 \
+            /tmp/v0.3.18/ae-tuner-epicefi-0.3.18.jar \
+            /tmp/v0.3.18/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$RELEASE_SOURCE_COMMIT" \
+            --title 'AE Tuner (EPICEFI) v0.3.18' \
+            --notes-file /tmp/v0.3.18/RELEASE_NOTES.md \
+            --latest
+
+      - name: Remove one-shot release workflow
+        run: |
+          rm -f .github/workflows/publish-v0.3.18-release.yml
+          rmdir .github/workflows 2>/dev/null || true
+          rmdir .github 2>/dev/null || true
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Remove one-shot v0.3.18 release workflow [skip ci]'
+          git push origin HEAD:main
