@@ -55,6 +55,8 @@ while IFS= read -r path; do
   cp -- "$ROOT/$path" "$OUT/$path"
 done < "$file_list"
 
+# The private repository keeps a developer/authority README at its root. The
+# public repository receives the dedicated end-user README instead.
 [[ -s "$OUT/docs/public/README.md" ]] || {
   echo "Public end-user README was not exported" >&2
   exit 1

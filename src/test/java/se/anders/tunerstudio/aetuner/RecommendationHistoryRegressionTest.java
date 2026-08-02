@@ -1,6 +1,7 @@
 package se.anders.tunerstudio.aetuner;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 
@@ -13,6 +14,8 @@ public final class RecommendationHistoryRegressionTest {
         displayedRecommendationMustBeAuthoritative();
         channelResolutionChangeMustCreateEntry();
         runningTriggerFaultAndClearMustCreateTransitions();
+        cachedEventReviewMustAcceptFreshSafetySnapshot();
+        sessionDiagnosticsMustSummarizeRetainedEvidence();
         resetMustClearTemporaryHistory();
         System.out.println("RecommendationHistoryRegressionTest passed");
     }
@@ -101,6 +104,55 @@ public final class RecommendationHistoryRegressionTest {
         require(history.size() == 0, "Reset session must clear temporary history");
         require(history.toDisplayText().contains("No recommendation transition recorded yet"),
                 "Empty history text must be explicit after reset");
+    }
+
+    private static void cachedEventReviewMustAcceptFreshSafetySnapshot() {
+        List<EventSummary> events = new ArrayList<EventSummary>();
+        SessionMonitor cleanMonitor = new SessionMonitor();
+        SessionReview cached = SessionReview.build(events, cleanMonitor.snapshot());
+        require(!cached.triggerSyncNeedsReview(), "Clean cached review unexpectedly has a trigger fault");
+
+        SessionMonitor faultMonitor = new SessionMonitor();
+        faultMonitor.addSample(runningSample(10L, 1.0, 900.0, 0.0, 0.0));
+        faultMonitor.addSample(runningSample(11L, 1.1, 880.0, 1.0, 2.0));
+        SessionReview refreshed = cached.withFullLoad(faultMonitor.snapshot());
+        require(refreshed.triggerSyncNeedsReview(),
+                "Cached event metrics must not delay a fresh running trigger/sync warning");
+        require(refreshed.recommendedNextStep().contains("running trigger/sync loss"),
+                "Fresh safety state must retain recommendation priority when event metrics are cached");
+    }
+
+    private static void sessionDiagnosticsMustSummarizeRetainedEvidence() {
+        LiveSample first = runningSample(100L, 1.0, 900.0, 0.0, 0.0);
+        LiveSample second = runningSample(200L, 1.1, 950.0, 0.0, 0.0);
+        List<EventSummary> events = new ArrayList<EventSummary>();
+        events.add(new EventSummary(1, true, "MAP Predict event", "", Arrays.asList(first, second), true));
+        events.add(new EventSummary(2, false, "Rejected", "test", Arrays.asList(first), true));
+
+        SessionDiagnostics diagnostics = SessionDiagnostics.build(
+                1000000000L, 3500000000L, events, 7, 3, 42L, 4, 12.5, 20.0);
+        require(diagnostics.totalEvents == 2 && diagnostics.acceptedEvents == 1
+                        && diagnostics.rejectedEvents == 1,
+                "Session diagnostics must preserve accepted/rejected event totals");
+        require(diagnostics.retainedSamples == 3L
+                        && diagnostics.minimumSamplesPerEvent == 1
+                        && diagnostics.maximumSamplesPerEvent == 2
+                        && Math.abs(diagnostics.meanSamplesPerEvent - 1.5) < 0.0001,
+                "Session diagnostics must summarize retained samples without rescanning during refresh");
+        String report = diagnostics.toReportText();
+        require(report.contains("Session elapsed: 2.5 s"), "Session elapsed time missing from diagnostics");
+        require(report.contains("Detector buffers now: ring 7; active event 3 sample(s)"),
+                "Detector buffer counts missing from diagnostics");
+        require(report.contains("MAP Estimate accepted samples: 42"),
+                "MAP Estimate accepted count missing from diagnostics");
+        require(report.contains("Session Guidance entries: 4"),
+                "Session Guidance count missing from diagnostics");
+        require(report.contains("Previous completed CSV export: 12.5 ms")
+                        && report.contains("Previous completed report export: 20.0 ms"),
+                "Export timing missing from diagnostics");
+        require(report.contains("Plugin version: " + AeTunerPlugin.VERSION)
+                        && report.contains("Java runtime:"),
+                "Runtime identity missing from diagnostics");
     }
 
     private static EnumMap<ChannelRole, String> exactCriticalChannels() {

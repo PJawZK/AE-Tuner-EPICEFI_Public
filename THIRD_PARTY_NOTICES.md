@@ -15,17 +15,39 @@ The Apache-2.0 licence applies to AE Tuner material published by this project. I
 
 ## TunerStudio Plugin API
 
-The private development repository contains `lib/TunerStudioPluginAPI.jar` because it is required to compile the plugin.
+The private authority repository contains:
 
-The binary is a separate third-party dependency and is intentionally excluded from this public source distribution.
+```text
+lib/TunerStudioPluginAPI.jar
+```
 
-- It is not covered by AE Tuner's Apache-2.0 licence.
-- It must not be embedded in AE Tuner release JARs.
-- Developers building from source obtain an authorized copy independently.
-- Normal users installing a prebuilt AE Tuner plugin JAR do not install the API JAR separately.
+It is required to compile the plugin, but it is a separate third-party dependency.
 
-See `lib/README.md`.
+The project has not established permission to redistribute that binary publicly. Therefore:
+
+- the binary remains in the private authority repository only;
+- every public source export and public repository synchronization excludes it;
+- AE Tuner release JARs must not embed or contain it;
+- the API JAR is not covered by AE Tuner's Apache-2.0 licence;
+- public-source developers obtain an authorized copy independently, as described in `lib/README.md`;
+- normal plugin users install only the AE Tuner plugin JAR and do not need the API JAR as a separate runtime installation.
+
+Publishing AE Tuner without `TunerStudioPluginAPI.jar` is explicitly approved. The dependency exclusion is a publication rule, not a remaining publication blocker.
 
 ## Product names and trademarks
 
 TunerStudio, EFI Analytics, EpicEFI and other third-party names are used only to describe compatibility and integration. They remain the property of their respective owners. No endorsement or ownership is implied.
+
+## Repositories
+
+Private authority:
+
+```text
+PJawZK/AE-Tuner-EPICEFI-
+```
+
+Public sanitized downstream:
+
+```text
+PJawZK/AE-Tuner-EPICEFI_Public
+```

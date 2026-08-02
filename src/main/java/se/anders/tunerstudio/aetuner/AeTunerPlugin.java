@@ -9,7 +9,7 @@ import javax.swing.JComponent;
  * TunerStudio shell for AE Tuner (EPICEFI).
  */
 public final class AeTunerPlugin implements ApplicationPlugin {
-    public static final String VERSION = "0.3.18";
+    public static final String VERSION = "0.3.19";
 
     private final AeTunerPanel panel = new AeTunerPanel();
     private ControllerAccess controllerAccess;
@@ -63,7 +63,7 @@ public final class AeTunerPlugin implements ApplicationPlugin {
     @Override
     public void close() {
         controllerAccess = null;
-        panel.disconnectController();
+        panel.disposePanel();
     }
 
     @Override

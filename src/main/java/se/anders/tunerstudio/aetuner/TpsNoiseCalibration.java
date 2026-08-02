@@ -13,7 +13,7 @@ final class TpsNoiseCalibration {
     private long durationNano;
     private Result lastResult;
 
-    void start(double seconds) {
+    synchronized void start(double seconds) {
         absoluteTpsDot.clear();
         running = true;
         startNano = System.nanoTime();
@@ -21,11 +21,11 @@ final class TpsNoiseCalibration {
         lastResult = null;
     }
 
-    boolean isRunning() {
+    synchronized boolean isRunning() {
         return running;
     }
 
-    void addSample(LiveSample sample) {
+    synchronized void addSample(LiveSample sample) {
         if (!running) {
             return;
         }
@@ -37,7 +37,7 @@ final class TpsNoiseCalibration {
         }
     }
 
-    Result finish() {
+    synchronized Result finish() {
         running = false;
         List<Double> sorted = new ArrayList<Double>(absoluteTpsDot);
         Collections.sort(sorted);
@@ -51,11 +51,11 @@ final class TpsNoiseCalibration {
         return lastResult;
     }
 
-    Result getLastResult() {
+    synchronized Result getLastResult() {
         return lastResult;
     }
 
-    double secondsRemaining() {
+    synchronized double secondsRemaining() {
         if (!running) {
             return 0.0;
         }

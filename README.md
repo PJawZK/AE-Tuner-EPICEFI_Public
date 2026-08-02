@@ -7,27 +7,27 @@ AE Tuner is a **read-only TunerStudio plugin** for reviewing acceleration-enrich
 
 AE Tuner does not write ECU RAM values, burn settings, automatically apply tables, or make hidden tune changes. It captures evidence and presents tuning guidance for the user to review.
 
-## Stable release
+## Current release state
 
-This branch contains the physically accepted **v0.3.18** source baseline.
+- **Stable:** `0.3.18` — physically accepted baseline.
+- **Candidate:** `0.3.19` — automated and registered-host validation passed; controlled physical held-opening evidence is still pending.
 
-A newer v0.3.19 candidate may be available on a separately labelled candidate branch. Candidate source must not be treated as an accepted release until its physical validation is complete.
+Use the stable release for ordinary use. Candidate builds are for explicit testing and should not be treated as accepted releases.
 
-## What v0.3.18 does
+## What it does
 
-AE Tuner v0.3.18 can:
+AE Tuner can:
 
 - read the current EpicEFI/TunerStudio project configuration;
 - resolve relevant displayed output channels;
 - capture and classify transient events;
 - distinguish MAP Predict, Wall Wetting, Instant Fuel and legacy TPS cycle AE contribution where channels permit;
 - collect stable MAP Estimate evidence while preserving unvisited cells;
-- export a combined MAP Predict tuning report;
-- export detailed captured-event and sample data as CSV;
-- classify running, cranking and key-off safety context;
-- separate actual cut outputs from cut-reason codes;
-- track relevant trigger, ignition and fuel-path evidence;
-- keep a temporary in-session Session Guidance history.
+- produce per-RPM Predictive MAP Blend Duration evidence;
+- keep repeated throttle stabs visible diagnostically without using them as base-curve evidence;
+- review running, cranking and key-off safety context;
+- export a tuning report and a detailed captured-events CSV;
+- keep a temporary in-session guidance history.
 
 It is an evidence and review tool, not an automatic tuner.
 
@@ -42,50 +42,51 @@ The plugin targets **Java 8 bytecode** for broad TunerStudio compatibility.
 
 ## Installation
 
-1. Download the stable plugin JAR from **Releases**.
+1. Download the intended stable plugin JAR from **Releases**.
 2. Close TunerStudio.
 3. Remove older `ae-tuner-epicefi-*.jar` files from the TunerStudio plugins directory.
 4. Copy in only the downloaded JAR.
 5. Restart TunerStudio.
-6. Open **AE Tuner (EPICEFI)** and confirm the displayed version is `0.3.18`.
+6. Open **AE Tuner (EPICEFI)** and confirm the displayed version.
 
 The plugin JAR does **not** contain `TunerStudioPluginAPI.jar`; normal users do not need to install that developer dependency separately.
-
-Until the first public binary is attached, this repository provides the licensed source and documentation but not a complete no-build download.
 
 ## Quick start
 
 1. Open the correct TunerStudio project and connect to the ECU.
 2. Open AE Tuner.
 3. Select **Read AE project data**.
-4. Check that project settings and important live channels resolve.
+4. Check that the project settings and important live channels resolve.
 5. Run **TPS noise calibration** with the throttle untouched.
 6. Drive or test deliberately enough to capture the intended transient events.
 7. Review the event list, Overview, Technical details and Session Guidance.
 8. Export the report and captured-events CSV before resetting the session.
 
-For useful tuning evidence, avoid mixing repeated throttle stabs, gear changes, wheelspin and unrelated disturbances into the same evidence set.
+For tuning evidence, use controlled repeatable tests. Avoid mixing repeated throttle stabs, gear changes, wheelspin and unrelated disturbances into the same evidence set.
 
 ## Reports and session controls
 
 ### Save MAP Predict Report
 
-Exports the current combined tuning report, including:
+Current plugin name for the combined tuning report. It includes:
 
-- session and channel evidence;
+- session diagnostics;
 - MAP Estimate draft evidence;
-- Predictive MAP review;
+- per-RPM Blend Duration evidence;
+- channel-resolution evidence;
 - transient contribution counts;
 - operational-state and safety review;
 - the recommended next step.
 
+A future version is planned to rename this broader report to **AE Tuning Report** as dedicated analysis for more AE stages is added.
+
 ### Export Captured Events
 
-Exports captured event and sample data as CSV for detailed offline review.
+Exports the captured event and sample data as CSV for detailed offline review.
 
 ### Reset Session
 
-Clears captured events and temporary Session Guidance history. It is not a report export.
+Clears captured events, temporary diagnostics and Session Guidance history. It is not a report export.
 
 ## Intended tuning order
 
@@ -103,11 +104,19 @@ Legacy TPS cycle AE remains available for compatibility and diagnostics, but it 
 - Recommendations are not automatically applied.
 - Missing or unavailable channels are not treated as zero.
 - Unvisited MAP Estimate cells remain unchanged.
-- Repeated-stab events must not define the base Blend Duration curve.
+- Repeated-stab events do not define the base Blend Duration curve.
 - Physical vehicle evidence remains decisive.
-- Do not carry out unsafe tests merely to hit an exact table point.
+- Do not carry out unsafe tests merely to hit an exact table axis point.
 
 Always review proposed values against the original log, tune and test conditions before making manual ECU changes.
+
+## Known limitations
+
+- Compatibility depends on the EpicEFI/TunerStudio project definition and available output channels.
+- Some evidence requires several coherent events before a proposal is eligible.
+- Wall Wetting and Instant Fuel currently have contribution and diagnostic coverage, but not the same dedicated proposal depth as MAP Estimate and Blend Duration.
+- The current combined report still uses the older **MAP Predict Report** name.
+- A separate one-shot diagnostics export is planned but is not yet implemented.
 
 ## Getting help or reporting a problem
 

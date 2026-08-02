@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased — repository authority, continuation and publication
+
+- Added the required handoff sequence: run the handoff pre-flight, create a continuation handoff, then continue from the repository.
+- Added `scripts/handoff-preflight.sh` and offline continuation-authority consistency checks.
+- Replaced stale v0.3.17/PR #5 continuation documents with the current v0.3.18 accepted baseline and exact v0.3.19 candidate identity.
+- Corrected the canonical v0.3.19 exact-head CI artifact identity and separated it from the local JDK 21 development artifact and superseded candidates.
+- Updated architecture, roadmap, known issues, build/release and workstream documentation to match the final v0.3.19 source structure and evidence state.
+- Defined the private authority and public sanitized downstream repository relationship.
+- Added an explicit public-export allowlist, leak checks, provenance generation and a non-publishing review-artifact workflow.
+- Selected Apache License 2.0 for AE Tuner source code and project documentation.
+- Added `LICENSE`, `NOTICE` and updated third-party dependency notices.
+- Approved public publication without `TunerStudioPluginAPI.jar`; the API binary remains private and is not bundled in AE Tuner releases.
+- Added a dedicated end-user public README while retaining the private developer/authority README.
+- Updated the sanitized exporter to promote the public README, require Apache-2.0 licence files and record review/publish provenance.
+- Replaced resolved publication blockers with operational binary-release and synchronization tasks.
+- Kept the v0.3.19 physical-validation candidate head unchanged; this repository-control and publication work changes no production Java or tuning algorithm.
+
+## 0.3.19
+
+- Replaced the coarse Predictive Map Blend Duration summary with evidence tied to the actual table RPM points and their midpoint-defined regions.
+- Added per-RPM prediction-event counts, usable held-opening counts, observed RPM coverage, catch-up median/mean/range/IQR/standard deviation, statistical outlier counts, confidence and eligibility.
+- Added explicit per-RPM rejection reasons for reset discontinuities, missing detector bursts, repeated stabs, insufficient MAP gap, throttle release, unresolved catch-up, invalid duration and missing RPM.
+- Kept multiple detector bursts visible diagnostically while excluding them from the base Blend Duration curve.
+- Withheld paste-ready output until one RPM point has at least three retained coherent held-opening events with acceptable spread; high confidence requires at least five tighter events.
+- Preserved every unsupported or ineligible RPM point exactly and applied no silent interpolation or smoothing.
+- Added deterministic accepted, insufficient, repeated-stab and high-spread regressions plus full Swing-report assertions.
+- Added long-session diagnostics and characterization, bounded presentation/helper extraction, responsive reachability and nested wheel handoff.
+- Preserved MAP Estimate, Wall Wetting, Instant Fuel, operational-state safety, Session Guidance, Java 8 and strictly read-only ECU behavior.
+
 ## 0.3.18
 
 - Consolidated the physically accepted v0.3.17 operational-state, cut-reason and ignition-counter safety behavior with the merged deterministic Swing integration harness.

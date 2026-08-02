@@ -1,6 +1,8 @@
 package se.anders.tunerstudio.aetuner;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 
 final class AeEventDetector {
@@ -14,14 +16,14 @@ final class AeEventDetector {
     private static final double MAX_CAPTURE_SECONDS = 4.75;
     private static final int MAX_RING_SAMPLES = 400;
 
-    private final List<LiveSample> ring = new ArrayList<LiveSample>();
+    private final Deque<LiveSample> ring = new ArrayDeque<LiveSample>();
     private final List<LiveSample> active = new ArrayList<LiveSample>();
     private boolean inEvent;
     private long eventStartNano;
     private long lastActivityNano;
     private int nextEventIndex = 1;
 
-    void resetTracking() {
+    synchronized void resetTracking() {
         ring.clear();
         active.clear();
         inEvent = false;
@@ -29,20 +31,28 @@ final class AeEventDetector {
         lastActivityNano = 0L;
     }
 
-    void resetSession() {
+    synchronized void resetSession() {
         resetTracking();
         nextEventIndex = 1;
     }
 
-    void addPassiveSample(LiveSample sample) {
+    synchronized void addPassiveSample(LiveSample sample) {
         appendRing(sample);
     }
 
-    EventSummary addSample(LiveSample sample, double startThreshold) {
+    synchronized int getRingSampleCount() {
+        return ring.size();
+    }
+
+    synchronized int getActiveSampleCount() {
+        return active.size();
+    }
+
+    synchronized EventSummary addSample(LiveSample sample, double startThreshold) {
         return addSample(sample, startThreshold, false);
     }
 
-    EventSummary addSample(LiveSample sample, double startThreshold, boolean mapPredictWorkflow) {
+    synchronized EventSummary addSample(LiveSample sample, double startThreshold, boolean mapPredictWorkflow) {
         appendRing(sample);
         boolean activeNow = isEventActivity(sample, startThreshold, inEvent);
 
@@ -280,10 +290,10 @@ final class AeEventDetector {
     private void appendRing(LiveSample sample) {
         ring.add(sample);
         while (ring.size() > MAX_RING_SAMPLES) {
-            ring.remove(0);
+            ring.removeFirst();
         }
-        while (!ring.isEmpty() && secondsBetween(sample, ring.get(0)) > PRE_SECONDS + 0.25) {
-            ring.remove(0);
+        while (!ring.isEmpty() && secondsBetween(sample, ring.peekFirst()) > PRE_SECONDS + 0.25) {
+            ring.removeFirst();
         }
     }
 

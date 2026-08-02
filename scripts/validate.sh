@@ -38,16 +38,25 @@ if [[ -d src/test/java ]]; then
     for test_class in \
       se.anders.tunerstudio.aetuner.SessionMonitorRegressionTest \
       se.anders.tunerstudio.aetuner.OutputChannelResolutionRegressionTest \
-      se.anders.tunerstudio.aetuner.RecommendationHistoryRegressionTest
+      se.anders.tunerstudio.aetuner.RecommendationHistoryRegressionTest \
+      se.anders.tunerstudio.aetuner.MapBlendSuggestionRegressionTest
     do
       java -cp "target/classes:target/test-classes:lib/TunerStudioPluginAPI.jar" "$test_class"
     done
+    java -Djava.awt.headless=true \
+      -cp "target/classes:target/test-classes:lib/TunerStudioPluginAPI.jar" \
+      se.anders.tunerstudio.aetuner.LongSessionCharacterizationTest
   fi
 fi
 
-if grep -RIn --exclude-dir=.git --exclude='*.jar' -E '^(<<<<<<<|=======|>>>>>>>)' .; then
-  echo "Merge conflict markers found" >&2
-  exit 1
+bash scripts/validation-tooling-regression.sh
+bash scripts/check-conflict-markers.sh
+
+# Private authority exports include the continuation checker. Sanitized public
+# source exports intentionally omit private continuation state, so validation
+# remains usable there after the user supplies an authorized Plugin API JAR.
+if [[ -f scripts/check-continuation-authority.sh ]]; then
+  bash scripts/check-continuation-authority.sh
 fi
 
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then

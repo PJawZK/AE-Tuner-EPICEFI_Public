@@ -5,13 +5,22 @@ import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
+import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
+import javax.swing.text.AbstractDocument;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
+import java.awt.Toolkit;
+import java.awt.datatransfer.DataFlavor;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseWheelEvent;
 import java.awt.Window;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -49,6 +58,7 @@ public final class SyntheticPluginIntegrationTest {
             File out = outputDirectory();
             Files.createDirectories(out.toPath());
 
+            pluginCloseMustStopPanelRefresh();
             keyOffOnlyActivityMustRemainDiagnostic();
             asynchronousPhysicalShutdownMustRemainDiagnostic(out);
 
@@ -57,6 +67,11 @@ public final class SyntheticPluginIntegrationTest {
             frame = showPanel(fixture.panel);
 
             assertPluginMetadata(plugin);
+            assertRefactorOwnershipAndListeners(fixture.panel);
+            assertOverviewCardEquivalence(fixture.panel);
+            assertClipboardCoordinatorEquivalence();
+            assertTechnicalDetailsPresentation(fixture.panel);
+            assertResponsiveWrapping(frame, fixture.panel);
             captureMapPredictEvent(fixture);
             assertCapturedPredictionEvent(fixture.panel);
 
@@ -87,12 +102,34 @@ public final class SyntheticPluginIntegrationTest {
 
             File csv = new File(out, "synthetic-events.csv");
             File report = new File(out, "synthetic-map-predict-report.txt");
+            require(Double.isNaN(doubleField(fixture.panel, "lastCsvExportMillis"))
+                            && Double.isNaN(doubleField(fixture.panel, "lastReportExportMillis")),
+                    "Export timing must start unavailable");
+            cancelRealChooser(fixture.panel, "saveCsv");
+            cancelRealChooser(fixture.panel, "saveMapPredictReport");
+            require(Double.isNaN(doubleField(fixture.panel, "lastCsvExportMillis"))
+                            && Double.isNaN(doubleField(fixture.panel, "lastReportExportMillis")),
+                    "Cancelled export recorded a successful duration");
+
+            File failedTarget = new File(new File(out, "missing-export-parent"), "evidence.txt");
+            approveRealChooser(fixture.panel, "saveCsv", failedTarget);
+            approveRealChooser(fixture.panel, "saveMapPredictReport", failedTarget);
+            require(Double.isNaN(doubleField(fixture.panel, "lastCsvExportMillis"))
+                            && Double.isNaN(doubleField(fixture.panel, "lastReportExportMillis")),
+                    "Failed export recorded a successful duration");
             saveThroughRealChooser(fixture.panel, "saveCsv", csv);
             saveThroughRealChooser(fixture.panel, "saveMapPredictReport", report);
+            require(doubleField(fixture.panel, "lastCsvExportMillis") >= 0.0
+                            && doubleField(fixture.panel, "lastReportExportMillis") >= 0.0,
+                    "Successful exports did not record completion timing");
             File guidance = new File(out, "synthetic-session-guidance.txt");
             Files.write(guidance.toPath(), historyText(fixture.panel).getBytes(StandardCharsets.UTF_8));
             openSessionGuidance(fixture.panel);
             renderPanel(fixture.panel, new File(out, "synthetic-plugin-panel.png"));
+            renderFrameAtSize(frame, fixture.panel, fixture.panel,
+                    new File(out, "synthetic-plugin-panel-narrow.png"), 820, 1000);
+            scrollOverviewToBottomAndRender(fixture.panel,
+                    new File(out, "synthetic-plugin-overview-narrow-bottom.png"));
 
             String csvText = read(csv);
             String reportText = read(report);
@@ -108,6 +145,14 @@ public final class SyntheticPluginIntegrationTest {
                     "Generated report did not retain the synthetic running trigger fault");
             require(reportText.contains("Read-only report: no ECU values were changed."),
                     "Generated report lost the read-only guarantee");
+            require(reportText.contains("SESSION DIAGNOSTICS")
+                            && reportText.contains("Retained event samples:")
+                            && reportText.contains("Detector buffers now:")
+                            && reportText.contains("MAP Estimate accepted samples:")
+                            && reportText.contains("Session Guidance entries:")
+                            && reportText.contains("Java runtime:")
+                            && reportText.contains("Report preparation duration before file write:"),
+                    "Generated report omitted long-session diagnostic evidence");
 
             List<String> result = new ArrayList<String>();
             result.add("Synthetic plugin integration: passed");
@@ -119,6 +164,10 @@ public final class SyntheticPluginIntegrationTest {
             result.add("Report: " + report.getAbsolutePath());
             result.add("Session Guidance: " + guidance.getAbsolutePath());
             result.add("Screenshot: " + new File(out, "synthetic-plugin-panel.png").getAbsolutePath());
+            result.add("Narrow screenshot: "
+                    + new File(out, "synthetic-plugin-panel-narrow.png").getAbsolutePath());
+            result.add("Narrow Overview bottom screenshot: "
+                    + new File(out, "synthetic-plugin-overview-narrow-bottom.png").getAbsolutePath());
             Files.write(new File(out, "result.txt").toPath(), result, StandardCharsets.UTF_8);
 
             System.out.println("SyntheticPluginIntegrationTest passed");
@@ -144,6 +193,50 @@ public final class SyntheticPluginIntegrationTest {
             }
         }
         System.exit(exit);
+    }
+
+    private static void pluginCloseMustStopPanelRefresh() throws Exception {
+        final PluginFixture fixture = createFixture("Synthetic plugin lifecycle");
+        require(!fixture.panel.isRefreshTimerRunning(),
+                "Hidden plugin panel must not consume periodic refresh work");
+        final JFrame frame = showPanel(fixture.panel);
+        require(fixture.panel.isRefreshTimerRunning(),
+                "Visible panel refresh timer must be running");
+        onEdt(new Runnable() {
+            @Override
+            public void run() {
+                frame.setVisible(false);
+            }
+        });
+        require(!fixture.panel.isRefreshTimerRunning(),
+                "Hiding the plugin panel must stop periodic refresh work");
+        onEdt(new Runnable() {
+            @Override
+            public void run() {
+                frame.setVisible(true);
+            }
+        });
+        require(fixture.panel.isRefreshTimerRunning(),
+                "Reopening the plugin panel must restart periodic refresh work");
+        onEdt(new Runnable() {
+            @Override
+            public void run() {
+                fixture.plugin.close();
+                frame.dispose();
+            }
+        });
+        require(!fixture.panel.isRefreshTimerRunning(),
+                "Plugin close must stop the panel refresh timer");
+
+        AeTunerPlugin replacement = new AeTunerPlugin();
+        AeTunerPanel replacementPanel = (AeTunerPanel) replacement.getPluginPanel();
+        require(replacementPanel != fixture.panel,
+                "Plugin re-instantiation must create a fresh panel instance");
+        require(capturedEvents(replacementPanel).isEmpty(),
+                "Plugin re-instantiation retained captured events from the closed panel");
+        require(!replacementPanel.isRefreshTimerRunning(),
+                "Fresh hidden plugin panel unexpectedly started its refresh timer");
+        replacement.close();
     }
 
     private static void keyOffOnlyActivityMustRemainDiagnostic() throws Exception {
@@ -593,6 +686,71 @@ public final class SyntheticPluginIntegrationTest {
                 methodName + " did not create the expected file: " + target);
     }
 
+    private static void cancelRealChooser(final AeTunerPanel panel,
+                                          final String methodName) throws Exception {
+        completeRealChooser(panel, methodName, null, false);
+    }
+
+    private static void approveRealChooser(final AeTunerPanel panel,
+                                           final String methodName,
+                                           final File target) throws Exception {
+        completeRealChooser(panel, methodName, target, true);
+    }
+
+    private static void completeRealChooser(final AeTunerPanel panel,
+                                            final String methodName,
+                                            final File target,
+                                            final boolean approve) throws Exception {
+        final AtomicReference<Throwable> chooserFailure = new AtomicReference<Throwable>();
+        Thread chooserThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    long deadline = System.currentTimeMillis() + 10000L;
+                    while (System.currentTimeMillis() < deadline) {
+                        final JFileChooser chooser = findVisibleFileChooser();
+                        if (chooser != null) {
+                            SwingUtilities.invokeAndWait(new Runnable() {
+                                @Override
+                                public void run() {
+                                    if (approve) {
+                                        chooser.setSelectedFile(target);
+                                        chooser.approveSelection();
+                                    } else {
+                                        chooser.cancelSelection();
+                                    }
+                                }
+                            });
+                            return;
+                        }
+                        Thread.sleep(50L);
+                    }
+                    throw new AssertionError("Timed out waiting for JFileChooser from " + methodName);
+                } catch (Throwable ex) {
+                    chooserFailure.set(ex);
+                }
+            }
+        }, "synthetic-file-chooser-completer");
+        chooserThread.setDaemon(true);
+        chooserThread.start();
+        onEdt(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    invoke(panel, methodName);
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            }
+        });
+        chooserThread.join(11000L);
+        if (chooserFailure.get() != null) throwAsException(chooserFailure.get());
+    }
+
+    private static double doubleField(Object target, String name) throws Exception {
+        return ((Double) field(target, name)).doubleValue();
+    }
+
     private static JFileChooser findVisibleFileChooser() {
         for (Window window : Window.getWindows()) {
             if (!window.isShowing()) continue;
@@ -655,6 +813,78 @@ public final class SyntheticPluginIntegrationTest {
         require(file.isFile() && file.length() > 0L, "Synthetic panel screenshot was not created");
     }
 
+    private static void renderFrameAtSize(final JFrame frame,
+                                          final JComponent panel,
+                                          final AeTunerPanel aePanel,
+                                          final File file,
+                                          final int width,
+                                          final int height) throws Exception {
+        onEdt(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    JScrollPane overviewScroll = (JScrollPane) field(aePanel, "overviewScroll");
+                    JTabbedPane tabs = (JTabbedPane) overviewScroll.getParent();
+                    tabs.setSelectedComponent(overviewScroll);
+                    frame.setSize(new Dimension(width, height));
+                    frame.validate();
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            }
+        });
+        // Let width-change revalidation run before capturing the settled host layout.
+        onEdt(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    frame.validate();
+                    BufferedImage image = new BufferedImage(
+                            panel.getWidth(), panel.getHeight(), BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D graphics = image.createGraphics();
+                    try {
+                        panel.printAll(graphics);
+                    } finally {
+                        graphics.dispose();
+                    }
+                    ImageIO.write(image, "png", file);
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            }
+        });
+        require(file.isFile() && file.length() > 0L,
+                "Narrow synthetic panel screenshot was not created");
+    }
+
+    private static void scrollOverviewToBottomAndRender(final AeTunerPanel panel,
+                                                        final File file) throws Exception {
+        onEdt(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    JScrollPane overviewScroll = (JScrollPane) field(panel, "overviewScroll");
+                    overviewScroll.getVerticalScrollBar().setValue(
+                            overviewScroll.getVerticalScrollBar().getMaximum());
+                    overviewScroll.doLayout();
+                    BufferedImage image = new BufferedImage(
+                            panel.getWidth(), panel.getHeight(), BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D graphics = image.createGraphics();
+                    try {
+                        panel.printAll(graphics);
+                    } finally {
+                        graphics.dispose();
+                    }
+                    ImageIO.write(image, "png", file);
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            }
+        });
+        require(file.isFile() && file.length() > 0L,
+                "Narrow Overview bottom screenshot was not created");
+    }
+
     private static void assertPluginMetadata(AeTunerPlugin plugin) {
         require("aeTunerEpicefi".equals(plugin.getIdName()), "Unexpected plugin ID");
         require("AE Tuner (EPICEFI)".equals(plugin.getDisplayName()), "Unexpected plugin display name");
@@ -662,6 +892,92 @@ public final class SyntheticPluginIntegrationTest {
         require(plugin.isMenuEnabled(), "Plugin menu unexpectedly disabled");
         require(plugin.displayPlugin("synthetic"), "Plugin refused a synthetic controller signature");
         require(plugin.getPluginPanel() instanceof AeTunerPanel, "Plugin did not return the real AE Tuner panel");
+    }
+
+    private static void assertRefactorOwnershipAndListeners(AeTunerPanel panel) throws Exception {
+        String[] buttons = new String[]{
+                "reconnectButton", "readProjectButton", "calibrateButton", "applyCalibrationButton",
+                "resetButton", "saveCsvButton", "suggestTableButton", "suggestMapEstimateButton",
+                "suggestBlendButton", "sessionReviewButton"
+        };
+        for (String name : buttons) {
+            javax.swing.JButton button = (javax.swing.JButton) field(panel, name);
+            require(button.getActionListeners().length == 1,
+                    name + " must retain exactly one action listener after extraction");
+            require(componentOccurrences(panel, button) == 1,
+                    name + " must be owned by exactly one component container");
+        }
+
+        AbstractDocument thresholdDocument = (AbstractDocument)
+                ((javax.swing.JTextField) field(panel, "thresholdField")).getDocument();
+        int panelDocumentListeners = 0;
+        for (javax.swing.event.DocumentListener listener : thresholdDocument.getDocumentListeners()) {
+            if (listener.getClass().getName().startsWith(AeTunerPanel.class.getName())) {
+                panelDocumentListeners++;
+            }
+        }
+        require(panelDocumentListeners == 1,
+                "Manual threshold must retain exactly one panel document listener");
+        require(panel.getHierarchyListeners().length == 1,
+                "Panel must retain exactly one refresh lifecycle hierarchy listener");
+
+        Timer timer = (Timer) field(panel, "refreshTimer");
+        require(timer.getActionListeners().length == 1,
+                "Panel must own exactly one periodic refresh timer callback");
+
+        Object presenter = field(panel, "uiPresenter");
+        String[] presenterBindings = new String[]{
+                "sampleRateLabel", "calibrationLabel", "eventCountLabel", "fuelPathStatusLabel",
+                "sessionModeLabel", "guidanceLabel", "mapCollectionLabel", "sessionReviewLabel",
+                "recommendationHistoryText", "overviewConnectionLabel", "overviewRateLabel",
+                "calibrationCard"
+        };
+        for (String name : presenterBindings) {
+            require(field(presenter, name) == field(panel, name),
+                    "UI presenter received a duplicate component instead of panel-owned " + name);
+        }
+
+        require(componentOccurrences(panel, (Component) field(panel, "channelTable")) == 1,
+                "Live-channel table must have one owner");
+        require(componentOccurrences(panel, (Component) field(panel, "plotPanel")) == 1,
+                "Event preview must have one owner");
+        require(componentOccurrences(panel, (Component) field(panel, "lowerTabs")) == 1,
+                "Lower tabs must have one owner");
+    }
+
+    private static void assertOverviewCardEquivalence(AeTunerPanel panel) throws Exception {
+        refresh(panel);
+        require("Stage 2: Wall Wetting".equals(cardText(panel, "workflowCard")),
+                "Refactor changed Overview tuning-stage text");
+        require("OFF — correct".equals(cardText(panel, "tpsCycleCard")),
+                "Refactor changed disabled TPS cycle AE text");
+        require(cardState(panel, "tpsCycleCard") == CardState.OFF,
+                "Disabled TPS cycle AE must use the neutral OFF state");
+        require(cardState(panel, "mapPredictCard") == CardState.GOOD,
+                "Enabled MAP Predict must remain positive");
+        require(cardState(panel, "wallWettingCard") == CardState.GOOD,
+                "Enabled Wall Wetting must remain positive");
+        require(cardState(panel, "instantFuelCard") == CardState.OFF,
+                "Disabled Instant Fuel must remain neutral");
+    }
+
+    private static void assertClipboardCoordinatorEquivalence() throws Exception {
+        String expected = "AE Tuner structural-refactor clipboard evidence";
+        String error = AdvisoryExportCoordinator.copyToClipboard(expected);
+        require(error == null, "Clipboard coordinator reported an unexpected failure: " + error);
+        Object actual = Toolkit.getDefaultToolkit().getSystemClipboard()
+                .getData(DataFlavor.stringFlavor);
+        require(expected.equals(actual), "Clipboard coordinator changed copied text");
+    }
+
+    private static int componentOccurrences(Component root, Component target) {
+        int count = root == target ? 1 : 0;
+        if (root instanceof Container) {
+            for (Component child : ((Container) root).getComponents()) {
+                count += componentOccurrences(child, target);
+            }
+        }
+        return count;
     }
 
     private static String selectedName(ChannelRole role) {
@@ -682,6 +998,317 @@ public final class SyntheticPluginIntegrationTest {
         @SuppressWarnings("unchecked")
         List<EventSummary> events = (List<EventSummary>) field(panel, "capturedEvents");
         return new ArrayList<EventSummary>(events);
+    }
+
+    private static void assertTechnicalDetailsPresentation(AeTunerPanel panel) throws Exception {
+        final JScrollPane technicalScroll = (JScrollPane) field(panel, "technicalScroll");
+        JScrollPane mainScroll = (JScrollPane) field(panel, "mainScroll");
+        require(mainScroll.getVerticalScrollBarPolicy()
+                        == ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
+                "Adding Technical-details scrolling must preserve the outer plugin scrollbar");
+        require(technicalScroll.getVerticalScrollBarPolicy()
+                        == ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
+                "Technical details must retain an independent vertical scrollbar");
+        require(technicalScroll.getHorizontalScrollBarPolicy()
+                        == ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER,
+                "Technical details must wrap instead of requiring horizontal scrolling");
+        require(technicalScroll.getViewport().getView() instanceof ViewportWidthPanel,
+                "Technical details content must track its own viewport width");
+        onEdt(new Runnable() {
+            @Override
+            public void run() {
+                JTabbedPane tabs = (JTabbedPane) technicalScroll.getParent();
+                tabs.setSelectedComponent(technicalScroll);
+                tabs.doLayout();
+                technicalScroll.doLayout();
+            }
+        });
+        require(technicalScroll.getViewport().getView().getPreferredSize().height
+                        > technicalScroll.getViewport().getExtentSize().height,
+                "Technical details must provide a scrollable viewport for scaled or wrapped text");
+
+        setField(panel, "detectionArmedNano", System.nanoTime() + 1000000000L);
+        refresh(panel);
+        String arming = ((javax.swing.JTextArea) field(panel, "calibrationLabel")).getText();
+        require(arming.contains("event detection arming"),
+                "Technical calibration status did not show the arming transition: " + arming);
+
+        setField(panel, "detectionArmedNano", 0L);
+        refresh(panel);
+        String idle = ((javax.swing.JTextArea) field(panel, "calibrationLabel")).getText();
+        require(idle.equals("TPS calibration: not run"),
+                "Technical calibration status remained stale after arming: " + idle);
+    }
+
+    private static void assertResponsiveWrapping(final JFrame frame,
+                                                 final AeTunerPanel panel) throws Exception {
+        JScrollPane mainScroll = (JScrollPane) field(panel, "mainScroll");
+        JScrollPane overviewScroll = (JScrollPane) field(panel, "overviewScroll");
+        JScrollPane technicalScroll = (JScrollPane) field(panel, "technicalScroll");
+        require(mainScroll.getVerticalScrollBarPolicy()
+                        == ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
+                "Responsive layout must preserve the outer plugin scrollbar");
+        require(overviewScroll.getVerticalScrollBarPolicy()
+                        == ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                "Overview must provide independent overflow scrolling when cards wrap");
+        require(technicalScroll.getVerticalScrollBarPolicy()
+                        == ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
+                "Responsive layout must preserve Technical-details scrolling");
+
+        JPanel controls = (JPanel) panel.getComponent(0);
+        require(controls instanceof WrappingColumnPanel,
+                "Control rows must be hosted by a width-aware vertical column");
+        for (int i = 0; i < controls.getComponentCount(); i++) {
+            Component row = controls.getComponent(i);
+            require(row instanceof JPanel && ((JPanel) row).getLayout() instanceof WrapLayout,
+                    "Control row " + i + " must use width-aware wrapping");
+        }
+
+        JPanel overview = (JPanel) overviewScroll.getViewport().getView();
+        require(overview instanceof WrappingColumnPanel,
+                "Overview rows must be hosted by a width-aware scrollable column");
+        JPanel configurationRow = (JPanel) overview.getComponent(1);
+        require(configurationRow.getLayout() instanceof WrapLayout,
+                "Overview status cards must use width-aware wrapping");
+        require(configurationRow.getComponentCount() == 6,
+                "Configuration Overview row lost a status card");
+        require(((JPanel) overview.getComponent(2)).getComponentCount() == 3,
+                "Live-state Overview row lost a status card");
+        require(((JPanel) overview.getComponent(3)).getComponentCount() == 4,
+                "Session-progress Overview row lost a status card");
+        require(((JPanel) overview.getComponent(4)).getComponentCount() == 3,
+                "Safety-review Overview row lost a status card");
+
+        final int[][] heights = new int[controls.getComponentCount()][2];
+        final Dimension[] originalSizes = new Dimension[controls.getComponentCount()];
+        onEdt(new Runnable() {
+            @Override
+            public void run() {
+                for (int i = 0; i < controls.getComponentCount(); i++) {
+                    JPanel row = (JPanel) controls.getComponent(i);
+                    originalSizes[i] = row.getSize();
+                    row.setSize(1400, 1);
+                    heights[i][0] = row.getPreferredSize().height;
+                    row.setSize(420, 1);
+                    heights[i][1] = row.getPreferredSize().height;
+                    row.setSize(originalSizes[i]);
+                }
+                controls.doLayout();
+            }
+        });
+        for (int i = 0; i < heights.length; i++) {
+            require(heights[i][1] > heights[i][0],
+                    "Control row " + i + " did not gain height when narrowed: wide="
+                            + heights[i][0] + ", narrow=" + heights[i][1]);
+        }
+
+        int[] widths = new int[]{1400, 1024, 820, 700, 620};
+        for (int width : widths) {
+            assertResponsiveReachability(frame, panel, width);
+        }
+        characterizeNestedWheel(panel, technicalScroll, "Technical details");
+        characterizeNestedWheel(panel, overviewScroll, "Overview");
+        resizeFrame(frame, 1400, 1000);
+    }
+
+    private static void assertResponsiveReachability(final JFrame frame,
+                                                      final AeTunerPanel panel,
+                                                      final int width) throws Exception {
+        resizeFrame(frame, width, 1000);
+        onEdt(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    JScrollPane main = (JScrollPane) field(panel, "mainScroll");
+                    JScrollPane technical = (JScrollPane) field(panel, "technicalScroll");
+                    JScrollPane overview = (JScrollPane) field(panel, "overviewScroll");
+                    JTabbedPane statusTabs = (JTabbedPane) technical.getParent();
+
+                    require(main.getHorizontalScrollBarPolicy()
+                                    == ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER,
+                            "Outer page gained a horizontal scrollbar at " + width + " px");
+                    require(technical.getHorizontalScrollBarPolicy()
+                                    == ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER,
+                            "Technical details gained a horizontal scrollbar at " + width + " px");
+                    require(overview.getHorizontalScrollBarPolicy()
+                                    == ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER,
+                            "Overview gained a horizontal scrollbar at " + width + " px");
+
+                    Container controls = (Container) panel.getComponent(0);
+                    for (Component rowComponent : controls.getComponents()) {
+                        Container row = (Container) rowComponent;
+                        require(row.getHeight() > 0 && row.getWidth() <= controls.getWidth(),
+                                "Control row was clipped or oversized at " + width + " px");
+                    }
+
+                    statusTabs.setSelectedComponent(technical);
+                    frame.validate();
+                    technical.getVerticalScrollBar().setValue(
+                            technical.getVerticalScrollBar().getMaximum());
+                    technical.doLayout();
+                    Component technicalView = technical.getViewport().getView();
+                    Component finalReview = (Component) field(panel, "sessionReviewLabel");
+                    assertBottomReachable(technical, technicalView, finalReview,
+                            "final Technical-details review", width);
+                    require(technicalView.getWidth() <= technical.getViewport().getExtentSize().width,
+                            "Technical content exceeded its viewport width at " + width + " px");
+
+                    statusTabs.setSelectedComponent(overview);
+                    frame.validate();
+                    overview.getVerticalScrollBar().setValue(
+                            overview.getVerticalScrollBar().getMaximum());
+                    overview.doLayout();
+                    Container overviewView = (Container) overview.getViewport().getView();
+                    Component finalRow = overviewView.getComponent(overviewView.getComponentCount() - 1);
+                    assertBottomReachable(overview, overviewView, finalRow,
+                            "final Overview row", width);
+                    for (Component row : overviewView.getComponents()) {
+                        require(row.getBounds().x >= 0
+                                        && row.getBounds().x + row.getBounds().width <= overviewView.getWidth(),
+                                "Overview row exceeded the viewport width at " + width + " px");
+                        if (row instanceof Container) {
+                            for (Component card : ((Container) row).getComponents()) {
+                                require(card.getWidth() > 0 && card.getHeight() > 0
+                                                && card.getX() + card.getWidth() <= row.getWidth()
+                                                && card.getY() + card.getHeight() <= row.getHeight(),
+                                        "Overview card was unreachable at " + width + " px");
+                            }
+                        }
+                    }
+
+                    main.getVerticalScrollBar().setValue(main.getVerticalScrollBar().getMaximum());
+                    main.doLayout();
+                    Component mainView = main.getViewport().getView();
+                    Component lowerTabs = (Component) field(panel, "lowerTabs");
+                    assertBottomReachable(main, mainView, lowerTabs,
+                            "lower tab region", width);
+                    System.out.println("RESPONSIVE_WIDTH " + width + " passed");
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            }
+        });
+    }
+
+    private static void resizeFrame(final JFrame frame, final int width, final int height)
+            throws Exception {
+        onEdt(new Runnable() {
+            @Override
+            public void run() {
+                frame.setSize(new Dimension(width, height));
+                frame.validate();
+            }
+        });
+        // WrappingColumnPanel schedules revalidation after a width change.
+        onEdt(new Runnable() {
+            @Override
+            public void run() {
+                frame.validate();
+            }
+        });
+    }
+
+    private static void assertBottomReachable(JScrollPane scroll,
+                                              Component view,
+                                              Component target,
+                                              String description,
+                                              int width) {
+        Rectangle targetBounds = SwingUtilities.convertRectangle(
+                target.getParent(), target.getBounds(), view);
+        Rectangle visible = scroll.getViewport().getViewRect();
+        require(targetBounds.y + targetBounds.height <= visible.y + visible.height,
+                description + " was not reachable at " + width + " px: target="
+                        + targetBounds + ", visible=" + visible);
+    }
+
+    private static void characterizeNestedWheel(final AeTunerPanel panel,
+                                                final JScrollPane inner,
+                                                final String name) throws Exception {
+        onEdt(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    JScrollPane outer = (JScrollPane) field(panel, "mainScroll");
+                    inner.getVerticalScrollBar().setValue(0);
+                    outer.getVerticalScrollBar().setValue(0);
+                    int innerBefore = inner.getVerticalScrollBar().getValue();
+                    int outerBefore = outer.getVerticalScrollBar().getValue();
+                    MouseWheelEvent inside = wheelEvent(inner, 1);
+                    inner.dispatchEvent(inside);
+                    int innerAfter = inner.getVerticalScrollBar().getValue();
+                    require(innerAfter > innerBefore,
+                            name + " did not scroll within its available range");
+                    require(outer.getVerticalScrollBar().getValue() == outerBefore,
+                            name + " moved the outer page while inner scrolling was available");
+                    System.out.println("NESTED_WHEEL " + name + " inside consumed="
+                            + inside.isConsumed() + ",innerBefore=" + innerBefore
+                            + ",innerAfter=" + innerAfter);
+
+                    int outerBeforeUpInside = outer.getVerticalScrollBar().getValue();
+                    MouseWheelEvent insideUp = wheelEvent(inner, -1);
+                    inner.dispatchEvent(insideUp);
+                    require(inner.getVerticalScrollBar().getValue() < innerAfter,
+                            name + " did not scroll upward within its available range");
+                    require(outer.getVerticalScrollBar().getValue() == outerBeforeUpInside,
+                            name + " moved the outer page during in-range upward scrolling");
+
+                    inner.getVerticalScrollBar().setValue(0);
+                    outer.getVerticalScrollBar().setValue(
+                            outer.getVerticalScrollBar().getMaximum());
+                    int upperOuterBefore = outer.getVerticalScrollBar().getValue();
+                    MouseWheelEvent upper = wheelEvent(inner, -1);
+                    inner.dispatchEvent(upper);
+                    int upperOuterAfter = outer.getVerticalScrollBar().getValue();
+                    require(inner.getVerticalScrollBar().getValue() == 0,
+                            name + " moved above its upper boundary during handoff");
+                    require(upperOuterAfter < upperOuterBefore,
+                            name + " did not hand an upper-boundary wheel event to the outer page");
+                    System.out.println("NESTED_WHEEL " + name + " upperBoundary consumed="
+                            + upper.isConsumed() + ",outerBefore=" + upperOuterBefore
+                            + ",outerAfter=" + upperOuterAfter);
+
+                    inner.getVerticalScrollBar().setValue(inner.getVerticalScrollBar().getMaximum());
+                    int innerLower = inner.getVerticalScrollBar().getValue();
+                    outer.getVerticalScrollBar().setValue(0);
+                    int before = outer.getVerticalScrollBar().getValue();
+                    MouseWheelEvent event = wheelEvent(inner, 1);
+                    inner.dispatchEvent(event);
+                    int after = outer.getVerticalScrollBar().getValue();
+                    require(inner.getVerticalScrollBar().getValue() == innerLower,
+                            name + " moved below its lower boundary during handoff");
+                    require(after > before,
+                            name + " did not hand a lower-boundary wheel event to the outer page");
+                    System.out.println("NESTED_WHEEL " + name + " lowerBoundary consumed="
+                            + event.isConsumed() + ",outerBefore=" + before + ",outerAfter=" + after);
+
+                    inner.getVerticalScrollBar().setValue(0);
+                    outer.getVerticalScrollBar().setValue(0);
+                    MouseWheelEvent bothUpper = wheelEvent(inner, -1);
+                    inner.dispatchEvent(bothUpper);
+                    require(inner.getVerticalScrollBar().getValue() == 0
+                                    && outer.getVerticalScrollBar().getValue() == 0,
+                            name + " moved when both panes were at their upper boundary");
+
+                    inner.getVerticalScrollBar().setValue(inner.getVerticalScrollBar().getMaximum());
+                    outer.getVerticalScrollBar().setValue(outer.getVerticalScrollBar().getMaximum());
+                    int bothInnerLower = inner.getVerticalScrollBar().getValue();
+                    int bothOuterLower = outer.getVerticalScrollBar().getValue();
+                    MouseWheelEvent bothLower = wheelEvent(inner, 1);
+                    inner.dispatchEvent(bothLower);
+                    require(inner.getVerticalScrollBar().getValue() == bothInnerLower
+                                    && outer.getVerticalScrollBar().getValue() == bothOuterLower,
+                            name + " moved when both panes were at their lower boundary");
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            }
+        });
+    }
+
+    private static MouseWheelEvent wheelEvent(Component target, int rotation) {
+        return new MouseWheelEvent(target, MouseEvent.MOUSE_WHEEL,
+                System.currentTimeMillis(), 0, 10, 10, 0, false,
+                MouseWheelEvent.WHEEL_UNIT_SCROLL, 3, rotation);
     }
 
     private static void refresh(final AeTunerPanel panel) throws Exception {
@@ -732,6 +1359,11 @@ public final class SyntheticPluginIntegrationTest {
         Object card = field(panel, fieldName);
         Object text = field(card, "lastText");
         return text == null ? "" : text.toString();
+    }
+
+    private static CardState cardState(AeTunerPanel panel, String fieldName) throws Exception {
+        Object card = field(panel, fieldName);
+        return (CardState) field(card, "lastState");
     }
 
     private static String read(File file) throws Exception {

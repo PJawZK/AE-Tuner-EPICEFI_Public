@@ -66,10 +66,19 @@ if ! grep -q 'You do not need to compile or modify code to use the plugin' "$EXP
   exit 1
 fi
 
+if grep -q 'Private authority repository:' "$EXPORT_DIR/README.md" \
+    || grep -q 'Run the handoff pre-flight' "$EXPORT_DIR/README.md"; then
+  echo "Public README contains private/developer authority instructions" >&2
+  exit 1
+fi
+
 content_pattern='(/home/[^[:space:]]+|[A-Za-z]:\\Users\\|BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY|github_pat_[A-Za-z0-9_]+|ghp_[A-Za-z0-9]+|private-user-images\.githubusercontent\.com)'
 content_match=0
 while IFS= read -r -d '' file; do
   relative="${file#"$EXPORT_DIR"/}"
+  # The checker contains the forbidden-pattern definitions themselves. Exclude
+  # only this exact exported file from the content scan so the rules do not
+  # self-match while every other exported file remains covered.
   if [[ "$relative" == "scripts/check-public-export.sh" ]]; then
     continue
   fi

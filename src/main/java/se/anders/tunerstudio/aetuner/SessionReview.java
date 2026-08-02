@@ -83,6 +83,14 @@ final class SessionReview {
                 fullLoad == null ? new SessionMonitor().snapshot() : fullLoad);
     }
 
+    SessionReview withFullLoad(SessionMonitor.Snapshot nextFullLoad) {
+        return new SessionReview(predictionOnlyEvents, predictionWithWallEvents, wallOnlyEvents,
+                instantFuelEvents, lowRpmPredictionEvents, lowRpmLargeGapEvents,
+                lowRpmMultipleBurstEvents, lowRpmRichLargeGapEvents,
+                lowRpmLeanSmallGapEvents, resetDiscontinuityEvents,
+                nextFullLoad == null ? new SessionMonitor().snapshot() : nextFullLoad);
+    }
+
     String contributionCardText() {
         return predictionOnlyEvents + " MAP-only • " + predictionWithWallEvents + " MAP+WW"
                 + " • " + wallOnlyEvents + " WW-only";

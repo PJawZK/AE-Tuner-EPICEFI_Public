@@ -9,50 +9,39 @@ import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JComponent;
-import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.ScrollPaneConstants;
 import javax.swing.JSpinner;
-import javax.swing.JSplitPane;
 import javax.swing.JTable;
 import javax.swing.JTabbedPane;
-import javax.swing.ScrollPaneConstants;
-import javax.swing.Scrollable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.text.DefaultCaret;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.Toolkit;
-import java.awt.datatransfer.StringSelection;
+import java.awt.event.HierarchyEvent;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
-import java.awt.Rectangle;
-import java.awt.RenderingHints;
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.text.DecimalFormat;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Date;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -81,7 +70,10 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
     private final JTextArea sessionModeLabel = createStatusText("Session mode: read AE project data first", 4);
     private final JTextArea guidanceLabel = createStatusText("AE tuning guidance: read project data and collect events.", 4);
     private final JTextArea mapCollectionLabel = createStatusText("MAP Estimate collection: waiting for project data.", 2);
-    private final JTextArea sessionReviewLabel = createStatusText("Session review: no data yet.", 4);
+    // Session review is intentionally long-form diagnostic evidence. Its rows
+    // contribute to the Technical-details page height, which has its own
+    // scrollbar, rather than clipping the review into a compact status card.
+    private final JTextArea sessionReviewLabel = createStatusText("Session review: no data yet.", 80);
     private final JTextArea recommendationHistoryText = createStatusText(
             "Session Guidance: waiting for the first recommendation.", 18);
 
@@ -128,6 +120,8 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
     private final JTextArea latestEventText = new JTextArea(7, 80);
     private final JTabbedPane lowerTabs = new StableTabbedPane();
     private final JScrollPane mainScroll = new JScrollPane();
+    private final JScrollPane overviewScroll = new JScrollPane();
+    private final JScrollPane technicalScroll = new JScrollPane();
     private final JScrollPane channelScroll = new JScrollPane();
     private final DefaultTableModel channelTableModel = new DefaultTableModel(new Object[]{"Role", "Channel", "Value", "Status"}, 0) {
         @Override
@@ -137,8 +131,16 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
     };
     private final JTable channelTable = new JTable(channelTableModel);
     private final EventPlotPanel plotPanel = new EventPlotPanel();
+    private final UiRefreshPresenter uiPresenter = new UiRefreshPresenter(
+            sampleRateLabel, calibrationLabel, eventCountLabel, fuelPathStatusLabel,
+            sessionModeLabel, guidanceLabel, mapCollectionLabel, sessionReviewLabel,
+            recommendationHistoryText, overviewConnectionLabel, overviewRateLabel,
+            calibrationCard);
+    private final Timer refreshTimer;
 
     private final Object lock = new Object();
+    /** Serializes the host callback path with reset, calibration, reconnect, and disconnect. */
+    private final Object samplingLock = new Object();
     private final EnumMap<ChannelRole, String> channelNames = new EnumMap<ChannelRole, String>(ChannelRole.class);
     private final EnumMap<ChannelRole, Double> latestValues = new EnumMap<ChannelRole, Double>(ChannelRole.class);
     private final Map<String, ChannelRole> subscribedChannels = new HashMap<String, ChannelRole>();
@@ -152,25 +154,44 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
 
     private ControllerAccess controllerAccess;
     private OutputChannelServer outputChannelServer;
-    private AeProjectSnapshot projectSnapshot;
+    private volatile AeProjectSnapshot projectSnapshot;
     private String configurationName;
     private LiveSample previousSample;
     private long lastSampleNano;
     private long lastRateWindowNano;
-    private long detectionArmedNano;
+    private volatile long detectionArmedNano;
     private int samplesInWindow;
-    private double sampleRateHz;
-    private int acceptedEvents;
-    private int tpsAeFuelProvedEvents;
-    private int rejectedEvents;
+    private volatile double sampleRateHz;
+    private volatile int acceptedEvents;
+    private volatile int tpsAeFuelProvedEvents;
+    private volatile int rejectedEvents;
+    private long eventRevision;
     private boolean calibrationWasRunning;
+    private volatile double manualThreshold = 1.50;
+    private volatile boolean sampleCaptureEnabled = true;
+    private long cachedReviewEventRevision = Long.MIN_VALUE;
+    private SessionReview cachedEventReview;
+    private volatile long sessionStartedNano = System.nanoTime();
+    private volatile double lastCsvExportMillis = Double.NaN;
+    private volatile double lastReportExportMillis = Double.NaN;
 
     AeTunerPanel() {
         super(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         buildLayout();
         installActions();
-        new Timer(500, event -> refreshUi()).start();
+        installThresholdListener();
+        refreshTimer = new Timer(500, event -> refreshUi());
+        addHierarchyListener(event -> {
+            if ((event.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0L) {
+                if (isShowing()) {
+                    refreshUi();
+                    refreshTimer.start();
+                } else {
+                    refreshTimer.stop();
+                }
+            }
+        });
     }
 
     private static JTextArea createStatusText(String text, int rows) {
@@ -186,6 +207,7 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
         area.setMargin(new Insets(0, 0, 0, 0));
         area.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
         area.setFocusable(false);
+        ((DefaultCaret) area.getCaret()).setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
         return area;
     }
 
@@ -195,18 +217,40 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
     }
 
     void disconnectController() {
-        if (outputChannelServer != null) {
-            outputChannelServer.unsubscribe(this);
+        OutputChannelServer serverToUnsubscribe;
+        synchronized (samplingLock) {
+            sampleCaptureEnabled = false;
+            serverToUnsubscribe = outputChannelServer;
+            outputChannelServer = null;
+            controllerAccess = null;
+            synchronized (lock) {
+                subscribedChannels.clear();
+                latestValues.clear();
+                channelNames.clear();
+                availableOutputChannels.clear();
+            }
+            previousSample = null;
+            lastSampleNano = 0L;
+            lastRateWindowNano = 0L;
+            samplesInWindow = 0;
+            sampleRateHz = 0.0;
+            eventDetector.resetTracking();
         }
-        outputChannelServer = null;
-        controllerAccess = null;
-        synchronized (lock) {
-            subscribedChannels.clear();
-            latestValues.clear();
-            channelNames.clear();
-            availableOutputChannels.clear();
+        // Do not call host code while holding the sampling-state lock. Some host
+        // implementations may wait for an in-flight callback to finish here.
+        if (serverToUnsubscribe != null) {
+            serverToUnsubscribe.unsubscribe(this);
         }
         connectionLabel.setText("Disconnected");
+    }
+
+    void disposePanel() {
+        refreshTimer.stop();
+        disconnectController();
+    }
+
+    boolean isRefreshTimerRunning() {
+        return refreshTimer.isRunning();
     }
 
     @Override
@@ -219,7 +263,8 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
             }
         }
 
-        if (role == ChannelRole.TIME || role == ChannelRole.TPS || role == ChannelRole.RPM) {
+        if (sampleCaptureEnabled
+                && (role == ChannelRole.TIME || role == ChannelRole.TPS || role == ChannelRole.RPM)) {
             maybeRecordSample();
         }
     }
@@ -228,86 +273,16 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
         // Keep the complete control strip fixed above one full-window vertical
         // scrollbar. The scrollable sections have stable heights and both
         // scroll positions are preserved during the 250 ms live refresh.
-        add(buildControlPanel(), BorderLayout.NORTH);
+        add(ControlPanelBuilder.build(
+                reconnectButton, readProjectButton, saveCsvButton, suggestTableButton,
+                suggestMapEstimateButton, suggestBlendButton, sessionReviewButton, resetButton,
+                thresholdField, calibrationSeconds, calibrateButton, applyCalibrationButton,
+                mapMinimumSamples, mapCapField), BorderLayout.NORTH);
 
-        configureChannelTable();
-        channelTable.setFillsViewportHeight(true);
-        channelTable.setAutoCreateRowSorter(false);
-        channelTable.setFocusable(false);
-        channelTable.setPreferredScrollableViewportSize(new Dimension(420, 250));
-        channelScroll.setViewportView(channelTable);
-        channelScroll.setBorder(BorderFactory.createTitledBorder("Resolved live channels"));
-        channelScroll.setPreferredSize(new Dimension(450, 265));
-        channelScroll.setMinimumSize(new Dimension(400, 180));
-        channelScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        channelScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
-        channelScroll.getVerticalScrollBar().setUnitIncrement(18);
-        channelScroll.getVerticalScrollBar().setBlockIncrement(90);
-
-        latestEventText.setEditable(false);
-        latestEventText.setLineWrap(true);
-        latestEventText.setWrapStyleWord(true);
-        latestEventText.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        latestEventText.setFocusable(false);
-        DefaultCaret notesCaret = (DefaultCaret) latestEventText.getCaret();
-        notesCaret.setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
-        JScrollPane eventScroll = new JScrollPane(latestEventText);
-        eventScroll.setBorder(BorderFactory.createEmptyBorder());
-        eventScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        eventScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
-        eventScroll.getVerticalScrollBar().setUnitIncrement(16);
-
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, channelScroll, plotPanel);
-        split.setResizeWeight(0.0);
-        split.setDividerLocation(455);
-        split.setOneTouchExpandable(true);
-        split.setContinuousLayout(true);
-        split.setBorder(null);
-
-        JPanel liveDataPanel = new JPanel(new BorderLayout());
-        liveDataPanel.add(split, BorderLayout.CENTER);
-
-        lowerTabs.addTab("Live channels & event preview", liveDataPanel);
-        lowerTabs.addTab("Latest event / session notes", eventScroll);
-        JScrollPane guidanceScroll = new JScrollPane(recommendationHistoryText);
-        guidanceScroll.setBorder(BorderFactory.createEmptyBorder());
-        guidanceScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        guidanceScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
-        guidanceScroll.getVerticalScrollBar().setUnitIncrement(16);
-        lowerTabs.addTab("Session Guidance", guidanceScroll);
-        lowerTabs.setToolTipTextAt(0, "Live channel values and the latest captured transient plot.");
-        lowerTabs.setToolTipTextAt(1, "Detailed event text, draft reports, CSV status, and session notes.");
-        lowerTabs.setToolTipTextAt(2, "Temporary recommendation transitions for this plugin session only.");
-        lowerTabs.setFocusable(false);
-        lowerTabs.setRequestFocusEnabled(false);
-        lowerTabs.setPreferredSize(new Dimension(1000, 330));
-        lowerTabs.setMinimumSize(new Dimension(650, 260));
-        lowerTabs.setMaximumSize(new Dimension(Integer.MAX_VALUE, 330));
-
-        ViewportWidthPanel scrollContent = new ViewportWidthPanel();
-        scrollContent.setLayout(new BoxLayout(scrollContent, BoxLayout.Y_AXIS));
-        JComponent statusPanel = buildStatusPanel();
-        statusPanel.setAlignmentX(LEFT_ALIGNMENT);
-        lowerTabs.setAlignmentX(LEFT_ALIGNMENT);
-        scrollContent.add(statusPanel);
-        scrollContent.add(lowerTabs);
-
-        mainScroll.setViewportView(scrollContent);
-        mainScroll.setBorder(null);
-        mainScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        mainScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
-        mainScroll.getVerticalScrollBar().setUnitIncrement(18);
-        mainScroll.getVerticalScrollBar().setBlockIncrement(90);
+        MainContentBuilder.configure(mainScroll, channelScroll, channelTable,
+                latestEventText, recommendationHistoryText, lowerTabs, plotPanel,
+                buildStatusPanel());
         add(mainScroll, BorderLayout.CENTER);
-    }
-
-    private void configureChannelTable() {
-        channelTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
-        channelTable.setRowHeight(19);
-        channelTable.getColumnModel().getColumn(0).setPreferredWidth(125);
-        channelTable.getColumnModel().getColumn(1).setPreferredWidth(150);
-        channelTable.getColumnModel().getColumn(2).setPreferredWidth(65);
-        channelTable.getColumnModel().getColumn(3).setPreferredWidth(78);
     }
 
     private JComponent buildStatusPanel() {
@@ -315,13 +290,15 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
         // Overview and Technical details therefore cannot change the outer
         // scroll range or clamp the main scrollbar to a new position.
         JTabbedPane tabs = new StableTabbedPane();
-        JPanel overview = buildOverviewPanel();
-        JPanel technical = buildTechnicalStatusPanel();
+        JComponent overview = buildOverviewPanel();
+        JComponent technical = buildTechnicalStatusPanel();
+        NestedScrollWheelHandoff.install(overviewScroll, mainScroll);
+        NestedScrollWheelHandoff.install(technicalScroll, mainScroll);
 
         tabs.addTab("Overview", overview);
         tabs.addTab("Technical details", technical);
         tabs.setToolTipTextAt(0, "Clear summary of configuration, live state, progress, and next action.");
-        tabs.setToolTipTextAt(1, "Compact project and diagnostic details. Uses the main window scrollbar.");
+        tabs.setToolTipTextAt(1, "Project and diagnostic details. Scroll this tab for all wrapped text.");
         tabs.setFocusable(false);
         tabs.setRequestFocusEnabled(false);
         setStatusTabsHeight(tabs, 500);
@@ -334,9 +311,8 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
         tabs.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
     }
 
-    private JPanel buildOverviewPanel() {
-        JPanel panel = new JPanel();
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+    private JComponent buildOverviewPanel() {
+        WrappingColumnPanel panel = new WrappingColumnPanel();
         panel.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
 
         JPanel header = new JPanel(new BorderLayout(8, 0));
@@ -360,23 +336,24 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
         panel.add(live);
         panel.add(progress);
         panel.add(review);
-        return panel;
+
+        overviewScroll.setViewportView(panel);
+        overviewScroll.setBorder(null);
+        overviewScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        overviewScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        overviewScroll.getVerticalScrollBar().setUnitIncrement(18);
+        overviewScroll.getVerticalScrollBar().setBlockIncrement(90);
+        return overviewScroll;
     }
 
     private JPanel buildCardRow(String title, StatusCard... cards) {
-        JPanel row = new JPanel(new BorderLayout());
+        JPanel row = new JPanel(new WrapLayout(FlowLayout.LEFT, 6, 3));
         row.setBorder(BorderFactory.createTitledBorder(title));
-        JPanel cardsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         for (StatusCard card : cards) {
-            cardsPanel.add(card);
+            row.add(card);
         }
-        row.add(cardsPanel, BorderLayout.CENTER);
         row.setAlignmentX(LEFT_ALIGNMENT);
-        int height = 34;
-        for (StatusCard card : cards) {
-            height = Math.max(height, card.getPreferredSize().height + 31);
-        }
-        setFixedHeight(row, height);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
         return row;
     }
 
@@ -387,11 +364,14 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
         component.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
     }
 
-    private JPanel buildTechnicalStatusPanel() {
+    private JComponent buildTechnicalStatusPanel() {
         // Long sections use the full tab width. Only the two genuinely short
         // sections share the first row. This keeps text left-aligned and gives
-        // wrapping enough width without oversized empty frames.
-        JPanel panel = new JPanel(new GridBagLayout());
+        // wrapping enough width without oversized empty frames. The page tracks
+        // the viewport width while retaining its natural vertical size so high-
+        // DPI text can be reached with this tab's own scrollbar.
+        ViewportWidthPanel panel = new ViewportWidthPanel();
+        panel.setLayout(new GridBagLayout());
         panel.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createTitledBorder("Read-only v" + AeTunerPlugin.VERSION),
                 BorderFactory.createEmptyBorder(2, 3, 2, 3)));
@@ -419,19 +399,17 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
         addTechnicalCard(panel, gbc, 0, 5, 2,
                 buildTechnicalSection("Low-RPM and full-load review", 64, sessionReviewLabel));
 
-        // Keep surplus space outside the framed sections rather than stretching
-        // their borders. The tab itself has the same fixed height as Overview.
-        gbc.gridx = 0;
-        gbc.gridy = 6;
-        gbc.gridwidth = 2;
-        gbc.weighty = 1.0;
-        gbc.fill = GridBagConstraints.BOTH;
-        panel.add(new JPanel(), gbc);
+        Dimension natural = panel.getPreferredSize();
+        panel.setPreferredSize(new Dimension(1000, Math.max(560, natural.height)));
+        panel.setMinimumSize(new Dimension(700, 560));
 
-        panel.setPreferredSize(new Dimension(1000, 455));
-        panel.setMinimumSize(new Dimension(700, 455));
-        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 455));
-        return panel;
+        technicalScroll.setViewportView(panel);
+        technicalScroll.setBorder(null);
+        technicalScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        technicalScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+        technicalScroll.getVerticalScrollBar().setUnitIncrement(18);
+        technicalScroll.getVerticalScrollBar().setBlockIncrement(90);
+        return technicalScroll;
     }
 
     private static void addTechnicalCard(JPanel panel, GridBagConstraints template,
@@ -451,49 +429,15 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
                 BorderFactory.createEmptyBorder(1, 5, 3, 5)));
         for (JComponent component : components) {
             component.setAlignmentX(LEFT_ALIGNMENT);
-            Dimension preferred = component.getPreferredSize();
-            component.setMaximumSize(new Dimension(Integer.MAX_VALUE, preferred.height));
+            component.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
             section.add(component);
         }
-        setFixedHeight(section, height);
+        Dimension preferred = section.getPreferredSize();
+        section.setPreferredSize(new Dimension(Math.max(1, preferred.width),
+                Math.max(height, preferred.height)));
+        section.setMinimumSize(new Dimension(1, height));
+        section.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
         return section;
-    }
-
-    private JPanel buildControlPanel() {
-        JPanel panel = new JPanel();
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-
-        JPanel rowOne = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
-        rowOne.setAlignmentX(LEFT_ALIGNMENT);
-        rowOne.add(reconnectButton);
-        rowOne.add(readProjectButton);
-        rowOne.add(saveCsvButton);
-        rowOne.add(suggestTableButton);
-        rowOne.add(suggestMapEstimateButton);
-        rowOne.add(suggestBlendButton);
-        rowOne.add(sessionReviewButton);
-        rowOne.add(resetButton);
-
-        JPanel rowTwo = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
-        rowTwo.setAlignmentX(LEFT_ALIGNMENT);
-        rowTwo.add(new JLabel("Manual TPSdot threshold %/s:"));
-        rowTwo.add(thresholdField);
-        rowTwo.add(new JLabel("Calibration seconds:"));
-        rowTwo.add(calibrationSeconds);
-        rowTwo.add(calibrateButton);
-        rowTwo.add(applyCalibrationButton);
-
-        JPanel rowThree = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
-        rowThree.setAlignmentX(LEFT_ALIGNMENT);
-        rowThree.add(new JLabel("MAP draft minimum samples/cell:"));
-        rowThree.add(mapMinimumSamples);
-        rowThree.add(new JLabel("Turbo MAP cap kPa (TPS >=33.5%):"));
-        rowThree.add(mapCapField);
-
-        panel.add(rowOne);
-        panel.add(rowTwo);
-        panel.add(rowThree);
-        return panel;
     }
 
     private void installActions() {
@@ -519,7 +463,32 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
         });
     }
 
+    private void installThresholdListener() {
+        thresholdField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent event) {
+                cacheManualThreshold();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent event) {
+                cacheManualThreshold();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent event) {
+                cacheManualThreshold();
+            }
+        });
+        cacheManualThreshold();
+    }
+
+    private void cacheManualThreshold() {
+        manualThreshold = parseNumber(thresholdField.getText(), Double.NaN);
+    }
+
     private void reconnect() {
+        sampleCaptureEnabled = false;
         if (controllerAccess == null) {
             connectionLabel.setText("No controller access yet");
             return;
@@ -538,11 +507,16 @@ final class AeTunerPanel extends JPanel implements OutputChannelClient {
             configurationName = findConfigurationName();
             resolveOutputChannels();
             subscribeResolvedChannels();
-            previousSample = null;
-            eventDetector.resetTracking();
-            detectionArmedNano = System.nanoTime() + STARTUP_IGNORE_NS;
+            synchronized (samplingLock) {
+                previousSample = null;
+                lastSampleNano = 0L;
+                lastRateWindowNano = 0L;
+                eventDetector.resetTracking();
+                detectionArmedNano = System.nanoTime() + STARTUP_IGNORE_NS;
+            }
             connectionLabel.setText("TunerStudio project: " + configurationName + " | subscribed " + subscribedChannels.size() + " live channel(s); ECU online state not verified by plugin");
             readProjectData();
+            sampleCaptureEnabled = true;
         } catch (ControllerException ex) {
             connectionLabel.setText("Connect failed: " + ex.getMessage());
         }
@@ -624,10 +598,12 @@ private void subscribeResolvedChannels() throws ControllerException {
 
     private void startCalibration() {
         Number seconds = (Number) calibrationSeconds.getValue();
-        calibration.start(seconds.doubleValue());
-        calibrationWasRunning = true;
-        eventDetector.resetTracking();
-        detectionArmedNano = System.nanoTime() + STARTUP_IGNORE_NS;
+        synchronized (samplingLock) {
+            calibration.start(seconds.doubleValue());
+            calibrationWasRunning = true;
+            eventDetector.resetTracking();
+            detectionArmedNano = System.nanoTime() + STARTUP_IGNORE_NS;
+        }
         calibrationLabel.setText("TPS calibration running: hold idle/steady pedal, do not touch throttle. Event capture is paused.");
     }
 
@@ -639,22 +615,32 @@ private void subscribeResolvedChannels() throws ControllerException {
     }
 
     private void resetSession() {
-        synchronized (lock) {
-            capturedEvents.clear();
-            latestValues.clear();
+        synchronized (samplingLock) {
+            synchronized (lock) {
+                capturedEvents.clear();
+                latestValues.clear();
+            }
+            eventDetector.resetSession();
+            mapEstimateCollector.clear();
+            mapEstimateCollector.configure(projectSnapshot);
+            sessionMonitor.reset();
+            previousSample = null;
+            lastSampleNano = 0L;
+            lastRateWindowNano = 0L;
+            samplesInWindow = 0;
+            sampleRateHz = 0.0;
+            detectionArmedNano = System.nanoTime() + STARTUP_IGNORE_NS;
+            acceptedEvents = 0;
+            tpsAeFuelProvedEvents = 0;
+            rejectedEvents = 0;
+            eventRevision++;
+            sessionStartedNano = System.nanoTime();
+            lastCsvExportMillis = Double.NaN;
+            lastReportExportMillis = Double.NaN;
         }
-        eventDetector.resetSession();
-        mapEstimateCollector.clear();
-        mapEstimateCollector.configure(projectSnapshot);
-        sessionMonitor.reset();
         recommendationHistory.reset();
         recommendationHistoryText.setText(recommendationHistory.toDisplayText());
         recommendationHistoryText.setCaretPosition(0);
-        previousSample = null;
-        detectionArmedNano = System.nanoTime() + STARTUP_IGNORE_NS;
-        acceptedEvents = 0;
-        tpsAeFuelProvedEvents = 0;
-        rejectedEvents = 0;
         setNotesText("Session reset. Plugin is still read-only and will not write to ECU RAM/flash.", true);
         plotPanel.setEvent(null);
         refreshUi();
@@ -670,18 +656,17 @@ private void subscribeResolvedChannels() throws ControllerException {
             return;
         }
 
-        JFileChooser chooser = new JFileChooser();
-        chooser.setSelectedFile(new File("ae-tuner-epicefi-events-" + AeTunerPlugin.VERSION + "-"
-                + new SimpleDateFormat("yyyyMMdd-HHmmss").format(new Date()) + ".csv"));
-        int result = chooser.showSaveDialog(this);
-        if (result != JFileChooser.APPROVE_OPTION) {
+        File file = AdvisoryExportCoordinator.chooseCsvTarget(this);
+        if (file == null) {
             return;
         }
 
-        File file = chooser.getSelectedFile();
+        long exportStartedNano = System.nanoTime();
         try {
-            writeEventsCsv(file, snapshot);
-            setNotesText("Saved " + snapshot.size() + " event(s) to " + file.getAbsolutePath(), true);
+            AdvisoryExportCoordinator.writeCsv(file, snapshot);
+            lastCsvExportMillis = AdvisoryExportCoordinator.elapsedMillis(exportStartedNano);
+            setNotesText("Saved " + snapshot.size() + " event(s) to " + file.getAbsolutePath()
+                    + "\nCSV write duration: " + F1.format(lastCsvExportMillis) + " ms", true);
         } catch (IOException ex) {
             setNotesText("CSV save failed: " + ex.getMessage(), true);
         }
@@ -695,12 +680,7 @@ private void subscribeResolvedChannels() throws ControllerException {
         AeTableSuggestion suggestion = AeTableSuggestion.build(projectSnapshot, snapshot);
         setNotesText(suggestion.getDisplayText(), true);
         if (suggestion.isAvailable()) {
-            try {
-                Toolkit.getDefaultToolkit().getSystemClipboard()
-                        .setContents(new StringSelection(suggestion.getCopyPasteBlock()), null);
-            } catch (IllegalStateException ex) {
-                latestEventText.append("\n\nCould not copy to clipboard: " + ex.getMessage());
-            }
+            copyToClipboard(suggestion.getCopyPasteBlock());
         }
     }
 
@@ -727,14 +707,25 @@ private void subscribeResolvedChannels() throws ControllerException {
     }
 
     private void saveMapPredictReport() {
-    List<EventSummary> snapshot;
-    EnumMap<ChannelRole, String> selectedChannels;
-    EnumMap<ChannelRole, Double> latestChannelValues;
-    synchronized (lock) {
-        snapshot = new ArrayList<EventSummary>(capturedEvents);
-        selectedChannels = new EnumMap<ChannelRole, String>(channelNames);
-        latestChannelValues = new EnumMap<ChannelRole, Double>(latestValues);
-    }
+        File file = AdvisoryExportCoordinator.chooseReportTarget(this);
+        if (file == null) {
+            return;
+        }
+
+        long exportStartedNano = System.nanoTime();
+        List<EventSummary> snapshot;
+        EnumMap<ChannelRole, String> selectedChannels;
+        EnumMap<ChannelRole, Double> latestChannelValues;
+        synchronized (lock) {
+            snapshot = new ArrayList<EventSummary>(capturedEvents);
+            selectedChannels = new EnumMap<ChannelRole, String>(channelNames);
+            latestChannelValues = new EnumMap<ChannelRole, Double>(latestValues);
+        }
+        SessionDiagnostics diagnostics = SessionDiagnostics.build(
+                sessionStartedNano, System.nanoTime(), snapshot,
+                eventDetector.getRingSampleCount(), eventDetector.getActiveSampleCount(),
+                mapEstimateCollector.getAcceptedSamples(), recommendationHistory.size(),
+                lastCsvExportMillis, lastReportExportMillis);
         int minimum = ((Number) mapMinimumSamples.getValue()).intValue();
         double cap = parseMapCap();
         MapEstimateSuggestion mapSuggestion = MapEstimateSuggestion.build(
@@ -742,55 +733,17 @@ private void subscribeResolvedChannels() throws ControllerException {
         MapBlendSuggestion blendSuggestion = MapBlendSuggestion.build(projectSnapshot, snapshot);
         SessionReview review = SessionReview.build(snapshot, sessionMonitor.snapshot());
 
-        StringBuilder text = new StringBuilder();
-        text.append("AE Tuner (EPICEFI) MAP Predict report\n")
-                .append("Plugin version: ").append(AeTunerPlugin.VERSION).append("\n")
-                .append("Created: ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date())).append("\n")
-                .append("Project: ").append(configurationName == null ? "unknown" : configurationName).append("\n")
-                .append("Captured events: ").append(snapshot.size()).append("\n")
-                .append("Live sample rate at save: ")
-                .append(sampleRateHz > 0.0 ? F1.format(sampleRateHz) + " Hz" : "n/a").append("\n")
-                .append("MAP draft minimum samples/cell: ").append(minimum).append("\n")
-                .append("Turbo MAP cap: ").append(F1.format(cap)).append(" kPa from 33.5% TPS\n")
-                .append("Read-only report: no ECU values were changed.\n")
-                .append("\n============================================================\n")
-                .append("MAP ESTIMATE DRAFT\n")
-                .append("============================================================\n")
-                .append(mapSuggestion.getDisplayText()).append("\n\n")
-                .append("TunerStudio copy/paste block (descending TPS row order):\n")
-                .append(mapSuggestion.isAvailable() ? mapSuggestion.getCopyPasteBlock() : "Unavailable").append("\n")
-                .append("\n============================================================\n")
-                .append("PREDICTIVE MAP BLEND DURATION DRAFT\n")
-                .append("============================================================\n")
-                .append(blendSuggestion.getDisplayText()).append("\n\n")
-                .append("TunerStudio copy/paste block (ascending RPM order):\n")
-                .append(blendSuggestion.isAvailable() ? blendSuggestion.getCopyPasteBlock() : "Unavailable").append("\n")
-                .append("\n============================================================\n")
-                .append("CRITICAL OUTPUT-CHANNEL RESOLUTION\n")
-        .append("============================================================\n")
-        .append(ChannelResolutionEvidence.build(selectedChannels, latestChannelValues)).append("\n")
-        .append("============================================================\n")
-                .append("SESSION REVIEW\n")
-                .append("============================================================\n")
-                .append(review.toDisplayText()).append("\n");
+        String text = MapPredictReportBuilder.build(
+                configurationName, snapshot, sampleRateHz, minimum, cap, diagnostics,
+                mapSuggestion, blendSuggestion, selectedChannels, latestChannelValues,
+                review, exportStartedNano);
 
-        JFileChooser chooser = new JFileChooser();
-        chooser.setSelectedFile(new File("ae-tuner-map-predict-report-" + AeTunerPlugin.VERSION + "-"
-                + new SimpleDateFormat("yyyyMMdd-HHmmss").format(new Date()) + ".txt"));
-        int result = chooser.showSaveDialog(this);
-        if (result != JFileChooser.APPROVE_OPTION) {
-            return;
-        }
-        File file = chooser.getSelectedFile();
         try {
-            BufferedWriter writer = new BufferedWriter(new FileWriter(file));
-            try {
-                writer.write(text.toString());
-            } finally {
-                writer.close();
-            }
+            AdvisoryExportCoordinator.writeReport(file, text);
+            lastReportExportMillis = AdvisoryExportCoordinator.elapsedMillis(exportStartedNano);
             setNotesText("Saved combined MAP Estimate, Blend Duration, and session review report to\n"
-                    + file.getAbsolutePath(), true);
+                    + file.getAbsolutePath() + "\nReport generation and write duration: "
+                    + F1.format(lastReportExportMillis) + " ms", true);
         } catch (IOException ex) {
             setNotesText("MAP Predict report save failed: " + ex.getMessage(), true);
         }
@@ -805,10 +758,9 @@ private void subscribeResolvedChannels() throws ControllerException {
     }
 
     private void copyToClipboard(String text) {
-        try {
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
-        } catch (IllegalStateException ex) {
-            latestEventText.append("\n\nCould not copy to clipboard: " + ex.getMessage());
+        String error = AdvisoryExportCoordinator.copyToClipboard(text);
+        if (error != null) {
+            latestEventText.append("\n\nCould not copy to clipboard: " + error);
         }
     }
 
@@ -836,23 +788,13 @@ private void subscribeResolvedChannels() throws ControllerException {
         }
     }
 
-    private static void writeEventsCsv(File file, List<EventSummary> events) throws IOException {
-        BufferedWriter writer = new BufferedWriter(new FileWriter(file));
-        try {
-            writer.write(events.get(0).toCsvHeader());
-            writer.newLine();
-            for (EventSummary summary : events) {
-                for (String row : summary.toCsvRows()) {
-                    writer.write(row);
-                    writer.newLine();
-                }
-            }
-        } finally {
-            writer.close();
+    private void maybeRecordSample() {
+        synchronized (samplingLock) {
+            maybeRecordSampleLocked();
         }
     }
 
-    private void maybeRecordSample() {
+    private void maybeRecordSampleLocked() {
         long now = System.nanoTime();
         if (now - lastSampleNano < MIN_SAMPLE_GAP_NS) {
             return;
@@ -926,6 +868,7 @@ private void subscribeResolvedChannels() throws ControllerException {
         if (summary != null) {
             synchronized (lock) {
                 capturedEvents.add(summary);
+                eventRevision++;
                 if (summary.isAccepted()) {
                     acceptedEvents++;
                     if (summary.isTpsAeFuelProved()) {
@@ -946,7 +889,7 @@ private void subscribeResolvedChannels() throws ControllerException {
     }
 
     private double currentThreshold(LiveSample sample) {
-        double manual = parseThreshold();
+        double manual = manualThreshold;
         if (manual > 0.0) {
             return manual;
         }
@@ -959,55 +902,40 @@ private void subscribeResolvedChannels() throws ControllerException {
         return 1.5;
     }
 
-    private double parseThreshold() {
+    private static double parseNumber(String text, double fallback) {
         try {
-            return Double.parseDouble(thresholdField.getText().trim().replace(',', '.'));
+            return Double.parseDouble(text.trim().replace(',', '.'));
         } catch (NumberFormatException ex) {
-            return Double.NaN;
+            return fallback;
         }
     }
 
     private void refreshUi() {
-        setLabelTextIfChanged(sampleRateLabel, "Sample rate: " + (sampleRateHz > 0.0 ? F1.format(sampleRateHz) + " Hz" : "n/a"));
         refreshOverview();
+        String eventCountText;
         if (projectSnapshot != null && projectSnapshot.isMapPredictWorkflow()) {
             int predictionEvents = countPredictionEvents();
-            setTextIfChanged(eventCountLabel, "Events: " + predictionEvents + " MAP Predict / "
-                    + (acceptedEvents - predictionEvents) + " other diagnostic / " + rejectedEvents + " rejected");
+            eventCountText = "Events: " + predictionEvents + " MAP Predict / "
+                    + (acceptedEvents - predictionEvents) + " other diagnostic / " + rejectedEvents + " rejected";
         } else {
-            setTextIfChanged(eventCountLabel, "Events: " + tpsAeFuelProvedEvents + " TPS AE fuel proved / "
-                    + (acceptedEvents - tpsAeFuelProvedEvents) + " diagnostic / " + rejectedEvents + " rejected");
+            eventCountText = "Events: " + tpsAeFuelProvedEvents + " TPS AE fuel proved / "
+                    + (acceptedEvents - tpsAeFuelProvedEvents) + " diagnostic / " + rejectedEvents + " rejected";
         }
-        setTextIfChanged(fuelPathStatusLabel, buildFuelPathStatusText());
-        setTextIfChanged(sessionModeLabel, buildSessionModeText());
-        setTextIfChanged(guidanceLabel, buildSessionGuidanceText());
-        setTextIfChanged(mapCollectionLabel, mapEstimateCollector.statusText(((Number) mapMinimumSamples.getValue()).intValue()));
-
-        if (calibration.isRunning()) {
-            setTextIfChanged(calibrationLabel, "TPS calibration running: " + F1.format(calibration.secondsRemaining()) + " s remaining. Event capture paused.");
-        } else if (detectionArmedNano > 0L && System.nanoTime() < detectionArmedNano) {
-            double seconds = (detectionArmedNano - System.nanoTime()) / 1000000000.0;
-            setTextIfChanged(calibrationLabel, "TPS calibration: event detection arming in " + F1.format(Math.max(0.0, seconds)) + " s");
-        } else {
-            TpsNoiseCalibration.Result result = calibration.getLastResult();
-            if (result != null) {
-                setTextIfChanged(calibrationLabel, "TPS calibration: " + result.toDisplayText());
-            }
-        }
+        uiPresenter.refreshTechnicalStatus(sampleRateHz, eventCountText,
+                buildFuelPathStatusText(), buildSessionModeText(), buildSessionGuidanceText(),
+                mapEstimateCollector.statusText(((Number) mapMinimumSamples.getValue()).intValue()));
 
         updateChannelTable();
     }
 
     private void refreshOverview() {
-        refreshCalibrationOverview();
+        uiPresenter.refreshCalibration(calibration.isRunning(), calibration.secondsRemaining(),
+                detectionArmedNano, System.nanoTime(), calibration.getLastResult());
         int subscribed;
         synchronized (lock) {
             subscribed = subscribedChannels.size();
         }
-        setLabelTextIfChanged(overviewConnectionLabel, "TunerStudio project: "
-                + (configurationName == null ? "not connected" : configurationName)
-                + "  •  " + subscribed + " live channels");
-        setLabelTextIfChanged(overviewRateLabel, "Sample rate: " + (sampleRateHz > 0.0 ? F1.format(sampleRateHz) + " Hz" : "n/a"));
+        uiPresenter.refreshOverviewHeader(configurationName, subscribed, sampleRateHz);
 
         if (projectSnapshot == null) {
             workflowCard.setValue("Read project data", CardState.WAITING);
@@ -1029,21 +957,11 @@ private void subscribeResolvedChannels() throws ControllerException {
         }
 
         boolean mapMode = projectSnapshot.isMapPredictWorkflow();
-        String stage;
-        if (mapMode && !projectSnapshot.isWallWettingEnabled()) {
-            stage = "Stage 1: MAP Predict";
-        } else if (mapMode && projectSnapshot.isWallWettingEnabled() && !projectSnapshot.isExtraShotEnabled()) {
-            stage = "Stage 2: Wall Wetting";
-        } else if (mapMode && projectSnapshot.isWallWettingEnabled() && projectSnapshot.isExtraShotEnabled()) {
-            stage = "Stage 3: Instant Fuel";
-        } else {
-            stage = "Legacy TPS cycle AE";
-        }
-        workflowCard.setValue(stage, CardState.GOOD);
+        workflowCard.setValue(OverviewTextRenderer.stage(projectSnapshot), CardState.GOOD);
 
         if (mapMode) {
             tpsCycleCard.setValue(projectSnapshot.isTpsAeEnabled() ? "ON — unexpected" : "OFF — correct",
-                    projectSnapshot.isTpsAeEnabled() ? CardState.WARNING : CardState.GOOD);
+                    projectSnapshot.isTpsAeEnabled() ? CardState.WARNING : CardState.OFF);
         } else {
             tpsCycleCard.setValue(projectSnapshot.isTpsAeEnabled() ? "ON" : "OFF",
                     projectSnapshot.isTpsAeEnabled() ? CardState.GOOD : CardState.OFF);
@@ -1078,41 +996,41 @@ private void subscribeResolvedChannels() throws ControllerException {
         double realMap = latest(ChannelRole.MAP);
         double fallback = latest(ChannelRole.FALLBACK_MAP);
         double effective = latest(ChannelRole.EFFECTIVE_MAP);
-        String mapText = "Real: " + finiteOrNa(realMap, F1) + " kPa"
-                + "\nEstimate: " + finiteOrNa(fallback, F1) + " kPa"
-                + "\nEffective: " + finiteOrNa(effective, F1) + " kPa";
-        if (Double.isFinite(realMap) && Double.isFinite(effective)) {
-            mapText += "\nGap: " + F1.format(effective - realMap) + " kPa";
-        } else {
-            mapText += "\nGap: n/a";
-        }
-        mapValuesCard.setValue(mapText, predictionActive ? CardState.ACTIVE : CardState.INFO);
+        mapValuesCard.setValue(OverviewTextRenderer.mapValues(realMap, fallback, effective),
+                predictionActive ? CardState.ACTIVE : CardState.INFO);
 
         double wallPw = latest(ChannelRole.WALL_WETTING_PW);
         double instantPw = latest(ChannelRole.INSTANT_PULSE_PW);
-        transientFuelCard.setValue("Wall: " + finiteOrNa(wallPw, F3) + " ms"
-                        + "\nInstant: " + finiteOrNa(instantPw, F3) + " ms",
+        transientFuelCard.setValue(OverviewTextRenderer.transientFuel(wallPw, instantPw),
                 absGreater(wallPw, 0.0001) || absGreater(instantPw, 0.0001) ? CardState.ACTIVE : CardState.OFF);
 
         int predictionEvents = countPredictionEvents();
         int repeatedResets = countRepeatedResetEvents();
-        eventProgressCard.setValue(predictionEvents + " prediction event(s)"
-                        + "  •  " + repeatedResets + " repeated-reset event(s)",
+        eventProgressCard.setValue(OverviewTextRenderer.eventProgress(predictionEvents, repeatedResets),
                 predictionEvents > 0 ? (repeatedResets > 0 ? CardState.WARNING : CardState.GOOD) : CardState.WAITING);
 
         int minimum = ((Number) mapMinimumSamples.getValue()).intValue();
         int covered = mapEstimateCollector.getCoveredCells(minimum);
         int total = projectSnapshot.getMapEstimateRpmBins().length * projectSnapshot.getMapEstimateTpsBins().length;
-        mapCoverageCard.setValue(mapEstimateCollector.getAcceptedSamples() + " stable samples"
-                        + "  •  " + covered + "/" + total + " cells ready",
+        mapCoverageCard.setValue(OverviewTextRenderer.mapCoverage(
+                        mapEstimateCollector.getAcceptedSamples(), covered, total),
                 covered > 0 ? CardState.GOOD : CardState.WAITING);
 
         List<EventSummary> reviewEvents;
+        long reviewEventRevision;
         synchronized (lock) {
             reviewEvents = new ArrayList<EventSummary>(capturedEvents);
+            reviewEventRevision = eventRevision;
         }
         SessionMonitor.Snapshot reviewSnapshot = sessionMonitor.snapshot();
-        SessionReview review = SessionReview.build(reviewEvents, reviewSnapshot);
+        SessionReview review;
+        if (cachedEventReview == null || cachedReviewEventRevision != reviewEventRevision) {
+            cachedEventReview = SessionReview.build(reviewEvents, reviewSnapshot);
+            cachedReviewEventRevision = reviewEventRevision;
+            review = cachedEventReview;
+        } else {
+            review = cachedEventReview.withFullLoad(reviewSnapshot);
+        }
         EnumMap<ChannelRole, String> selectedForHistory;
         synchronized (lock) {
             selectedForHistory = new EnumMap<ChannelRole, String>(channelNames);
@@ -1125,7 +1043,7 @@ private void subscribeResolvedChannels() throws ControllerException {
         fullLoadSafetyCard.setValue(review.fullLoadCardText(),
                 review.fullLoadNeedsReview() ? CardState.WARNING
                         : (reviewSnapshot.hasData() ? CardState.GOOD : CardState.WAITING));
-        setTextIfChanged(sessionReviewLabel, review.toDisplayText());
+        uiPresenter.refreshSessionReview(review.toDisplayText());
 
         String action;
         CardState actionState;
@@ -1159,33 +1077,11 @@ private void subscribeResolvedChannels() throws ControllerException {
         }
         if (recommendationHistory.observe(action, review, reviewEvents, reviewSnapshot,
                 selectedForHistory, System.currentTimeMillis())) {
-            setTextIfChanged(recommendationHistoryText, recommendationHistory.toDisplayText());
-            recommendationHistoryText.setCaretPosition(0);
+            uiPresenter.refreshRecommendationHistory(recommendationHistory.toDisplayText());
         }
         String historyBadge = recommendationHistory.latestBadgeText();
         nextActionCard.setValue(historyBadge.length() > 0
                 ? action + "\n" + historyBadge : action, actionState);
-    }
-
-    private void refreshCalibrationOverview() {
-        if (calibration.isRunning()) {
-            calibrationCard.setValue("RUNNING  •  " + F1.format(calibration.secondsRemaining())
-                    + " s remaining  •  Do not touch throttle", CardState.ACTIVE);
-            return;
-        }
-        if (detectionArmedNano > 0L && System.nanoTime() < detectionArmedNano) {
-            double seconds = Math.max(0.0, (detectionArmedNano - System.nanoTime()) / 1000000000.0);
-            calibrationCard.setValue("Arming event detection  •  " + F1.format(seconds)
-                    + " s remaining", CardState.INFO);
-            return;
-        }
-        TpsNoiseCalibration.Result result = calibration.getLastResult();
-        if (result != null) {
-            calibrationCard.setValue("Complete  •  Recommended "
-                    + F3.format(result.getRecommendedThreshold()) + " %/s", CardState.GOOD);
-        } else {
-            calibrationCard.setValue("Not run  •  Press Start TPS noise calibration", CardState.WAITING);
-        }
     }
 
     private int countRepeatedResetEvents() {
@@ -1200,48 +1096,12 @@ private void subscribeResolvedChannels() throws ControllerException {
         return count;
     }
 
-    private static String finiteOrNa(double value, DecimalFormat format) {
-        return Double.isFinite(value) ? format.format(value) : "n/a";
-    }
-
     private String buildSessionModeText() {
-        if (projectSnapshot == null) {
-            return "Session mode: project data not available yet. Press Read AE project data.";
+        Set<ChannelRole> resolvedRoles;
+        synchronized (lock) {
+            resolvedRoles = new HashSet<ChannelRole>(channelNames.keySet());
         }
-        boolean fallback = channelNames.containsKey(ChannelRole.FALLBACK_MAP);
-        boolean effective = channelNames.containsKey(ChannelRole.EFFECTIVE_MAP);
-        boolean active = channelNames.containsKey(ChannelRole.MAP_PRED_ACTIVE);
-        boolean reset = channelNames.containsKey(ChannelRole.MAP_PRED_RESET_CNT);
-        boolean wallPw = channelNames.containsKey(ChannelRole.WALL_WETTING_PW);
-
-        StringBuilder text = new StringBuilder("Session mode: ");
-        text.append(projectSnapshot.expectedSessionModeText()).append(". ");
-        if (projectSnapshot.isMapPredictWorkflow()) {
-            text.append("Current tuning stage: MAP Predict. TPS cycle multiplier-table suggestions are disabled. ");
-            text.append("Prediction channels: fallbackMap ").append(fallback ? "OK" : "MISSING")
-                    .append(", effectiveMap ").append(effective ? "OK" : "MISSING")
-                    .append(", isMapPredictionActive ").append(active ? "OK" : "MISSING")
-                    .append(", predTimerResetCnt ").append(reset ? "OK" : "MISSING").append(". ");
-            if (projectSnapshot.isWallWettingEnabled()) {
-                text.append("Wall Wetting is enabled; fuel wallwetting injection time ")
-                        .append(wallPw ? "is available for later contribution analysis" : "is MISSING").append(". ");
-            }
-            if (projectSnapshot.isExtraShotEnabled()) {
-                text.append("Instant Fuel Pulse is ON; for the planned staged workflow, tune MAP Predict + Wall Wetting before evaluating it. ");
-            } else {
-                text.append("Instant Fuel Pulse is OFF, which matches the MAP Predict-first tuning stage. ");
-            }
-        } else {
-            text.append("Legacy TPS cycle-AE analysis remains available. ");
-        }
-        if (projectSnapshot.isDynamicThresholdEnabled()) {
-            text.append("Dynamic TPS AE threshold is ON");
-            if (projectSnapshot.isDynamicThresholdAverageStatic()) {
-                text.append(" and averaged with TPS AE Rate of change vs RPM");
-            }
-            text.append(".");
-        }
-        return text.toString();
+        return TechnicalDetailsRenderer.sessionMode(projectSnapshot, resolvedRoles);
     }
 
     private String buildSessionGuidanceText() {
@@ -1262,41 +1122,33 @@ private void subscribeResolvedChannels() throws ControllerException {
             }
             int minimum = ((Number) mapMinimumSamples.getValue()).intValue();
             SessionReview review = SessionReview.build(snapshot, sessionMonitor.snapshot());
-            StringBuilder text = new StringBuilder("MAP Predict guidance: ");
-            text.append(predictionEvents).append(" captured prediction event(s), ")
-                    .append(repeatedResetEvents).append(" event(s) with repeated timer resets, ")
-                    .append(resetDiscontinuities).append(" reset-counter discontinuity event(s), ")
-                    .append(wallActiveEvents).append(" event(s) with visible Wall Wetting contribution. ")
-                    .append(mapEstimateCollector.statusText(minimum)).append(" ");
+            String nextStep;
             if (review.triggerSyncNeedsReview()) {
-                text.append("Running trigger/sync loss review has priority before further transient testing.");
+                nextStep = "Running trigger/sync loss review has priority before further transient testing.";
             } else if (review.sessionFaultNeedsReview()) {
-                text.append("Running fault/cut review has priority before further transient testing.");
+                nextStep = "Running fault/cut review has priority before further transient testing.";
             } else if (review.fullLoadNeedsReview()) {
-                text.append("Full-load safety review has priority before further WOT testing.");
+                nextStep = "Full-load safety review has priority before further WOT testing.";
             } else if (review.lowRpmNeedsReview()) {
-                text.append("Low-RPM events indicate the exercised MAP Estimate cells and Blend Duration below 2200 RPM need review.");
+                nextStep = "Low-RPM events indicate the exercised MAP Estimate cells and Blend Duration below 2200 RPM need review.";
             } else if (predictionEvents == 0) {
-                text.append("Collect deliberate loaded tip-ins and confirm fallbackMap/effectiveMap/isMapPredictionActive are subscribed.");
+                nextStep = "Collect deliberate loaded tip-ins and confirm fallbackMap/effectiveMap/isMapPredictionActive are subscribed.";
             } else if (repeatedResetEvents > 0) {
-                text.append("Repeated resets deserve review for drift-style pedal stabs: keep MAP Estimate conservative and avoid an unnecessarily long Predictive Map Blend Duration.");
+                nextStep = "Repeated resets deserve review for drift-style pedal stabs: keep MAP Estimate conservative and avoid an unnecessarily long Predictive Map Blend Duration.";
             } else {
-                text.append("Use Copy MAP Estimate draft for table coverage and Copy Blend Duration draft after several prediction events across the RPM range.");
+                nextStep = "Use Copy MAP Estimate draft for table coverage and Copy Blend Duration draft after several prediction events across the RPM range.";
             }
-            return text.toString();
+            return TechnicalDetailsRenderer.mapPredictGuidance(predictionEvents, repeatedResetEvents,
+                    resetDiscontinuities, wallActiveEvents, mapEstimateCollector.statusText(minimum), nextStep);
         }
 
-        if (snapshot.isEmpty()) {
-            return "TPS cycle-AE guidance: collect TPS AE fuel-proved events first. The plugin is read-only and will not change the ECU.";
-        }
         int proved = 0;
         int nearMiss = 0;
         for (EventSummary summary : snapshot) {
             if (summary.isTpsAeFuelProved()) proved++;
             else if (summary.isTriggerNearMiss()) nearMiss++;
         }
-        return "TPS cycle-AE guidance: " + proved + " fuel-proved event(s), " + nearMiss
-                + " trigger near miss(es). Use the TPS AE table draft only when this is the intended strategy.";
+        return TechnicalDetailsRenderer.tpsCycleGuidance(snapshot.size(), proved, nearMiss);
     }
 
     private static int countPredictionEvents(List<EventSummary> events) {
@@ -1321,109 +1173,28 @@ private void subscribeResolvedChannels() throws ControllerException {
             values = new EnumMap<ChannelRole, Double>(latestValues);
         }
 
-        ChannelRole[] roles = ChannelRole.values();
-        if (channelTableModel.getRowCount() != roles.length) {
-            channelTableModel.setRowCount(0);
-            for (ChannelRole role : roles) {
-                channelTableModel.addRow(new Object[]{role.getLabel(), "", "", ""});
-            }
-        }
-
-        // Update existing rows in place. Clearing and rebuilding the table on
-        // every 250 ms refresh caused avoidable revalidation/layout churn.
-        for (int row = 0; row < roles.length; row++) {
-            ChannelRole role = roles[row];
-            String channel = names.get(role);
-            Double value = values.get(role);
-            setTableValueIfChanged(row, 0, role.getLabel());
-            setTableValueIfChanged(row, 1, channel == null ? "not found" : channel);
-            setTableValueIfChanged(row, 2, value == null ? "" : formatValue(role, value.doubleValue()));
-            setTableValueIfChanged(row, 3, channel == null ? "missing" : "subscribed");
-        }
-    }
-
-    private String formatValue(ChannelRole role, double value) {
-        if (role == ChannelRole.LAMBDA || role == ChannelRole.TARGET_LAMBDA) {
-            return F3.format(value);
-        }
-        if (role == ChannelRole.PW || role == ChannelRole.AE_ADD_MS || role == ChannelRole.WALL_WETTING_PW || role == ChannelRole.INSTANT_PULSE_PW) {
-            return F3.format(value);
-        }
-        return F2.format(value);
+        LiveChannelTableRenderer.update(channelTableModel, names, values);
     }
 
     private String buildFuelPathStatusText() {
-        if (projectSnapshot != null && projectSnapshot.isMapPredictWorkflow()) {
-            double active = latest(ChannelRole.MAP_PRED_ACTIVE);
-            double realMap = latest(ChannelRole.MAP);
-            double fallback = latest(ChannelRole.FALLBACK_MAP);
-            double effective = latest(ChannelRole.EFFECTIVE_MAP);
-            double wallPw = latest(ChannelRole.WALL_WETTING_PW);
-            double instant = latest(ChannelRole.INSTANT_PULSE_PW);
-            StringBuilder text = new StringBuilder("Transient status: MAP Predict ")
-                    .append(valueOn(active) ? "ACTIVE" : "inactive")
-                    .append(" | MAP ").append(F2.format(zeroIfNaN(realMap)))
-                    .append(" | fallbackMap ").append(Double.isFinite(fallback) ? F2.format(fallback) : "n/a")
-                    .append(" | effectiveMap ").append(Double.isFinite(effective) ? F2.format(effective) : "n/a");
-            if (Double.isFinite(realMap) && Double.isFinite(effective)) {
-                text.append(" | effective-real gap ").append(F2.format(effective - realMap)).append(" kPa");
-            }
-            text.append(" | fuel wallwetting injection time ")
-                    .append(Double.isFinite(wallPw) ? F3.format(wallPw) + " ms" : "n/a")
-                    .append(" | aeInstantPulsePw ")
-                    .append(Double.isFinite(instant) ? F3.format(instant) + " ms" : "n/a");
-            return text.toString();
+        EnumMap<ChannelRole, Double> values;
+        synchronized (lock) {
+            values = new EnumMap<ChannelRole, Double>(latestValues);
         }
-
-        double aeActive = latest(ChannelRole.AE_ABOVE_THRESHOLD);
-        double aeMs = latest(ChannelRole.AE_ADD_MS);
-        double extraFuel = latest(ChannelRole.EXTRA_FUEL);
-        double wall = latest(ChannelRole.WALL_CORRECTION);
-        double wallPw = latest(ChannelRole.WALL_WETTING_PW);
-        double extraShot = latest(ChannelRole.AE_EXTRA_SHOT);
-        double dfco = latest(ChannelRole.DFCO);
-        boolean tpsFuelVisible = absGreater(aeMs, 0.002) || absGreater(extraFuel, 0.0001);
-        boolean wallVisible = absGreater(wall, 0.0001) || absGreater(wallPw, 0.0001);
-        boolean aeState = valueOn(aeActive);
-        boolean extraShotState = valueOn(extraShot);
-        if (tpsFuelVisible) {
-            return "Fuel-path status: TPS AE fuel visible now (Fuel: TPS AE add fuel ms " + F3.format(zeroIfNaN(aeMs))
-                    + ", Fuel: TPS extraFuel " + F3.format(zeroIfNaN(extraFuel)) + ")";
-        }
-        if (aeState) {
-            return "Fuel-path status: Fuel: TPS AE Active is on, but TPS AE fuel is not visible right now"
-                    + suffixOtherPaths(wallVisible, extraShotState, dfco);
-        }
-        if (wallVisible || extraShotState || valueOn(dfco)) {
-            return "Fuel-path status: TPS AE inactive; other path/state visible" + suffixOtherPaths(wallVisible, extraShotState, dfco);
-        }
-        return "Fuel-path status: no TPS AE fuel visible in current live sample";
+        return buildFuelPathStatusText(projectSnapshot != null && projectSnapshot.isMapPredictWorkflow(), values);
     }
 
-    private static String suffixOtherPaths(boolean wallVisible, boolean extraShotState, double dfco) {
-        String text = "";
-        if (wallVisible) {
-            text += " | Fuel: wall correction / fuel wallwetting injection time active";
-        }
-        if (extraShotState) {
-            text += " | Fuel: TPSAE ExtraShot active";
-        }
-        if (valueOn(dfco)) {
-            text += " | dfcoActive";
-        }
-        return text;
-    }
-
-    private static boolean absGreater(double value, double threshold) {
-        return Double.isFinite(value) && Math.abs(value) > threshold;
+    static String buildFuelPathStatusText(boolean mapPredictWorkflow,
+                                          EnumMap<ChannelRole, Double> values) {
+        return TechnicalDetailsRenderer.fuelPathStatus(mapPredictWorkflow, values);
     }
 
     private static boolean valueOn(double value) {
         return Double.isFinite(value) && value >= 0.5;
     }
 
-    private static double zeroIfNaN(double value) {
-        return Double.isFinite(value) ? value : 0.0;
+    private static boolean absGreater(double value, double threshold) {
+        return Double.isFinite(value) && Math.abs(value) > threshold;
     }
 
     private double latest(ChannelRole role) {
@@ -1442,218 +1213,4 @@ private void subscribeResolvedChannels() throws ControllerException {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
-    private static void setLabelTextIfChanged(JLabel label, String text) {
-        if (!text.equals(label.getText())) {
-            label.setText(text);
-        }
-    }
-
-    private static void setTextIfChanged(JTextArea area, String text) {
-        String normalized = text == null ? "" : text;
-        if (!normalized.equals(area.getText())) {
-            area.setText(normalized);
-        }
-    }
-
-    private void setTableValueIfChanged(int row, int column, Object value) {
-        Object old = channelTableModel.getValueAt(row, column);
-        if (old == null ? value != null : !old.equals(value)) {
-            channelTableModel.setValueAt(value, row, column);
-        }
-    }
-
-    /**
-     * A tabbed pane embedded in the main scroll page must not ask its parent
-     * JScrollPane to scroll the selected tab into view. Swing's default
-     * scrollRectToVisible call was the remaining source of the visible jump
-     * when clicking Overview/Technical details.
-     */
-    private static final class StableTabbedPane extends JTabbedPane {
-        @Override
-        public void scrollRectToVisible(Rectangle aRect) {
-            // Intentionally ignored. The user owns the main scrollbar.
-        }
-    }
-
-    private static final class ViewportWidthPanel extends JPanel implements Scrollable {
-        @Override
-        public Dimension getPreferredScrollableViewportSize() {
-            return getPreferredSize();
-        }
-
-        @Override
-        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return 18;
-        }
-
-        @Override
-        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return Math.max(90, visibleRect.height - 36);
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportWidth() {
-            return true;
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportHeight() {
-            return false;
-        }
-    }
-
-    private enum CardState { GOOD, ACTIVE, INFO, OFF, WAITING, WARNING, ERROR }
-
-    private static final class StatusCard extends JPanel {
-        private final JLabel value = new JLabel();
-        private String lastText;
-        private CardState lastState;
-
-        StatusCard(String title, int width, int height) {
-            super(new BorderLayout(4, 3));
-            Dimension fixedSize = new Dimension(width, height);
-            setPreferredSize(fixedSize);
-            setMinimumSize(fixedSize);
-            setMaximumSize(fixedSize);
-            setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(new Color(180, 180, 180)),
-                    BorderFactory.createEmptyBorder(5, 7, 5, 7)));
-            JLabel titleLabel = new JLabel(title);
-            titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 11f));
-            value.setFocusable(false);
-            value.setVerticalAlignment(JLabel.TOP);
-            value.setHorizontalAlignment(JLabel.LEFT);
-            value.setFont(value.getFont().deriveFont(Font.BOLD, 12f));
-            add(titleLabel, BorderLayout.NORTH);
-            add(value, BorderLayout.CENTER);
-            setValue("Waiting", CardState.WAITING);
-        }
-
-        void setValueFontSize(float size) {
-            value.setFont(value.getFont().deriveFont(Font.BOLD, size));
-        }
-
-        void setValue(String text, CardState state) {
-            String normalized = text == null ? "" : text.replace("  •  ", "\n");
-            if (normalized.equals(lastText) && state == lastState) {
-                return;
-            }
-            lastText = normalized;
-            lastState = state;
-            value.setText(toHtml(normalized));
-            Color background;
-            Color foreground = Color.BLACK;
-            switch (state) {
-                case GOOD: background = new Color(220, 242, 220); break;
-                case ACTIVE: background = new Color(196, 235, 255); break;
-                case INFO: background = new Color(226, 235, 248); break;
-                case OFF: background = new Color(236, 236, 236); break;
-                case WARNING: background = new Color(255, 238, 190); break;
-                case ERROR: background = new Color(255, 210, 210); break;
-                default: background = new Color(245, 245, 245); break;
-            }
-            if (!background.equals(getBackground())) {
-                setBackground(background);
-            }
-            value.setForeground(foreground);
-            setOpaque(true);
-            repaint();
-        }
-
-        private static String toHtml(String text) {
-            String escaped = text.replace("&", "&amp;")
-                    .replace("<", "&lt;")
-                    .replace(">", "&gt;")
-                    .replace("\n", "<br>");
-            return "<html>" + escaped + "</html>";
-        }
-    }
-
-    private static final class EventPlotPanel extends JPanel {
-        private EventSummary event;
-
-        EventPlotPanel() {
-            setBorder(BorderFactory.createTitledBorder("Latest transient event preview"));
-            setPreferredSize(new Dimension(520, 260));
-            setBackground(Color.WHITE);
-        }
-
-        void setEvent(EventSummary event) {
-            this.event = event;
-            repaint();
-        }
-
-        @Override
-        protected void paintComponent(Graphics graphics) {
-            super.paintComponent(graphics);
-            Graphics2D g = (Graphics2D) graphics.create();
-            try {
-                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int w = getWidth();
-                int h = getHeight();
-                int left = 45;
-                int right = Math.max(left + 10, w - 15);
-                int top = 25;
-                int bottom = Math.max(top + 10, h - 30);
-
-                g.setColor(Color.LIGHT_GRAY);
-                g.drawRect(left, top, right - left, bottom - top);
-                g.setColor(Color.DARK_GRAY);
-                g.drawString("TPS / MAP / λ preview", left + 6, top + 15);
-
-                if (event == null || event.getSamples().size() < 2) {
-                    g.drawString("Waiting for an AE event...", left + 20, top + 45);
-                    return;
-                }
-
-                List<LiveSample> samples = event.getSamples();
-                double start = samples.get(0).getSeconds();
-                double end = samples.get(samples.size() - 1).getSeconds();
-                if (end <= start) {
-                    end = start + 1.0;
-                }
-
-                drawTrace(g, samples, ChannelRole.TPS, start, end, left, right, top, bottom, 0.0, 100.0);
-                drawTrace(g, samples, ChannelRole.MAP, start, end, left, right, top, bottom, 0.0, 250.0);
-                drawTrace(g, samples, ChannelRole.LAMBDA, start, end, left, right, top, bottom, 0.65, 1.35);
-
-                g.setColor(Color.BLACK);
-                g.drawString("TPS 0-100%, MAP 0-250 kPa, λ 0.65-1.35", left, bottom + 18);
-            } finally {
-                g.dispose();
-            }
-        }
-
-        private void drawTrace(Graphics2D g,
-                               List<LiveSample> samples,
-                               ChannelRole role,
-                               double start,
-                               double end,
-                               int left,
-                               int right,
-                               int top,
-                               int bottom,
-                               double min,
-                               double max) {
-            int lastX = -1;
-            int lastY = -1;
-            for (LiveSample sample : samples) {
-                double value = sample.get(role);
-                if (!Double.isFinite(value)) {
-                    continue;
-                }
-                double xRatio = (sample.getSeconds() - start) / (end - start);
-                double yRatio = (value - min) / (max - min);
-                xRatio = Math.max(0.0, Math.min(1.0, xRatio));
-                yRatio = Math.max(0.0, Math.min(1.0, yRatio));
-                int x = left + (int) Math.round(xRatio * (right - left));
-                int y = bottom - (int) Math.round(yRatio * (bottom - top));
-                if (lastX >= 0) {
-                    g.drawLine(lastX, lastY, x, y);
-                }
-                lastX = x;
-                lastY = y;
-            }
-        }
-    }
 }
