@@ -15,6 +15,20 @@ A prebuilt `ae-tuner-epicefi-0.3.18.jar` and `SHA256SUMS.txt` are available from
 
 A newer v0.3.19 candidate is available on the separately labelled `candidate/v0.3.19` branch. Candidate source must not be treated as an accepted release until its physical validation is complete.
 
+<!-- TEST-CANDIDATE:START -->
+## Current community test candidate
+
+The rolling public test candidate is **0.4.0-vehicle-test.5**. It is a **read-only, unaccepted test build**, not the stable release.
+
+- [Download the candidate JAR](test-candidate/ae-tuner-epicefi-0.4.0-vehicle-test.5.jar)
+- [Read the candidate release notes and test instructions](test-candidate/RELEASE_NOTES.md)
+- JAR SHA-256: `f25271d43f60ee3aa501c2962ffc4da6aeb7391fe56d5013196557822a286dea`
+
+Community feedback is requested on Guided Capture practicality, state guidance, target handling, audio behaviour and evidence quality. Submit matched reports through the **Log diagnosis / test feedback** issue form. Do not perform unsafe testing or treat a generated proposal as automatically approved.
+
+This section and the files under `test-candidate/` are replaced whenever a new community test candidate is published.
+<!-- TEST-CANDIDATE:END -->
+
 ## Project roadmap
 
 See [`ROADMAP.md`](ROADMAP.md) for:
