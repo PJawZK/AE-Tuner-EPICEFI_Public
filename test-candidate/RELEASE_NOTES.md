@@ -31,14 +31,23 @@ Predictive MAP Blend Duration is the first guided recipe. The plugin remains an 
 
 1. Close TunerStudio.
 2. Keep your known-good plugin as a rollback.
-3. Remove older `ae-tuner-epicefi-*.jar` files from the TunerStudio plugin directory.
-4. Install only `ae-tuner-epicefi-0.4.0-vehicle-test.5.jar`.
-5. Restart TunerStudio and verify the displayed version and the read-only/unaccepted banner.
-6. Press **Test sound** while stationary before relying on audio cues.
+3. Open Tools menu, Tunerstudio Plugins then Add or update plugin
+4. If succesful AE Tuner should startup right away after the 3 prompts have been gone thorugh.
+5. If it doesn't launch, report it as an issue in this repository.
 
 ## Suggested first test
 
 Start with Vehicle-test overrides **off**. Use a safe, repeatable low-RPM test condition appropriate for your vehicle. Do not force an exact RPM, load or throttle position when road conditions make the test unsafe.
+
+1. Start a normal datalog before running the plugin.
+2. Open the plugin, and start the engine.
+3. Under the passive tab, locate the "Start the TPS noise calibratiion", wait for it to finish, then press "Use recommended threshold".
+4. Now move on to the new "Guided Capture" window. Confirm sound is work through the "Test Sound" button.
+5. Then start with a guided capture with settings as they are, try a few attempts.
+6. if you find it hard to get any accepted runs, start altering the settings on the row that contains the "Table point" and "Start RPM".
+7. If you want to go more advanced, there is the "Vehicle-test overrides". They do not alter anything outside of the plugin, they alter the plugins assumptions on what a accepted event is like, in the simplest of terms. Target values and time factors.
+8. I only recommend the advanced method if you have some understanding of AE blend duration and how it' triggered. Or if you are jut curious what they do, have at it.
+9. I would appreciate any feedback, and feedback can be reported under **[Log diagnosis / test feedback](https://github.com/PJawZK/AE-Tuner-EPICEFI_Public/issues/new?template=log-diagnosis.yml)**.
 
 Save before resetting:
 
