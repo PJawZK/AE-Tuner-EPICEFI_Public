@@ -44,16 +44,15 @@ No generated Blend Duration proposal/value became an accepted tune merely becaus
 - Public source integration commit: `756f235ae1d98096dacff6989b30217f449ca983`
 - Public stable branch: `main`
 - Source publication status: **integrated**
-- Intended stable release tag: `v0.4.0`
-- Binary GitHub Release/JAR publication: **pending manual release-asset upload**
+- Public stable release tag: `v0.4.0`
+- Binary GitHub Release/JAR publication: **published**
+- Public release date: `2026-08-09`
 
-The sanitized accepted `0.4.0` product source, regression suite, release identity, validation tooling, and public documentation are integrated into public `main`.
+The sanitized accepted `0.4.0` product source, regression suite, release identity, validation tooling, and public documentation are integrated into public `main`, and the stable `v0.4.0` GitHub Release is published with the accepted JAR identity above.
 
 The web-upload overlay was reconciled before integration so the obsolete flat-package `0.3.18` source/tests, packaging-only manifest, and old `0.4.0-vehicle-test.5` candidate payload were removed.
 
 Release-defining parity checks against private accepted commit `86178dc311df656567f0226e5a067ab460b93ffe` confirmed matching Git blob identities for the plugin entrypoint, release `pom.xml`, validation script, and representative Guided/model regressions. The public tree keeps the accepted subsystem structure: `guided`, `host`, `model`, `passive`, `proposal`, `recovery`, and `ui`, with `AeTunerPlugin.java` as the root entrypoint.
-
-The remaining publication action is to create the public stable `v0.4.0` GitHub Release and attach the exact accepted `ae-tuner-epicefi-0.4.0.jar` with SHA-256 `1af45f58584b0dda8a8e2eb9b78ddfb09276f407b9264ee74bbf9408d54b13d8`.
 
 ## Sanitization boundary
 
@@ -81,4 +80,4 @@ The previous public stable baseline was `0.3.18`.
 - Original sanitized export ZIP SHA-256: `286006e6f20c5ae3e0bbb002310884a888cee927194761ce61563527c03415e8`
 - Publication date: `2026-08-02`
 
-`0.3.18` remains historical provenance and is superseded by accepted public source baseline `0.4.0`.
+`0.3.18` remains historical provenance and is superseded by accepted public stable release `0.4.0`.
