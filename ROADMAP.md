@@ -2,7 +2,7 @@
 
 This roadmap summarizes the public development direction for AE Tuner (EPICEFI).
 
-The private authority repository remains the source of truth for detailed engineering state, evidence and release decisions. This public roadmap is the sanitized end-user and contributor view. It must be updated whenever a milestone is completed, its status changes, its scope changes, or the planned sequence changes.
+The private authority repository remains the source of truth for detailed engineering state, evidence, and release decisions. This public roadmap is the sanitized end-user and contributor view.
 
 ## Status vocabulary
 
@@ -15,30 +15,27 @@ The private authority repository remains the source of truth for detailed engine
 
 ## Current release state
 
-- **Stable:** `0.3.18` — physically accepted and available from GitHub Releases.
-- **Candidate:** `0.3.19` — automated and registered-host validation passed; controlled physical held-opening evidence remains pending.
-- **Public stable branch:** `main`.
-- **Current transitional candidate branch:** `candidate/v0.3.19`.
-- **Future pre-release branch:** rolling `candidate` branch after the v0.3.19 transition.
+- **Stable:** `0.4.0` — physically validated and accepted.
+- **Accepted JAR SHA-256:** `1af45f58584b0dda8a8e2eb9b78ddfb09276f407b9264ee74bbf9408d54b13d8`.
+- **Public stable branch:** `main` after completion of the current public `0.4.0` publication update.
+- **Active community candidate:** none.
+- Historical `candidate/v0.3.19` and `0.4.0-vehicle-test.*` states are superseded by accepted `0.4.0`.
 
-Candidate source is not stable merely because automated validation passed. Physical evidence and an explicit acceptance decision remain required before promotion.
+A future candidate is not stable merely because automated validation passes. Physical or otherwise appropriate evidence plus an explicit acceptance decision remain required before promotion.
 
-## R0 — Repository, validation and public-release foundation
+## R0 — Repository, validation, and public-release foundation
 
 Status: **DONE**
 
 Completed:
 
 - Java 8 bytecode target and deterministic repository validation;
-- GitHub Actions build and synthetic plugin integration;
-- read-only safety boundary;
-- Apache License 2.0 publication;
-- separate end-user and developer README files;
+- GitHub Actions validation and synthetic plugin integration;
+- strict read-only safety boundary;
+- Apache License 2.0 public source publication;
 - public source publication without `TunerStudioPluginAPI.jar`;
-- sanitized stable and candidate source branches;
-- stable v0.3.18 release JAR and checksum;
-- private-to-public provenance and leak checks;
-- rolling public candidate lifecycle policy.
+- stable release assets/checksums and provenance discipline;
+- public leak/privacy checks and log-submission guidance.
 
 Remaining operational improvements are tracked under R9.
 
@@ -48,51 +45,52 @@ Status: **DONE**
 
 Completed:
 
-- running, cranking, key-off and unknown-state classification;
-- exact EpicEFI output-channel resolution where supported;
+- running, cranking, key-off, and unknown-state classification;
+- EpicEFI output-channel resolution where supported;
 - separation of actual cut outputs from cut-reason codes;
-- trigger, ignition and fuel-path evidence review;
-- missing, unavailable and received-zero values kept distinct;
+- trigger, ignition, and fuel-path evidence review;
+- missing, unavailable, and received-zero values kept distinct;
 - matched physical shutdown validation without false running warnings.
 
-## R2 — Session Guidance and v0.3.18 stable release
+## R2 — Session Guidance and Passive analysis baseline
 
 Status: **DONE**
 
 Completed:
 
-- session-only Recommendation History;
+- session-only Recommendation History / Session Guidance;
 - bounded in-memory guidance timeline;
-- clickable recommendation-card navigation;
+- event capture, reports, CSV export, and MAP Estimate evidence;
 - deterministic Swing integration coverage;
-- physically accepted v0.3.18 stable release.
+- physically accepted Passive behavior carried forward into `0.4.0`.
 
-## R3 — Per-RPM Predictive MAP Blend Duration evidence
+## R3 — Predictive MAP Blend Duration and Guided Capture
 
-Status: **VALIDATE**
+Status: **DONE**
 
-Implemented in candidate v0.3.19:
+Accepted in `0.4.0`:
 
-- evidence assigned to actual Blend Duration RPM regions;
-- retained held-opening counts and observed RPM coverage;
-- median, mean, range, IQR, standard deviation and outlier evidence;
-- confidence, eligibility and explicit rejection reasons;
-- repeated throttle stabs kept diagnostic-only;
-- unsupported and ineligible RPM points preserved exactly;
-- no silent interpolation or smoothing;
-- responsive layout and nested scroll-wheel handoff;
-- long-session characterization.
+- per-RPM Blend Duration evidence tied to actual table regions;
+- retained held-opening counts, coverage, spread/statistical evidence, confidence, and explicit rejection reasons;
+- repeated throttle stabs retained diagnostically but excluded from the base Blend Duration curve;
+- unsupported/ineligible RPM points preserved without silent interpolation or smoothing;
+- adaptive **Guided Capture** for natural pedal openings;
+- frozen pre-opening TPS guidance;
+- prediction-active-only Blend Duration measurement anchoring;
+- attempt traces, comparability grouping, typed evidence, and session summaries;
+- audio-led workflow and stationary Audio Cue Lab;
+- hide/reopen lifecycle recovery and repeated Guided-session operation;
+- bounded Guided sample dispatcher so Guided computation does not block the Passive/TunerStudio sample callback;
+- local evidence checkpoint/recovery support;
+- physical road validation with simultaneous healthy Passive capture.
 
-Remaining gate:
-
-1. controlled physical single-held-opening tests at safe useful RPM regions;
-2. matched report, captured-events CSV and TunerStudio log review;
-3. explicit **ACCEPT** or **REVISE** decision;
-4. on acceptance, stable v0.3.19 publication and transition to the rolling public `candidate` branch.
+No generated Blend Duration proposal became an automatically accepted tune through this milestone.
 
 ## R4 — MAP Estimate maturity
 
 Status: **PLANNED**
+
+This is a likely next bounded development area, but it is not yet declared the active implementation milestone.
 
 Planned direction:
 
@@ -110,8 +108,8 @@ Planned direction:
 
 - separate Wall Wetting contribution evidence;
 - compare MAP Predict-only and MAP Predict + Wall Wetting behavior;
-- review tip-in, tip-out and rich-recovery behavior;
-- add evidence-backed guidance only after detection, eligibility and safety rules are validated.
+- review tip-in, tip-out, and rich-recovery behavior;
+- add evidence-backed guidance only after detection, eligibility, and safety rules are validated.
 
 ## R6 — Instant Fuel analysis
 
@@ -123,7 +121,7 @@ Entry condition:
 
 Planned direction:
 
-- activation and contribution evidence;
+- activation/contribution evidence;
 - residual lean-hole assessment;
 - evidence for whether Instant Fuel use is justified;
 - no automatic table application.
@@ -134,15 +132,10 @@ Status: **PLANNED**
 
 Planned direction:
 
-- rename the combined tuning export to **AE Tuning Report**;
-- use the filename family `ae-tuner-tuning-report-...`;
-- add dedicated sections as Wall Wetting, Instant Fuel and other AE-stage analysis matures;
-- add a separate **Export Diagnostics** action;
-- keep diagnostics one-shot and user-requested only;
-- avoid background firmware polling, recurring listeners and persistent diagnostic history;
-- report unavailable or offline metadata honestly.
-
-The tuning report and diagnostics report remain separate products with different purposes.
+- evolve the combined tuning export as additional AE stages mature;
+- improve separation between tuning evidence and one-shot diagnostics;
+- keep diagnostics user-requested rather than persistent background polling;
+- report unavailable/offline metadata honestly.
 
 ## R8 — Offline and multi-session analysis
 
@@ -161,20 +154,25 @@ Status: **ACTIVE**
 
 Completed:
 
-- public stable and candidate source publication;
+- public stable/candidate publication history;
 - stable release assets and checksums;
 - sanitized export and dependency-exclusion checks;
-- exact source provenance;
-- rolling candidate lifecycle documentation;
-- public roadmap publication and maintenance rule.
+- exact source/binary provenance;
+- public issue template and privacy/safety guidance;
+- maintained public roadmap.
+
+Current maintenance:
+
+- publish accepted `0.4.0` source and stable artifact;
+- retire stale `0.3.19` / vehicle-test candidate presentation and obsolete candidate payloads;
+- reconcile public provenance to the accepted `0.4.0` identity.
 
 Planned operational work:
 
-- protect public `main`, rolling `candidate` and stable tags;
+- protect stable branches/tags as appropriate;
 - automate trusted private-to-public synchronization;
 - automate guarded accepted promotion and candidate cleanup;
-- keep the public roadmap synchronized with completed work and approved plan changes;
-- add public issue templates and expanded user documentation;
+- keep the public roadmap synchronized with accepted project state;
 - establish an authorized public-CI method for the separately supplied TunerStudio Plugin API dependency when required.
 
 ## R10 — ECU writes and burns
@@ -188,19 +186,10 @@ AE Tuner remains strictly read-only:
 - no automatic table application;
 - no hidden tune changes.
 
-Any future write capability would require a separate approved safety architecture, explicit authorization and staged physical validation.
+Any future write capability would require a separate approved safety architecture, explicit authorization, and staged physical validation.
 
 ## Roadmap maintenance rule
 
-The public roadmap is part of completing a public-facing change.
+Update this roadmap when a milestone changes state, release status changes, a feature is added/removed/deferred/reordered, or public branch/release lifecycle changes.
 
-Update it when:
-
-- a milestone changes from planned to active, validate or done;
-- physical acceptance or revision changes release status;
-- a feature is added, removed, deferred or reordered;
-- a stable or candidate release changes;
-- the public branch or release lifecycle changes;
-- a completed change makes existing roadmap wording stale.
-
-The public roadmap must not expose private logs, tune files, personal paths, credentials or private evidence. Detailed internal evidence remains in the private authority repository.
+The public roadmap must not expose private logs, tune files, personal paths, credentials, or raw private evidence. Detailed internal evidence remains in the private authority repository.
