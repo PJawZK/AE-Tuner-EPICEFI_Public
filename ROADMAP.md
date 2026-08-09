@@ -15,11 +15,12 @@ The private authority repository remains the source of truth for detailed engine
 
 ## Current release state
 
-- **Stable:** `0.4.0` — physically validated and accepted.
+- **Stable:** `0.4.0` — physically validated, accepted, and publicly released.
 - **Accepted JAR SHA-256:** `1af45f58584b0dda8a8e2eb9b78ddfb09276f407b9264ee74bbf9408d54b13d8`.
-- **Public stable branch:** `main` after completion of the current public `0.4.0` publication update.
+- **Public stable branch:** `main`.
+- **Public stable release tag:** `v0.4.0`.
 - **Active community candidate:** none.
-- Historical `candidate/v0.3.19` and `0.4.0-vehicle-test.*` states are superseded by accepted `0.4.0`.
+- Historical `0.3.19` and `0.4.0-vehicle-test.*` states are superseded by accepted `0.4.0`.
 
 A future candidate is not stable merely because automated validation passes. Physical or otherwise appropriate evidence plus an explicit acceptance decision remain required before promotion.
 
@@ -159,20 +160,21 @@ Completed:
 - sanitized export and dependency-exclusion checks;
 - exact source/binary provenance;
 - public issue template and privacy/safety guidance;
-- maintained public roadmap.
+- maintained public roadmap;
+- accepted `0.4.0` source publication and stable `v0.4.0` binary release;
+- retirement of obsolete `0.3.19` / vehicle-test candidate presentation and payloads.
 
 Current maintenance:
 
-- publish accepted `0.4.0` source and stable artifact;
-- retire stale `0.3.19` / vehicle-test candidate presentation and obsolete candidate payloads;
-- reconcile public provenance to the accepted `0.4.0` identity.
+- keep stable-release documentation, checksums, and provenance synchronized with published releases;
+- remove superseded non-main branches after publication when no longer needed;
+- keep the public roadmap synchronized with accepted project state.
 
 Planned operational work:
 
 - protect stable branches/tags as appropriate;
 - automate trusted private-to-public synchronization;
 - automate guarded accepted promotion and candidate cleanup;
-- keep the public roadmap synchronized with accepted project state;
 - establish an authorized public-CI method for the separately supplied TunerStudio Plugin API dependency when required.
 
 ## R10 — ECU writes and burns
