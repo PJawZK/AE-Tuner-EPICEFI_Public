@@ -18,9 +18,9 @@ Accepted artifact identity:
 - Java target: Java 8 bytecode
 - ECU boundary: strictly read-only
 
-The accepted `0.4.0` source is published on `main`. The GitHub `v0.4.0` binary Release/JAR asset is published separately; until that Release appears, do not substitute an older `0.3.19` or `0.4.0-vehicle-test.*` candidate JAR for the accepted artifact above.
+The accepted `0.4.0` source is published on `main`, and the stable `v0.4.0` GitHub Release is published with the accepted JAR. Do not substitute an older `0.3.19` or `0.4.0-vehicle-test.*` candidate JAR for the accepted artifact above.
 
-There is currently **no active community test candidate**. Historical `0.3.19` and `0.4.0-vehicle-test.*` branches/builds are superseded by accepted `0.4.0` and must not be treated as the current release.
+There is currently **no active community test candidate**. Historical `0.3.19` and `0.4.0-vehicle-test.*` builds are superseded by accepted `0.4.0` and must not be treated as the current release.
 
 ## What v0.4.0 adds
 
@@ -62,8 +62,6 @@ The next bounded work has **not yet been committed to one active feature**. Curr
 The plugin targets **Java 8 bytecode** for broad TunerStudio compatibility.
 
 ## Installation
-
-Once the `v0.4.0` GitHub Release asset is present:
 
 1. Download `ae-tuner-epicefi-0.4.0.jar` from the `v0.4.0` release.
 2. Keep your previous known-good JAR available as a rollback.
