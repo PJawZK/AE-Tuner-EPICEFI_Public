@@ -36,19 +36,56 @@ if [[ -d src/test/java ]]; then
       -d target/test-classes \
       @target/test-sources.list
     for test_class in \
-      se.anders.tunerstudio.aetuner.SessionMonitorRegressionTest \
-      se.anders.tunerstudio.aetuner.OutputChannelResolutionRegressionTest \
-      se.anders.tunerstudio.aetuner.RecommendationHistoryRegressionTest
+      se.anders.tunerstudio.aetuner.passive.SessionMonitorRegressionTest \
+      se.anders.tunerstudio.aetuner.passive.OutputChannelResolutionRegressionTest \
+      se.anders.tunerstudio.aetuner.passive.RecommendationHistoryRegressionTest \
+      se.anders.tunerstudio.aetuner.proposal.BlendDurationPolicyRegressionTest \
+      se.anders.tunerstudio.aetuner.proposal.MapBlendSuggestionRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.GuidedVehicleTestLimitsRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.GuidedVehicleTest9RegressionTest \
+      se.anders.tunerstudio.aetuner.guided.PhaseA3LegacyInvariantMigrationTest \
+      se.anders.tunerstudio.aetuner.guided.GuidedAttemptTraceRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.PedalPlateauDetectorRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.RoadBaselineTrackerRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.MapCatchupMeasurementRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.PedalOpeningDetectorRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.BlendDurationComparabilityGroupsRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.PhaseBGuidedArchitectureRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.GuidedAttemptEvidenceRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.BlendDurationGuidedSummaryRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.PhaseA2AdaptiveTypeMigrationTest \
+      se.anders.tunerstudio.aetuner.guided.GuidedLifecycleRegressionTest \
+      se.anders.tunerstudio.aetuner.RuntimeOverhaulRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.GuidedBlendProposalRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.GuidedAudioCueRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.GuidedAudioCueLabRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.GuidedUiRegressionTest \
+      se.anders.tunerstudio.aetuner.VehicleTestIdentityRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.GuidedSampleDispatcherRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.PhaseCSampleDispatchArchitectureTest \
+      se.anders.tunerstudio.aetuner.passive.PhaseDPanelLayoutArchitectureTest \
+      se.anders.tunerstudio.aetuner.passive.PhaseDAdvisoryActionsArchitectureTest \
+      se.anders.tunerstudio.aetuner.passive.PhaseDOverviewControllerArchitectureTest \
+      se.anders.tunerstudio.aetuner.model.MapPredictionMetricsRegressionTest \
+      se.anders.tunerstudio.aetuner.model.TransientEventAnalyzerRegressionTest \
+      se.anders.tunerstudio.aetuner.model.TransientEventAssessmentRegressionTest \
+      se.anders.tunerstudio.aetuner.model.TransientEventFormatterRegressionTest \
+      se.anders.tunerstudio.aetuner.model.PhaseETransientEventArchitectureTest \
+      se.anders.tunerstudio.aetuner.PhaseFPackageArchitectureTest \
+      se.anders.tunerstudio.aetuner.guided.GuidedEvidenceRecorderRegressionTest \
+      se.anders.tunerstudio.aetuner.recovery.EvidenceRecoveryStoreRegressionTest \
+      se.anders.tunerstudio.aetuner.guided.GuidedChannelValidityRegressionTest
     do
       java -cp "target/classes:target/test-classes:lib/TunerStudioPluginAPI.jar" "$test_class"
     done
+    java -Djava.awt.headless=true \
+      -cp "target/classes:target/test-classes:lib/TunerStudioPluginAPI.jar" \
+      se.anders.tunerstudio.aetuner.passive.LongSessionCharacterizationTest
   fi
 fi
 
-if grep -RIn --exclude-dir=.git --exclude='*.jar' -E '^(<<<<<<<|=======|>>>>>>>)' .; then
-  echo "Merge conflict markers found" >&2
-  exit 1
-fi
+bash scripts/validation-tooling-regression.sh
+bash scripts/check-conflict-markers.sh
 
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   git diff --check
