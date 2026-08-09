@@ -14,8 +14,9 @@ body:
         For useful diagnosis, attach one ZIP containing matched files from the same test session where practical:
 
         - TunerStudio `.msl` log;
-        - AE Tuner captured-events `.csv`;
-        - AE Tuner MAP Predict report;
+        - AE Tuner Passive captured-events `.csv`;
+        - AE Tuner Passive report;
+        - Guided Capture TXT/CSV evidence when the issue concerns Guided;
         - optional screenshots or intentionally shared project/tune details needed to interpret the event.
 
         Do not perform unsafe driving or force an exact RPM/load point merely to collect evidence.
@@ -24,8 +25,8 @@ body:
     id: plugin-version
     attributes:
       label: AE Tuner version and JAR SHA-256
-      description: State the exact stable or RC version. Include the JAR checksum when available.
-      placeholder: "Example: v0.3.19-rc.1 — d62e940fe772796301c480a75a349a5bd7b65b5ad88c8b426f0e5736d8f829a9"
+      description: State the exact stable or test-candidate version. Include the JAR checksum when available.
+      placeholder: "Example: v0.4.0 — 1af45f58584b0dda8a8e2eb9b78ddfb09276f407b9264ee74bbf9408d54b13d8"
     validations:
       required: true
 
@@ -62,7 +63,7 @@ body:
     id: conditions
     attributes:
       label: Test conditions and reproduction steps
-      description: Include gear, approximate RPM/load, throttle action, operating temperature, and any disturbances such as shifting or wheelspin.
+      description: Include gear, approximate RPM/load, throttle action, operating temperature, and disturbances such as shifting or wheelspin.
       placeholder: |
         1. Establish stable precondition...
         2. Apply throttle...
@@ -75,7 +76,7 @@ body:
     attributes:
       label: Exact event time, marker, or event ID
       description: Identify the relevant location in the MSL/report/CSV so reviewers do not have to guess.
-      placeholder: "Example: MSL 00:06:42.5, AE Tuner event 17"
+      placeholder: "Example: MSL 00:06:42.5, AE Tuner Passive event 17 or Guided attempt 8"
     validations:
       required: true
 
@@ -92,7 +93,7 @@ body:
     id: additional-context
     attributes:
       label: Additional context
-      description: Add recent tune changes, known sensor faults, test limitations, or other information needed to interpret the evidence.
+      description: Add recent tune changes, known sensor faults, test limitations, override settings, or other information needed to interpret the evidence.
 
   - type: checkboxes
     id: confirmations
