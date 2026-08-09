@@ -9,55 +9,46 @@ AE Tuner does not write ECU RAM values, burn settings, automatically apply table
 
 ## Stable release
 
-This branch contains the physically accepted **v0.3.18** source baseline.
+The current physically accepted stable release is **v0.4.0**.
 
-A prebuilt `ae-tuner-epicefi-0.3.18.jar` and `SHA256SUMS.txt` are available from the `v0.3.18` GitHub Release.
+Accepted artifact identity:
 
-A newer v0.3.19 candidate is available on the separately labelled `candidate/v0.3.19` branch. Candidate source must not be treated as an accepted release until its physical validation is complete.
+- JAR: `ae-tuner-epicefi-0.4.0.jar`
+- SHA-256: `1af45f58584b0dda8a8e2eb9b78ddfb09276f407b9264ee74bbf9408d54b13d8`
+- Java target: Java 8 bytecode
+- ECU boundary: strictly read-only
 
-<!-- TEST-CANDIDATE:START -->
-## Current community test candidate
+There is currently **no active community test candidate**. Historical `0.3.19` and `0.4.0-vehicle-test.*` branches/builds are superseded by accepted `0.4.0` and must not be treated as the current release.
 
-The rolling public test candidate is **0.4.0-vehicle-test.5**. It is a **read-only, unaccepted test build**, not the stable release.
+## What v0.4.0 adds
 
-- [Download the candidate JAR](test-candidate/ae-tuner-epicefi-0.4.0-vehicle-test.5.jar)
-- [Read the candidate release notes and test instructions](test-candidate/RELEASE_NOTES.md)
-- JAR SHA-256: `f25271d43f60ee3aa501c2962ffc4da6aeb7391fe56d5013196557822a286dea`
+v0.4.0 keeps the existing Passive analysis and safety evidence while adding the physically validated Guided architecture used for Predictive MAP Blend Duration collection.
 
-Community feedback is requested on Guided Capture practicality, state guidance, target handling, audio behaviour and evidence quality. Submit matched reports through the **Log diagnosis / test feedback** issue form. Do not perform unsafe testing or treat a generated proposal as automatically approved.
+Highlights:
 
-This section and the files under `test-candidate/` are replaced whenever a new community test candidate is published.
-<!-- TEST-CANDIDATE:END -->
+- **Guided Capture** for controlled, natural throttle-opening evidence;
+- audio-led workflow cues plus a stationary **Audio Cue Lab**;
+- frozen pre-opening TPS guidance instead of a target that follows the pedal;
+- Blend Duration measurement anchoring only while MAP prediction is active;
+- comparability grouping and typed retained evidence for Guided attempts;
+- bounded background Guided processing so Passive/TunerStudio sample delivery is not blocked by Guided computation;
+- local evidence recovery/checkpoint support;
+- decomposed `guided`, `host`, `model`, `passive`, `proposal`, `recovery`, and `ui` implementation packages;
+- preserved running/cranking/key-off safety classification, cut/fault evidence, MAP Estimate evidence, Session Guidance, reports, and CSV export;
+- deterministic validation and synthetic Swing/plugin integration coverage.
+
+The accepted architecture was physically exercised through stationary and road testing, repeated Guided sessions, hide/reopen lifecycle testing, audio-led operation, and simultaneous Passive capture. No generated Blend Duration value was automatically accepted as a tune.
 
 ## Project roadmap
 
-See [`ROADMAP.md`](ROADMAP.md) for:
+See [`ROADMAP.md`](ROADMAP.md) for completed milestones and the current development direction.
 
-- completed milestones;
-- the current physical-validation gate;
-- planned MAP Estimate, Wall Wetting, Instant Fuel, report and diagnostics work;
-- public release and rolling-candidate operations;
-- the read-only safety boundary.
+The next bounded work has **not yet been committed to one active feature**. Current planned areas are:
 
-The public roadmap is updated when work is completed, a milestone changes status, or the approved development direction changes.
-
-## What v0.3.18 does
-
-AE Tuner v0.3.18 can:
-
-- read the current EpicEFI/TunerStudio project configuration;
-- resolve relevant displayed output channels;
-- capture and classify transient events;
-- distinguish MAP Predict, Wall Wetting, Instant Fuel and legacy TPS cycle AE contribution where channels permit;
-- collect stable MAP Estimate evidence while preserving unvisited cells;
-- export a combined MAP Predict tuning report;
-- export detailed captured-event and sample data as CSV;
-- classify running, cranking and key-off safety context;
-- separate actual cut outputs from cut-reason codes;
-- track relevant trigger, ignition and fuel-path evidence;
-- keep a temporary in-session Session Guidance history.
-
-It is an evidence and review tool, not an automatic tuner.
+- MAP Estimate maturity;
+- Wall Wetting analysis and guidance;
+- reports/diagnostics improvements;
+- Instant Fuel only if a residual sharp early lean hole remains after the earlier stages are mature.
 
 ## Requirements
 
@@ -70,52 +61,64 @@ The plugin targets **Java 8 bytecode** for broad TunerStudio compatibility.
 
 ## Installation
 
-1. Download `ae-tuner-epicefi-0.3.18.jar` from the `v0.3.18` release.
-2. Close TunerStudio.
-3. Remove older `ae-tuner-epicefi-*.jar` files from the TunerStudio plugins directory.
-4. Copy in only the downloaded JAR.
-5. Restart TunerStudio.
-6. Open **AE Tuner (EPICEFI)** and confirm the displayed version is `0.3.18`.
+1. Download `ae-tuner-epicefi-0.4.0.jar` from the `v0.4.0` release.
+2. Keep your previous known-good JAR available as a rollback.
+3. In TunerStudio, open **Tools → TunerStudio Plugins → Add or update plugin** and select the downloaded JAR.
+4. Complete the TunerStudio installation prompts.
+5. Open **AE Tuner (EPICEFI)** and confirm the displayed version is `0.4.0`.
+6. If you intend to use Guided audio while driving, test the READY sound while stationary first.
 
-The plugin JAR does **not** contain `TunerStudioPluginAPI.jar`; normal users do not need to install that developer dependency separately.
+If your TunerStudio installation requires manual plugin placement instead, close TunerStudio, remove older `ae-tuner-epicefi-*.jar` copies from the plugin directory, install only the `0.4.0` JAR, and restart TunerStudio.
+
+The plugin JAR does **not** contain `TunerStudioPluginAPI.jar`; normal users do not install that developer dependency separately.
 
 ## Quick start
+
+### Passive capture / reports
 
 1. Open the correct TunerStudio project and connect to the ECU.
 2. Open AE Tuner.
 3. Select **Read AE project data**.
 4. Check that project settings and important live channels resolve.
-5. Run **TPS noise calibration** with the throttle untouched.
+5. Run **TPS noise calibration** with the throttle untouched and use the recommended threshold when appropriate.
 6. Drive or test deliberately enough to capture the intended transient events.
 7. Review the event list, Overview, Technical details and Session Guidance.
 8. Export the report and captured-events CSV before resetting the session.
 
-For useful tuning evidence, avoid mixing repeated throttle stabs, gear changes, wheelspin and unrelated disturbances into the same evidence set.
+### Guided Capture
+
+1. Start normal TunerStudio logging before the test when matched log evidence is desired.
+2. Open **Guided Capture** only after Passive/project data is working normally.
+3. Test the audio cue while stationary.
+4. Start with the normal Guided settings and use safe, natural pedal openings rather than forcing an exact road condition.
+5. Review accepted, warning, and excluded attempts together with their evidence.
+6. Save Guided evidence before ending/resetting a useful session.
+
+Vehicle-test override controls change only the plugin's capture/acceptance assumptions; they do not change ECU settings. They are intended for advanced testing and should normally remain at their defaults unless the operator understands why a limit needs changing.
+
+For useful tuning evidence, avoid mixing repeated throttle stabs, gear changes, wheelspin, or unrelated disturbances into the same base evidence set.
 
 ## Reports and session controls
 
 ### Save MAP Predict Report
 
-Exports the current combined tuning report, including:
-
-- session and channel evidence;
-- MAP Estimate draft evidence;
-- Predictive MAP review;
-- transient contribution counts;
-- operational-state and safety review;
-- the recommended next step.
+Exports the combined Passive tuning report, including session/channel evidence, MAP Estimate draft evidence, Predictive MAP review, transient contribution counts, operational-state/safety review, and the recommended next step.
 
 ### Export Captured Events
 
 Exports captured event and sample data as CSV for detailed offline review.
 
+### Guided evidence exports
+
+Guided Capture can save its attempt/session evidence separately. Use the Guided evidence together with the matching Passive export and TunerStudio log when investigating a specific result.
+
 ### Reset Session
 
-Clears captured events and temporary Session Guidance history. It is not a report export.
+Clears the current in-plugin session state. Save any evidence you want to retain first.
 
 ## Intended tuning order
 
-The primary staged workflow is:
+The staged workflow remains:
 
 1. MAP Predict;
 2. Wall Wetting;
@@ -130,34 +133,29 @@ Legacy TPS cycle AE remains available for compatibility and diagnostics, but it 
 - Missing or unavailable channels are not treated as zero.
 - Unvisited MAP Estimate cells remain unchanged.
 - Repeated-stab events must not define the base Blend Duration curve.
+- Guided Blend Duration measurements require prediction-active evidence.
 - Physical vehicle evidence remains decisive.
 - Do not carry out unsafe tests merely to hit an exact table point.
 
-Always review proposed values against the original log, tune and test conditions before making manual ECU changes.
+Always review proposed values against the original log, tune, and test conditions before making manual ECU changes.
 
 ## Getting help or submitting logs for diagnosis
 
 Use the public **[Log diagnosis / test feedback](https://github.com/PJawZK/AE-Tuner-EPICEFI_Public/issues/new?template=log-diagnosis.yml)** issue form for matched log review and test feedback.
 
-For the most useful diagnosis, attach one ZIP containing files from the same test session where practical:
+For useful diagnosis, attach one ZIP containing files from the same test session where practical:
 
 - the matching TunerStudio `.msl` log;
-- the AE Tuner captured-events `.csv`;
-- the AE Tuner MAP Predict report;
+- the AE Tuner Passive captured-events `.csv`;
+- the AE Tuner Passive report;
+- Guided Capture TXT/CSV evidence when the issue concerns Guided;
 - optional screenshots or intentionally shared project/tune details needed to interpret the event.
 
-Also provide:
+Also provide the AE Tuner version/JAR SHA-256, TunerStudio/Java/OS versions, EpicEFI firmware/project identity, observed versus expected behaviour, test conditions, and the exact MSL timestamp/marker or AE Tuner event ID requiring review.
 
-- AE Tuner version and JAR SHA-256;
-- TunerStudio, Java and operating-system versions;
-- EpicEFI firmware/project identity;
-- observed versus expected behaviour;
-- test conditions and reproduction steps;
-- the exact MSL timestamp, marker or AE Tuner event ID requiring review.
+GitHub issue attachments are public. Review every file before posting and remove credentials, licence or registration files, private keys, personal information, and anything else that should not be publicly accessible. Project names, machine details, tune settings, and logged vehicle data may be present.
 
-GitHub issue attachments are public. Review every file before posting and remove credentials, licence or registration files, private keys, personal information, and anything else that should not be publicly accessible. Project names, machine details, tune settings and logged vehicle data may be present.
-
-If GitHub rejects an archive because it is too large, trim the log to the relevant period or split the evidence into clearly named archives. Do not commit diagnostic logs to the repository history.
+If GitHub rejects an archive because it is too large, trim the log to the relevant period or split the evidence into clearly named archives. Do not commit diagnostic logs to repository history.
 
 Do not perform unsafe driving or force an exact RPM/load point solely to collect diagnosis evidence.
 
@@ -175,6 +173,12 @@ Then run:
 
 ```bash
 bash scripts/validate.sh
+```
+
+For the real synthetic plugin-panel exercise, run:
+
+```bash
+bash scripts/synthetic-plugin-integration.sh
 ```
 
 The built plugin JAR is written to `dist/`.
