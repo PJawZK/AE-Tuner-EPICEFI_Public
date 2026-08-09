@@ -40,12 +40,20 @@ No generated Blend Duration proposal/value became an accepted tune merely becaus
 
 ## Public 0.4.0 publication state
 
-- Preparation branch: `update/public-0.4.0`
-- Intended stable branch after review/integration: `main`
-- Intended stable release tag: `v0.4.0`
-- Public source/JAR publication: **pending final file upload and integration at the time of this preparation record**
+Preparation branch: `update/public-0.4.0`
 
-The final public publication commit/tag should be recorded here only after those identities actually exist. Do not invent or predeclare their commit SHA.
+The sanitized accepted `0.4.0` product source and regression suite are now staged on that branch. The web-upload overlay was reconciled so the obsolete flat-package `0.3.18` source/tests and the old `0.4.0-vehicle-test.5` candidate payload are removed.
+
+Release-defining parity checks against private accepted commit `86178dc311df656567f0226e5a067ab460b93ffe` confirm matching Git blob identities for the plugin entrypoint, release `pom.xml`, validation script, and representative Guided/model regressions. The staged tree keeps the accepted subsystem structure: `guided`, `host`, `model`, `passive`, `proposal`, `recovery`, and `ui`, with `AeTunerPlugin.java` as the root entrypoint.
+
+Still pending before final public release completion:
+
+- review/integration of `update/public-0.4.0` into public `main`;
+- creation of the public stable `v0.4.0` release/tag;
+- attachment of the exact accepted `ae-tuner-epicefi-0.4.0.jar` and checksum information;
+- recording the actual final public integration commit/tag here after they exist.
+
+Do not invent or predeclare the final public integration SHA or release tag identity.
 
 ## Sanitization boundary
 
@@ -73,4 +81,4 @@ The previous public stable baseline was `0.3.18`.
 - Original sanitized export ZIP SHA-256: `286006e6f20c5ae3e0bbb002310884a888cee927194761ce61563527c03415e8`
 - Publication date: `2026-08-02`
 
-`0.3.18` remains historical provenance but is superseded as the current accepted release by `0.4.0` once the prepared public `0.4.0` publication is integrated.
+`0.3.18` remains historical provenance but is superseded by accepted `0.4.0` once the prepared public `0.4.0` publication is integrated and released.
