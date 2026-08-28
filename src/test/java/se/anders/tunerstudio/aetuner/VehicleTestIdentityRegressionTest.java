@@ -9,7 +9,7 @@ import se.anders.tunerstudio.aetuner.recovery.*;
 import se.anders.tunerstudio.aetuner.ui.*;
 
 public final class VehicleTestIdentityRegressionTest {
-    private static final String EXPECTED_VERSION = "0.4.2-rc.1";
+    private static final String EXPECTED_VERSION = "0.4.2-rc.2";
     private static final String EXPECTED_PUBLIC_REPOSITORY =
             "https://github.com/PJawZK/AE-Tuner-EPICEFI_Public";
 

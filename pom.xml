@@ -6,7 +6,7 @@
 
     <groupId>se.anders.tunerstudio</groupId>
     <artifactId>ae-tuner-epicefi</artifactId>
-    <version>0.4.2-rc.1</version>
+    <version>0.4.2-rc.2</version>
     <packaging>jar</packaging>
 
     <properties>

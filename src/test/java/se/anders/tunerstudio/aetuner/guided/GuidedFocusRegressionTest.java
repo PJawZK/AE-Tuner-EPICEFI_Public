@@ -127,12 +127,13 @@ public final class GuidedFocusRegressionTest {
         panel.updateModel(EngagementFocusModel.setupFromWorkingTune(GuidedCaptureState.IDLE));
         String text = panel.guidanceTextForTest();
         require(text.contains("START A BASELINE CAPTURE")
-                        && text.contains("BASELINE / A-B REPEAT SET")
-                        && text.contains("change ONE setting")
+                        && text.contains("DELTA WINDOW A-B")
+                        && text.contains("change only Delta Window")
                         && text.contains("READY")
                         && text.contains("TARGET")
-                        && text.contains("recorded channels remain the evidence"),
-                "Engagement Guided Focus lost the visual/audio baseline-repeat coaching contract");
+                        && text.contains("recorded channels remain the evidence")
+                        && !panel.hasRootScrollForTest(),
+                "TPS Movement Guided Focus lost the visual/audio Delta Window coaching contract");
         panel.setDriverView(true);
         require(!panel.settingsToggleVisibleForTest()
                         && !panel.settingsPanelVisibleForTest(),

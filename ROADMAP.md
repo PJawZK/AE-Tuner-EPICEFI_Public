@@ -5,12 +5,14 @@ This roadmap is the public user/contributor view of AE Tuner (EPICEFI). Detailed
 ## Current release state
 
 - Previous public stable release: `v0.4.0`
-- Current public candidate: **`v0.4.2-rc.1`**
-- Candidate status: **full release candidate / public test release**
-- RC JAR SHA-256: `500fb9f7b5f7cf79701b61af48c49c5ec58c0427a82758446e5d18dc61f219e6`
+- Superseded public candidate: `v0.4.2-rc.1`
+- Current corrected candidate: **`v0.4.2-rc.2`**
+- Candidate status: **full release candidate / public test**
+- Validated private product source: `49b8e4cfad84050e31bf829e9006282b7f6fb960`
+- RC2 JAR SHA-256: `243f79de8fbfc93f1ef90754a9fc24d5e1c768338f3e75dc9e62a0a2855c6ea6`
 - Java target: Java 8 bytecode
 
-A release candidate is not automatically promoted to stable because automated validation passes. External compatibility/usability feedback and any relevant additional physical evidence are part of the final disposition.
+RC1 remains available as provenance, but RC2 supersedes it because RC1 retained temporary detector-research/editing surfaces and described the already-completed Delta Window physical qualification as pending.
 
 ## R0 — Foundation and validation
 
@@ -23,13 +25,14 @@ Established:
 - channel/runtime diagnostics;
 - Passive event evidence and exports;
 - Guided evidence architecture, audio cues and recovery;
+- guarded working-tune Apply/Restore infrastructure;
 - public Apache-2.0 source distribution without the separately licensed TunerStudio Plugin API binary.
 
 ## R1 — General Guided AE foundation
 
 Status: **RC / PUBLIC TEST**
 
-`0.4.2-rc.1` expands AE Tuner into a general transient-fuelling tuner with seven Guided areas:
+`0.4.2-rc.2` exposes seven Guided areas:
 
 1. AE Foundation
 2. TPS AE
@@ -39,46 +42,49 @@ Status: **RC / PUBLIC TEST**
 6. Optional / Residual Correction
 7. Review / Simplification
 
-The full task map and coaching foundation are now exposed for public evaluation. Implemented tasks retain real evidence/review logic; planned tasks remain honest scaffolds and do not fabricate recommendations or write plans.
+The product rule is **Guided is a coach first**. Driver-facing work should prioritize maneuver guidance, condition/coverage feedback, visual/audio cues and evidence review over walls of settings or diagnostics.
 
-Public feedback is especially useful for navigation, Guided Focus clarity, controller/channel compatibility, layout, lifecycle/reconnect behaviour and evidence classification.
+Planned tasks remain honest scaffolds until real evidence/recommendation/write authority exists.
 
-## R2 — Guarded proposal Apply / Restore
+## R2 — TPS Movement / Timing foundation
 
-Status: **RC / BOUNDED**
+Status: **RC / ACTIVE**
 
-The product supports explicit reviewed working-tune Apply/Restore only when a real `ProposalWritePlan` exists.
+The first Foundation task is **TPS Movement / Timing**.
 
-Current permanent boundaries:
+Normal tuning question:
 
-- no automatic Apply;
-- no Burn button/API;
-- no hidden tune changes;
-- exact declared write targets only;
-- stale-baseline checks and readback verification;
-- explicit verified Restore;
-- VE and ignition remain outside tuning authority.
+`TPS movement -> Fuel: TPS AE change -> AccelThreshold`
 
-Individual setting representations are qualified progressively. The Detector Delta Window scalar path is part of the RC public-test surface; the nearby temporary-value example is not a tuning recommendation.
+Current authority:
+
+- Dual Stride / Newest — read-only controller context;
+- Delta Window — current guarded timing A/B setting;
+- Sample Length — read-only context;
+- Fast Callback — read-only prerequisite/information; approximately 200 Hz intended;
+- alternate detector models / five-model comparison — research only;
+- Engagement Model editing — removed from product authority.
+
+Delta Window physical qualification is complete:
+
+`25 ms -> temporary 24 ms -> Apply/readback PASS -> Restore 25 ms PASS`
 
 ## R3 — Finish real Guided implementations
 
 Status: **ACTIVE AFTER RC FEEDBACK**
 
-Continue replacing planned task scaffolds with real evidence and recommendation logic, starting upstream where it provides the strongest foundation for everything downstream.
+Continue replacing planned task scaffolds with real coaching/evidence/recommendation logic, prioritizing upstream dependencies and avoiding duplicated correction authority.
 
 Likely priorities include:
 
-- AE Foundation threshold/sensitivity behaviour;
-- Engagement Validation / repeated-stab and reversal behaviour;
+- Foundation threshold/sensitivity behavior;
+- Engagement Validation / repeated-stab and reversal behavior;
 - TPS AE compensation/completion/validation;
 - broader MAP Predict validation;
 - advanced Wall Wetting tau/beta mapping;
 - Decel / Tip-out detection, fuel shape and MAP prediction;
 - Instant Fuel setup/event-strength/condition multipliers only where residual error justifies it;
 - stack interaction review and simplification.
-
-Task names/grouping remain provisional and may change when real implementation reveals a better controller abstraction.
 
 ## R4 — MAP Estimate maturity
 
@@ -94,15 +100,15 @@ Continue improving:
 
 ## R5 — Passive Analysis expansion
 
-Status: **PLANNED AFTER GUIDED BASE**
+Status: **PARKED UNTIL GUIDED BASE MATURES**
 
-The current priority is to finish a coherent Guided base first. Passive Analysis will then be expanded using the mature shared evidence/algorithm foundations rather than developing two partially overlapping systems in parallel.
+Passive Analysis is intentionally parked while Guided receives credible coaching foundations across the major tuning areas. Passive can then reuse the mature shared evidence/algorithm foundations instead of duplicating partially developed logic.
 
 ## R6 — Public RC feedback and compatibility
 
 Status: **ACTIVE**
 
-Use `v0.4.2-rc.1` to collect broader EpicEFI/TunerStudio feedback on:
+Use `v0.4.2-rc.2` to collect broader EpicEFI/TunerStudio feedback on:
 
 - plugin loading and Java/TunerStudio compatibility;
 - project-setting resolution;
@@ -113,20 +119,20 @@ Use `v0.4.2-rc.1` to collect broader EpicEFI/TunerStudio feedback on:
 - reports/evidence quality;
 - deliberately tested supported Apply/readback/Restore paths.
 
-Public issue attachments are public. Users should review logs/tunes/exports before posting and avoid sharing private information unintentionally.
+Public issue attachments are public. Review logs/tunes/exports before posting.
 
 ## R7 — Stable 0.4.2 disposition
 
 Status: **PLANNED**
 
-After RC feedback:
+After RC2 feedback:
 
 1. fix demonstrated RC defects;
 2. rerun deterministic and synthetic validation;
-3. repeat any relevant physical/write-contract checks affected by fixes;
-4. decide whether an `rc.2` is warranted or whether the line is ready for stable `0.4.2`;
+3. repeat physical/write-contract checks only if a relevant representation changed;
+4. decide whether another RC is warranted or whether the line is ready for stable `0.4.2`;
 5. publish exact source/JAR/checksum provenance.
 
-## Deferred / not authorized
+## Permanent boundaries
 
-Automatic tune application and ECU Burn remain outside the current product scope. Either would require a separate safety architecture and explicit authorization before implementation.
+Automatic tune application and ECU Burn remain outside the current product scope. VE and ignition remain outside AE Tuner tuning authority.

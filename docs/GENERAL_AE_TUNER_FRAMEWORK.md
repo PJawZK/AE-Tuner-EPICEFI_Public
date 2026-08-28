@@ -1,233 +1,168 @@
-# General AE Tuner framework — Dev20 foundation
+# General AE Tuner framework — RC2 authority
 
-Status: **ACTIVE / UNACCEPTED DEVELOPMENT**
+Status: **ACTIVE RC2 PRODUCT FRAMEWORK**
 
-Branch: `agent/dev20-general-ae-recipe-framework`
-
-Base: exact dev19 head `1a67118610264e085d77670a43822d05d3b582d5`
+This document records the current product boundary for AE Tuner. Earlier Dev20 detector-research decisions remain available in Git history but are not current product authority.
 
 ## Product boundary
 
-AE Tuner is a general transient-fuelling tuner. Its tuning scope is the controller's AE/transient-fuelling settings and the relationships between them.
+AE Tuner is a general transient-fuelling / acceleration-enrichment tuner. It is not a MAP Predict-only tool.
 
-In scope as AE tuning targets:
+Current Guided Tuning areas are:
 
-- shared AE engagement/detection settings;
-- TPS AE fuel and duration settings;
-- MAP Predict / MAP Estimate / Blend Duration settings;
-- Wall Wetting settings;
-- Instant Fuel settings when evidence justifies its use.
+1. AE Foundation
+2. TPS AE
+3. MAP Predict
+4. Wall Wetting
+5. Decel / Tip-out
+6. Optional / Residual Correction
+7. Review / Simplification
 
-Out of scope as tuning targets:
+VE and ignition remain outside AE Tuner tuning authority. Out-of-scope systems may be observed as evidence or confounder context, but AE Tuner must not turn that observation into write authority.
 
-- VE table;
-- ignition table;
-- unrelated steady-state engine calibration.
+Passive Analysis is parked while Guided develops credible coaching foundations across the major tuning areas.
 
-Out-of-scope systems may still be observed as evidence or used as quality gates. For example, unstable base fueling may block an AE recommendation without authorizing AE Tuner to edit VE.
+## Guided is a coach first
 
-## Existing architecture retained
+Guided Capture / Guided Focus should primarily tell the operator:
 
-Dev20 does not replace the current Guided/evidence/write foundation.
+- what to do;
+- how to perform the maneuver or coverage task;
+- whether the requested condition is being achieved;
+- when useful evidence has been obtained;
+- what the evidence shows after the event;
+- when a bounded A/B experiment or follow-up capture is justified.
 
-The shared operator workflow remains:
+Preferred interaction uses task-appropriate combinations of strong animated visuals, concise action text, audio/eyes-up cues, target corridors, timing/state ribbons, automatic event freeze/replay, ghosted A/B traces, evidence maps and event cards.
 
-`SETUP -> CAPTURE -> REVIEW -> APPLY / VERIFY`
+Editable settings are secondary to obtaining and understanding evidence.
 
-Existing safety behavior remains authoritative:
+Driver View must not use a root scrollbar. Live ECU/UI refreshes must not move the viewport or steal the operator's position.
 
-- capture and analysis do not write automatically;
-- proposals declare exact immutable controller targets;
-- all working-tune mutations remain centralized through `ProposalApplyCoordinator`;
-- stale baselines are rejected before Apply;
-- a second stale-value preflight runs immediately before the first mutation;
-- complete readback verification is required;
-- failed verification rolls back through the same guarded path;
-- explicit Restore remains available through the existing guarded path;
-- no burn button or burn API is part of the current product.
+## Write and safety authority
 
-Guarded working-tune Apply is a normal capability of every Guided tuning recipe from the start. A method does **not** pass through a separate read-only maturity stage. If its reviewed tuning logic produces an explicit changed `ProposalWritePlan`, that plan may immediately use the common Apply/readback/Restore path. If no plan exists, Apply stays disabled because there is no supported changed value to apply—not because the method lacks write authority.
+Capture and analysis never write automatically.
 
-After any successful Apply or Restore, AE Tuner requires a fresh **Read Working Tune** before another capture. This prevents a new evidence set from silently inheriting the pre-write baseline.
+A Guided task may use the shared working-tune Apply/Restore mechanism only for a setting that the task currently owns and for which it has an explicit reviewed change. The write path remains centralized through `ProposalApplyCoordinator` and requires the existing stale-baseline and readback protections.
 
-## First-use setting confirmation
+Current invariants:
 
-The generic working-tune mutation mechanism has already been proven. New AE settings therefore do not require a prolonged write-authority validation phase.
+- no automatic Apply;
+- no Burn button or production Burn authority;
+- no hidden tune changes;
+- exact declared `ProposalWritePlan` target scope;
+- stale-baseline checks before mutation;
+- readback verification after mutation;
+- explicit verified Restore;
+- rollback attempt after partial failure;
+- fresh Read Working Tune after successful Apply/Restore before new evidence capture;
+- VE and ignition are never AE Tuner write targets.
 
-For a controller setting or representation that AE Tuner has not exercised before, use one short real TunerStudio check:
+The generic working-tune mutation mechanism has already been physically proven. A newly supported controller representation needs one bounded Apply/readback/Restore qualification when it first becomes a real product write target; it does not need repeated qualification afterward unless the representation or host contract changes.
 
-1. read the current working-tune value;
-2. select one explicit nearby temporary value;
-3. Finish/Review so the exact diff is visible;
-4. Apply the reviewed proposal;
-5. verify TunerStudio readback matches the requested representation/value;
-6. Restore the previous value;
-7. verify the restored readback;
-8. Read Working Tune again and confirm no stale temporary request remains;
-9. mark that setting/representation path confirmed and move on.
+## AE Foundation — TPS Movement / Timing
 
-The engine does **not** need to be running for this mapping/write-contract check. The purpose is to prove TunerStudio working-tune access, parameter representation, stale checking, readback and Restore. Combustion/tuning validation remains a separate later test when the numerical recommendation itself needs vehicle evidence.
+The first Foundation task is **TPS Movement / Timing**.
 
-This is especially useful for the detector family because it spans several controller representations:
+Its normal tuning question is:
 
-- ordinary scalar settings, such as Delta Window and Sample Length;
-- enum/bitfield settings, such as Engagement Model;
-- shared-word boolean bits, such as the fast TPS callback setting;
-- curves/tables for threshold and method-response settings.
+`TPS movement -> Fuel: TPS AE change -> AccelThreshold`
 
-No Burn test is required because AE Tuner currently does not expose Burn.
+Authoritative current detector state:
 
-## Canonical AE parameter catalog
+- detector mechanism: **Dual Stride / Newest**;
+- Delta Window: **25 ms**;
+- Sample Length: **50 ms**;
+- fast TPS callback: **approximately 200 Hz**.
 
-`host/AeTuningParameterCatalog` defines the settings AE Tuner recognizes as part of the AE product domain.
+Product authority is intentionally narrower than the earlier detector research surface:
 
-Each catalog entry records:
+- **Engagement Model** — read-only controller context. AE Tuner does not ask the normal user to choose or tune alternate detector models.
+- **Dual Stride / Newest** — the accepted detector mechanism for the current controller setup, shown as context rather than as a tuning choice.
+- **Delta Window** — the current guarded timing A/B setting.
+- **Sample Length** — read-only context until an independent tuning rationale is established.
+- **Fast Callback** — read-only prerequisite/information. Approximately 200 Hz is the intended setup; AE Tuner explains this requirement but does not tune controller scheduling.
+- **Five-model comparison** — completed research tooling, not normal Guided functionality.
 
-- exact controller parameter name;
-- user-facing display name;
-- AE subsystem;
-- parameter shape;
-- unit;
-- dependency tier;
-- whether changing it can invalidate previously collected evidence.
+The newest-pair diagnostic may remain available as read-only verification/sanity evidence. It is not a competing user-selectable detector algorithm in normal Guided UX.
 
-Current subsystems:
+## Delta Window physical qualification — PASS
 
-1. `ENGAGEMENT_DETECTION`
-2. `TPS_AE`
-3. `MAP_PREDICT`
-4. `WALL_WETTING`
-5. `INSTANT_FUEL`
+The Delta Window scalar route has already been physically qualified in the real TunerStudio working tune:
 
-The dependency order is deliberately upstream-to-downstream:
+`25 ms -> temporary 24 ms -> Apply/readback PASS -> Restore 25 ms PASS`
 
-1. detector model;
-2. detector timing;
-3. detector threshold;
-4. method activation;
-5. transient response;
-6. fine correction.
+No engine-running capture and no Burn were required. The 24 ms value was only a nearby representation-check value, not a tuning recommendation.
 
-A change to an evidence-breaking upstream setting invalidates dependent downstream evidence. Example: changing Engagement Model or Delta Window makes previously captured threshold/TPS-AE/MAP-Predict evidence configuration-incompatible until it is re-established under the new detector configuration.
+Do not repeat this qualification unless the controller/host representation changes materially.
 
-Catalog membership makes a setting eligible for guarded Apply. Evidence/recommendation logic determines **what value, if any, should be proposed**.
+## Parameter catalog and task ownership
 
-## Engagement / Detection is a separate Guided recipe
+`host/AeTuningParameterCatalog` records controller settings that belong to the broader AE/transient-fuelling domain and their dependency relationships.
 
-`AE Engagement / Detection` is independent of `TPS AE` fuel.
+Catalog membership does **not** by itself mean the current Guided task is allowed to propose or write the setting. Product/task authority remains explicit and evidence-driven.
 
-Reason: the shared TPS movement detector may govern more than TPS AE fuel. MAP Predict can depend on the same driver-intent detection even when TPS AE fuel is disabled.
+A task becomes a credible functional tuner only when it has:
 
-The Dev20 recipe uses the common guarded-Apply contract. Its detector analysis can accumulate evidence without writing; once the detector tuning logic or an explicit operator setting selection produces a supported changed setting, Finish/Review exposes that exact `ProposalWritePlan` immediately. There is no additional read-only gate.
+1. understood controller/firmware semantics;
+2. mapped the real TunerStudio representation;
+3. defined required/context evidence and rejection rules;
+4. implemented suitable coaching and evidence acquisition;
+5. implemented bounded recommendation/A-B logic where justified;
+6. exposed an exact reviewed `ProposalWritePlan` only for settings it owns;
+7. qualified any newly used write representation once;
+8. validated the behavior against real evidence.
 
-Required detector evidence includes:
+Planned task scaffolds must not fabricate recommendation logic, evidence authority or write plans.
+
+## Evidence compatibility
+
+Tuning evidence should be ranked as:
+
+1. direct same-protocol A/B evidence under the current relevant calibration;
+2. accumulated evidence from the same relevant calibration state;
+3. older/different tune evidence as reference unless the relevant calibration fingerprint is demonstrably equivalent.
+
+Changes to materially upstream AE settings can invalidate dependent downstream evidence. Evidence from incompatible configurations must not be silently pooled.
+
+## Current Foundation evidence contract
+
+TPS Movement / Timing should retain enough evidence to understand intentional pedal movement, detector response and threshold behavior, including as available:
 
 - TPS;
-- selected `Fuel: TPS AE change`;
+- production `Fuel: TPS AE change`;
 - `AccelThreshold`;
-- legacy max-step delta;
-- timed max-step delta;
-- window-span delta;
-- rise-from-floor delta;
-- newest-pair delta;
-- actual AE window;
-- actual AE delta stride.
+- Dual Stride/Newest verification diagnostics;
+- actual AE window and stride;
+- threshold-active state;
+- downstream AE/MAP Predict activity as context.
 
-Useful context includes window sample count, smoothed delta TPS, current AE-active state, MAP Predict activity and downstream fuel-method outputs.
+The coached/review questions include:
 
-The review contract explicitly prioritizes:
+- does intentional TPS movement produce a prompt detector response?
+- does the detector clear when movement stops?
+- does it clear correctly through reversal/partial lift?
+- does a fresh reapply re-arm cleanly?
+- are stacked short events separated rather than retained as stale history?
+- does detector output cross `AccelThreshold` when intended without excessive false activation?
 
-- current driver intent;
-- opening -> hold drop-out;
-- reversal sign behavior;
-- partial lift -> reapply re-arm behavior;
-- stacked short-stab separation;
-- stale-positive retention/tails;
-- same-threshold comparison of all engagement models.
-
-## Detector working-tune snapshot
-
-`AeControllerBridge` now reads the upstream detector settings needed for reviewed changes into `AeProjectSnapshot`:
-
-- `tpsAeDetectMode` — Engagement Model;
-- `tpsAeDeltaWindowMs` — Delta Window;
-- `tpsAccelLookback` — Sample Length;
-- `tpsAeFastCallback` — fast callback bit/state;
-- `deltaTpsAverageAlpha` — delta-TPS smoothing context.
-
-The existing boolean reader remains deliberately conservative for shared bit fields: it prefers the controller parameter's displayed/string value and accepts the scalar fallback only when it is unambiguously 0 or 1. This avoids accidentally treating a containing bit-field word as the boolean value.
-
-## First implemented setting qualification — Delta Window scalar
-
-Dev20 now contains a complete first-use qualification route for the ordinary scalar `tpsAeDeltaWindowMs`.
-
-`EngagementDetectionGuidedFocusPanel` shows the current detector settings and exposes a Delta Window spinner. The spinner initializes from the exact working-tune value. Merely opening or refreshing Guided Focus does not create a proposal.
-
-Selecting another Delta Window stores an operator-requested value only. It does **not** write the ECU and it is explicitly not presented as an automatic tuning recommendation.
-
-After Engagement / Detection is Finished/Reviewed, `EngagementDetectionMethodModule.reviewedWritePlan()` converts that pending selection into `EngagementDetectionSettingProposal.deltaWindow(...)`, which creates exactly one scalar `ProposalWritePlan.Change` bound to the snapshot baseline. The ordinary shared **Apply Current Proposal** button then uses `ProposalApplyCoordinator`; no detector-specific writer exists.
-
-A fresh working-tune snapshot is also an explicit setting-selection boundary. Repeated UI refreshes of the same snapshot preserve a pending selection, while a real new Read Working Tune resets the requested Delta Window to the newly read baseline. This specifically prevents a temporary test value from silently reappearing after `Apply -> Restore -> Read Working Tune` when the restored numeric baseline equals the original value.
-
-Regression coverage exercises:
-
-- unchanged Delta Window -> no proposal;
-- exact 25 ms -> 24 ms scalar plan generation;
-- correct parameter allowlist (`tpsAeDeltaWindowMs` only);
-- stale baseline rejection before any write;
-- Apply + readback PASS;
-- Restore back to the exact prior value;
-- no Burn authority;
-- same-snapshot refresh preserves an intentional pending request;
-- fresh working-tune read clears a stale temporary request.
-
-This is source-level qualification of the generic scalar route. The remaining acceptance step is one real TunerStudio working-tune confirmation using a nearby temporary value and immediate Restore.
-
-## Current detector conclusion carried into the framework
-
-The current vehicle evidence selects **Dual stride, newest** as the preferred engagement model at the present test configuration:
-
-- Delta Window: 25 ms;
-- Sample Length: 50 ms;
-- fast TPS callback: 200 Hz.
-
-This is vehicle evidence, not a hard-coded universal default. AE Tuner should preserve the ability to evaluate detector settings on another tune/vehicle rather than assuming every installation must use those exact values.
-
-The 24 ms value used in Dev20 regression examples is only a nearby temporary scalar-write qualification value. It is **not** a recommendation to change the current 25 ms vehicle setting.
-
-## Evidence compatibility — next architectural step
-
-The catalog now defines dependency/evidence-breaking semantics, but Dev20 does not yet persist the complete AE configuration with every captured evidence set.
-
-The next bounded implementation should add an AE configuration fingerprint/snapshot that records materially relevant AE settings with Guided/Passive evidence. At minimum it should distinguish:
-
-- Engagement Model;
-- Delta Window;
-- Sample Length;
-- callback mode/rate where relevant;
-- TPS threshold/rate-of-change configuration;
-- enabled AE methods;
-- method-specific settings required by the active recipe.
-
-Evidence recorded under incompatible upstream settings must not be silently pooled.
+Delta Window may be tested as a one-setting-at-a-time baseline/change/repeated-maneuver A/B experiment. There is no automatic recommendation or automatic Apply.
 
 ## Validation boundary
 
-Regression coverage now asserts or is being updated to assert:
+RC2 validation must preserve:
 
-- every AE subsystem has catalogued settings;
-- exact current EpicEFI detector parameter names remain stable;
-- detector model/timing changes are upstream evidence dependencies;
-- VE and ignition remain outside the AE tuning catalog;
-- Engagement / Detection is a separate Guided route;
-- all five simultaneous engagement-model diagnostics are part of its evidence contract;
-- every completed Guided probe method may return a reviewed `ProposalWritePlan` through the common Apply path;
-- a method with no changed plan leaves Apply disabled without being classified read-only;
-- detector settings are present in the working-tune snapshot;
-- Delta Window has an exact scalar proposal route through the shared Apply/Restore coordinator;
-- capture itself never writes;
-- successful Apply/Restore requires a fresh working-tune read before another capture;
-- fresh working-tune reads clear stale detector test selections;
-- no burn path is introduced.
+- the seven-area general-AE product model;
+- coaching-first Guided behavior;
+- TPS Movement / Timing terminology and signal chain;
+- Dual Stride / Newest as read-only detector context;
+- Delta Window as the only current editable Foundation timing A/B setting;
+- Sample Length and Fast Callback as read-only context/prerequisite;
+- no normal five-model comparison or Engagement Model editor;
+- completed Delta Window physical qualification as PASS;
+- centralized guarded Apply/Restore only;
+- no automatic Apply and no Burn;
+- VE and ignition outside tuning authority;
+- deterministic full regression and synthetic real-plugin/Swing validation.
 
-After the real Delta Window scalar confirmation, the next detector representations to qualify should be handled independently rather than assuming scalar success proves them automatically: Engagement Model enum/bitfield, then the fast-callback shared-word boolean, followed by any additional scalar/curve/table settings as they first become tunable outputs.
+Historical Dev20 experiments remain useful engineering provenance in Git history, but they must not be mistaken for the current RC2 product contract.

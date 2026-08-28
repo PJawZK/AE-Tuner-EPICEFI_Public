@@ -11,17 +11,13 @@ import se.anders.tunerstudio.aetuner.proposal.ProposalWritePlan;
 
 import java.util.List;
 
-/** Shared TPS movement-detector evidence and direct-setting route. */
+/** TPS movement / threshold timing evidence and Delta Window A/B route. */
 public final class EngagementDetectionMethodModule extends AbstractProbeMethodModule {
     private static final ChannelRole[] REQUIRED = new ChannelRole[]{
             ChannelRole.RPM,
             ChannelRole.TPS,
             ChannelRole.DELTA_TPS,
             ChannelRole.ACCEL_THRESHOLD,
-            ChannelRole.AE_DELTA_MAX_STEP,
-            ChannelRole.AE_DELTA_TIMED,
-            ChannelRole.AE_DELTA_SPAN,
-            ChannelRole.AE_DELTA_FLOOR,
             ChannelRole.AE_DELTA_NEWEST_PAIR,
             ChannelRole.AE_WINDOW_MS,
             ChannelRole.AE_DELTA_STRIDE
@@ -38,92 +34,73 @@ public final class EngagementDetectionMethodModule extends AbstractProbeMethodMo
             ChannelRole.INSTANT_PULSE_PW
     };
 
-    @Override public GuidedTuningRecipe recipe() {
-        return GuidedTuningRecipe.ENGAGEMENT_DETECTION;
-    }
+    @Override public GuidedTuningRecipe recipe() { return GuidedTuningRecipe.ENGAGEMENT_DETECTION; }
 
-    @Override public String setupTitle() {
-        return "AE detector behavior / timing";
-    }
+    @Override public String setupTitle() { return "TPS movement / timing"; }
 
     @Override public String setupGuidance() {
-        return "Read Working Tune, then use Guided Focus as the driver-facing detector coach. Establish a baseline capture first: ordinary opening, quick stab->hold, partial lift->reapply and stacked short stabs. Watch the selected detector against AccelThreshold and compare all five detector outputs. Setting controls remain available as a secondary one-change-at-a-time A/B experiment after the baseline is reviewed.";
+        return "Read Working Tune, then use Guided Focus as a driver coach for TPS movement -> Fuel: TPS AE change -> AccelThreshold. Dual Stride / Newest is expected read-only controller context. Sample Length and Fast Callback are informational here; AE Tuner does not tune them. Establish a baseline before considering a Delta Window A/B experiment.";
     }
 
     @Override public String captureGoal() {
-        return "Build a repeatable detector-behavior baseline from varied real throttle events. Look for prompt genuine threshold crossings, fast drop-out when pedal motion stops, reversal clearing and clean fresh re-arm on reapply. After review, change one setting only and repeat the same maneuver set at similar RPM/load.";
+        return "Build repeatable TPS-movement timing evidence from ordinary openings, quick stab/hold, partial lift/reapply and stacked short stabs. Look for prompt intentional threshold crossings, quick clear when pedal movement stops and clean fresh re-arm on reapply.";
     }
 
     @Override public ChannelRole[] requiredRoles() { return REQUIRED.clone(); }
     @Override public ChannelRole[] contextRoles() { return CONTEXT.clone(); }
 
     @Override public String operatorInputs(AeProjectSnapshot snapshot) {
-        return "Read Working Tune first. Start a baseline capture and follow Guided Focus: normal moderate opening -> quick stab/hold -> partial lift/reapply -> stacked short stabs. Finish/Review before changing anything. For an A/B comparison, change ONE Detector Model / Timing setting in the secondary controls, review/apply it, Read Working Tune, then repeat the same maneuver set in similar conditions.";
+        return "Start a baseline capture and follow Guided Focus. Finish/Review before changing anything. If timing evidence justifies an A/B experiment, change Delta Window only, Apply/readback, Read Working Tune, then repeat the same maneuver set in similar conditions.";
     }
 
     @Override public String accumulationPlan() {
-        return "For every coherent evidence sample, retain production TPS change, AccelThreshold and all five detector outputs: legacy max step, timed max step, window span, rise from floor and newest pair. Also retain actual AE window and stride. Live visual/audio guidance helps execute comparable events; recorded channels remain the evidence.";
+        return "Retain TPS, production Fuel: TPS AE change, AccelThreshold, Dual Stride/Newest diagnostic output, actual AE window and stride. The production detected TPS change is the coached signal; the newest-pair diagnostic is a sanity/verification channel, not a competing user-selectable algorithm.";
     }
 
     @Override public String reviewOutputs() {
-        return "Evidence review: selected-output/threshold separation, all-five same-event comparison, stale-positive tails, hold drop-out, reversal clearing, lift/reapply re-arm behavior, stacked-event separation, actual window/stride and channel completeness. A/B setting review is exact current -> requested diff for Engagement Model, Delta Window, Sample Length and/or Fast Callback. No automatic recommendation, no automatic Apply and no burn.";
+        return "Evidence review: TPS-movement onset, detected-change/threshold separation, trigger timing, hold drop-out, reversal clearing, lift/reapply re-arm, stacked-event separation, actual window/stride and channel completeness. Delta Window may be tested through exact baseline -> one change -> repeated maneuver A/B. No automatic recommendation, no automatic Apply and no burn.";
     }
 
     @Override public String currentTuneContext(AeProjectSnapshot snapshot) {
         int parameterCount = AeTuningParameterCatalog.forSubsystem(
                 AeTuningParameterCatalog.Subsystem.ENGAGEMENT_DETECTION).size();
         if (snapshot == null) {
-            return "AE Engagement / Detection parameter family: " + parameterCount
-                    + " catalogued settings. Read Working Tune to load Engagement Model, Delta Window, Sample Length, callback rate and threshold context. Guided Focus should establish evidence before A/B setting experiments; no burn.";
+            return "AE Foundation detector/timing family: " + parameterCount
+                    + " catalogued settings. Read Working Tune to load detector mode, Delta Window, Sample Length, Fast Callback and threshold context. Only Delta Window is currently an AE Tuner A/B edit target.";
         }
         EngagementDetectionWriteSelection.observeWorkingTune(snapshot);
-        return "AE Engagement / Detection parameter family: " + parameterCount
+        return "AE Foundation detector/timing family: " + parameterCount
                 + " catalogued settings. " + snapshot.engagementSettingsText()
-                + ". Guided Focus uses these as the baseline for live detector coaching. Secondary setting controls create explicit operator proposals only; they are not automatic tuning recommendations.";
+                + ". Engagement Model, Sample Length and Fast Callback are read-only context; Delta Window is the current guarded A/B setting.";
     }
 
     @Override public boolean activityObserved(LiveSample sample) {
         if (sample == null) return false;
+        double delta = sample.get(ChannelRole.DELTA_TPS);
         double threshold = sample.get(ChannelRole.ACCEL_THRESHOLD);
-        if (!Double.isFinite(threshold)) {
-            return positive(sample, ChannelRole.DELTA_TPS);
-        }
-        return above(sample, ChannelRole.AE_DELTA_MAX_STEP, threshold)
-                || above(sample, ChannelRole.AE_DELTA_TIMED, threshold)
-                || above(sample, ChannelRole.AE_DELTA_SPAN, threshold)
-                || above(sample, ChannelRole.AE_DELTA_FLOOR, threshold)
-                || above(sample, ChannelRole.AE_DELTA_NEWEST_PAIR, threshold);
+        if (!Double.isFinite(delta)) return false;
+        if (!Double.isFinite(threshold)) return delta > 0.0;
+        return delta > threshold;
     }
 
     @Override public ProposalWritePlan explicitSettingWritePlan(AeProjectSnapshot snapshot) {
-        return selectedDetectorSettingsPlan(snapshot);
+        return selectedDeltaWindowPlan(snapshot);
     }
 
     @Override public ProposalWritePlan reviewedWritePlan(AeProjectSnapshot snapshot,
                                                           List<LiveSample> evidence) {
-        // No automatic evidence-derived detector recommendation yet. A pending
-        // explicit operator setting remains available after an evidence capture.
-        return selectedDetectorSettingsPlan(snapshot);
+        // No automatic evidence-derived recommendation yet. Only an explicit
+        // operator-selected Delta Window A/B proposal may be returned.
+        return selectedDeltaWindowPlan(snapshot);
     }
 
-    private ProposalWritePlan selectedDetectorSettingsPlan(AeProjectSnapshot snapshot) {
+    private ProposalWritePlan selectedDeltaWindowPlan(AeProjectSnapshot snapshot) {
         if (snapshot == null) return null;
         EngagementDetectionWriteSelection.observeWorkingTune(snapshot);
         EngagementDetectionWriteSelection.Snapshot selection =
                 EngagementDetectionWriteSelection.snapshot();
-        if (!selection.hasRequestedChange()) return null;
-        return EngagementDetectionSettingProposal.detectorSettings(
-                snapshot,
-                selection.modelBaselineAvailable ? selection.requestedEngagementModel : null,
-                selection.baselineAvailable ? selection.requestedDeltaWindowMs : Double.NaN,
-                selection.sampleLengthBaselineAvailable
-                        ? selection.requestedSampleLengthSeconds : Double.NaN,
-                selection.fastCallbackBaselineAvailable
-                        ? Boolean.valueOf(selection.requestedFastCallback) : null);
-    }
-
-    private static boolean above(LiveSample sample, ChannelRole role, double threshold) {
-        double value = sample.get(role);
-        return Double.isFinite(value) && value > threshold;
+        if (!selection.hasRequestedDeltaWindowChange()) return null;
+        return EngagementDetectionSettingProposal.deltaWindow(
+                snapshot, selection.requestedDeltaWindowMs);
     }
 }

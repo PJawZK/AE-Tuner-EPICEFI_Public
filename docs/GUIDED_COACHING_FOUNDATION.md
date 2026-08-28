@@ -90,14 +90,15 @@ The same principle applies to RPM/load/gear/boost regions that require a later r
 
 ## Current decisions retained in the proposal catalog
 
-### Detector Model / Timing
+### TPS Movement / Timing
 
-Normal Guided focus is TPS movement -> production detector output -> `AccelThreshold`.
+Normal Guided focus is `TPS movement -> Fuel: TPS AE change -> AccelThreshold`.
 
-- Engagement Model comparison is temporary research and should not remain a normal user-facing tuning control once the firmware choice is accepted.
-- Fast Callback is prerequisite/context, not a normal AE Tuner tuning target. The current vehicle intends the ~200 Hz path.
-- Delta Window is the meaningful current A/B timing experiment.
-- Sample Length requires firmware-semantics review before AE Tuner presents it as a meaningful tuning experiment.
+- Dual Stride / Newest is the accepted detector mechanism and remains read-only controller context in normal Guided UX.
+- The completed Engagement Model comparison/editing research is not a normal user-facing tuning control and must not be resurrected.
+- Fast Callback is prerequisite/context, not a normal AE Tuner tuning target. The intended workflow uses the approximately 200 Hz path.
+- Delta Window is the meaningful current guarded A/B timing experiment.
+- Sample Length is read-only context until an independent tuning rationale is established.
 
 ### MAP Estimate Table
 

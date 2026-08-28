@@ -11,7 +11,7 @@ Allowed capabilities include:
 - capturing and exporting evidence;
 - computing draft/proposed settings;
 - providing confidence, suitability and safety warnings;
-- explicit reviewed working-tune/RAM Apply for supported representations;
+- explicit reviewed working-tune/RAM Apply for representations/settings currently owned by the active task;
 - explicit verified Restore of prior AE Tuner applies.
 
 VE and ignition remain outside AE Tuner tuning authority. Ignition may be observed only as context/confounder information.
@@ -20,6 +20,7 @@ VE and ignition remain outside AE Tuner tuning authority. Ignition may be observ
 
 A supported write is permitted only when all of the following are true:
 
+- the active Guided task owns the setting/representation;
 - the operator explicitly requests Apply;
 - a reviewed immutable `ProposalWritePlan` exists;
 - target parameter/cell identity is allowlisted/catalogued;
@@ -49,13 +50,15 @@ All production tune mutation remains centralized in `host/ProposalApplyCoordinat
 
 Software tests verify routing, bounds and mutation isolation logic, but a newly supported controller/INI representation should also receive one real TunerStudio Apply/readback/Restore qualification before it is described as physically proven.
 
-The Blend Duration representation has this physical evidence.
+Completed physical qualifications include:
 
-Current outstanding check:
+- Predictive MAP Blend Duration;
+- MAP Estimate indexed table cells;
+- Detector Delta Window scalar: `25 ms -> temporary value -> Apply/readback PASS -> Restore 25 ms PASS`.
 
-`Detector Delta Window 25 ms -> temporary 24 ms -> Apply/readback -> Restore 25 ms`
+Sample Length and Fast Callback write experiments also physically worked during development, but both are read-only context/prerequisite in current product authority. Engagement Model representation research was completed, but Engagement Model editing itself is scrapped from the product path.
 
-The temporary value is a representation test only.
+Completed qualifications are not repeated unless the controller/host representation changes materially.
 
 ## Vehicle-test safety
 
@@ -63,6 +66,7 @@ The temporary value is a representation test only.
 - Do not request full-throttle operation merely to collect transient evidence.
 - Prefer moderate controlled loaded tip-ins when full load is unnecessary.
 - Driver View should minimize distraction and use clear visual/audio cues.
+- Driver View must not use a root scrollbar or jump the viewport during live updates.
 - A/B tests should change one relevant setting at a time where practical.
 - Stop or withhold evidence when required channels, controller state or maneuver comparability are inadequate.
 
@@ -86,6 +90,7 @@ A public prerelease must clearly distinguish:
 
 - software/runtime functionality that is regression/synthetic tested;
 - write representations that have real Apply/Restore isolation evidence;
+- settings that are currently read-only product context even if development write experiments once existed;
 - planned/coaching-only Guided tasks;
 - numerical tuning conclusions that still require vehicle-specific evidence.
 

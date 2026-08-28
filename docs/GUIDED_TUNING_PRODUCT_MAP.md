@@ -22,11 +22,13 @@ This document records the intended Guided Tuning shape derived from the current 
 
 ### AE Foundation
 
-1. **Detector Model / Timing** — active Dev20 route
-   - Engagement Model (`tpsAeDetectMode`)
-   - Delta Window (`tpsAeDeltaWindowMs`)
-   - Sample Length (`tpsAccelLookback`)
-   - fast callback (`tpsAeFastCallback`)
+1. **TPS Movement / Timing** — active Dev20 route
+   - normal tuning question: `TPS movement -> Fuel: TPS AE change -> AccelThreshold`
+   - Dual Stride / Newest: read-only controller context
+   - Delta Window (`tpsAeDeltaWindowMs`): current guarded timing A/B setting
+   - Sample Length (`tpsAccelLookback`): read-only context
+   - Fast Callback (`tpsAeFastCallback`): read-only prerequisite/information; approximately 200 Hz intended
+   - alternate detector models and Engagement Model editing are not exposed in normal Guided UX
 2. **Threshold / Sensitivity** — planned
    - `deltaTpsAverageAlpha`
    - `tpsAeUseDynamicThreshold`

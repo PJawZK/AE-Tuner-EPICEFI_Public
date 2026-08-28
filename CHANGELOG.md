@@ -1,29 +1,46 @@
 # Changelog
 
-## 0.4.2-rc.1 — release candidate — 2026-08-28
+## 0.4.2-rc.2 — release candidate — 2026-08-28
 
 Status: **RELEASE CANDIDATE / PUBLIC TEST**.
 
-- Full release-candidate identity: `0.4.2-rc.1`.
-- Private authority RC commit: `778a6da72a5ec1d05bcc510ed8fca0c9439189c8`.
+- Full release-candidate identity: `0.4.2-rc.2`.
+- Exact validated private product source: `49b8e4cfad84050e31bf829e9006282b7f6fb960`.
+- Private validation workflow: `33170088930`.
+- RC JAR: `ae-tuner-epicefi-0.4.2-rc.2.jar`.
+- RC JAR SHA-256: `243f79de8fbfc93f1ef90754a9fc24d5e1c768338f3e75dc9e62a0a2855c6ea6`.
+- Java target: Java 8 bytecode.
+- Supersedes `v0.4.2-rc.1` for public testing because RC1 retained temporary detector-research/editing surfaces that were no longer part of the intended product path.
+- Renames **Detector Model / Timing** to **TPS Movement / Timing**.
+- Centers the normal Foundation Focus on `TPS movement -> Fuel: TPS AE change -> AccelThreshold`.
+- Keeps Dual Stride / Newest as read-only controller context rather than a user-selectable tuning choice.
+- Removes the normal five-model comparison and Engagement Model editing path.
+- Keeps Sample Length as read-only context.
+- Keeps Fast Callback as read-only prerequisite/information; approximately 200 Hz is the intended setup.
+- Retains Delta Window as the current guarded timing A/B setting.
+- Records the already-completed physical Delta Window qualification correctly: `25 ms -> temporary 24 ms -> Apply/readback PASS -> Restore 25 ms PASS`.
+- Simplifies TPS Movement / Timing Driver View around coaching, removes the root scroll container, and hides the secondary Delta Window experiment controls in Driver View.
+- Preserves the seven-area general AE / transient-fuelling product direction and coaching-first Guided foundation.
+- Removes obsolete Engagement Model/Fast Callback write-routing regressions from the product source/tests.
+- Keeps automatic Apply prohibited, explicit guarded Apply/Restore only, and no Burn authority.
+- VE and ignition remain outside AE Tuner tuning authority.
+- Full private regression validation, static/write safety, synthetic real-plugin/Swing integration, width checks, long-session characterization, deterministic checksum recording and artifact upload passed for the exact RC2 source before public export.
+
+## 0.4.2-rc.1 — release candidate — 2026-08-28
+
+Status: **SUPERSEDED PUBLIC TEST**.
+
+- Private validated source: `778a6da72a5ec1d05bcc510ed8fca0c9439189c8`.
+- Public source commit: `5c02477b20b532fc6e5f76a009e0fe2e2fa5e54d`.
 - RC JAR: `ae-tuner-epicefi-0.4.2-rc.1.jar`.
 - RC JAR SHA-256: `500fb9f7b5f7cf79701b61af48c49c5ec58c0427a82758446e5d18dc61f219e6`.
-- Java target: Java 8 bytecode.
 - Published as GitHub prerelease `v0.4.2-rc.1` for broader public testing and feedback.
-- Reframes AE Tuner as a general transient-fuelling / AE tuner rather than a MAP Predict-only tool.
-- Adds seven Guided Tuning areas: AE Foundation, TPS AE, MAP Predict, Wall Wetting, Decel / Tip-out, Optional / Residual Correction, and Review / Simplification.
-- Adds a provisional Guided task map with local numbering inside each area.
-- Adds a coaching-first foundation across the complete Guided task map while keeping planned tasks honest about incomplete evidence/recommendation logic.
-- Preserves specialized real Guided behaviour where already implemented, including MAP Estimate and Detector Model / Timing Focus surfaces.
-- Adds Engagement/Detection working-tune setting support for Engagement Model, Delta Window, Sample Length and Fast Callback through the shared guarded proposal/write architecture.
-- Preserves the centralized explicit `ProposalWritePlan` Apply/readback/Restore contract.
-- Automatic Apply remains prohibited.
-- ECU Burn remains unavailable; there is no Burn button or production Burn API.
-- VE and ignition remain outside AE Tuner tuning authority; ignition is observation/confounder context only.
-- Carries forward Passive analysis, session exports, recovery/audit support, audio-led Guided operation, bounded Guided sample dispatch and long-session safeguards.
-- Full private regression validation and synthetic real-plugin/Swing integration passed for the exact RC identity before publication.
-- Detector Delta Window `25 -> temporary 24 -> verified Apply -> Restore 25` remains a bounded setting-representation qualification path; `24 ms` is not a tuning recommendation.
-- Blend Duration numerical conversion remains withheld until its model is sufficiently validated.
+- Reframed AE Tuner as a general transient-fuelling / AE tuner rather than a MAP Predict-only tool.
+- Added seven Guided Tuning areas: AE Foundation, TPS AE, MAP Predict, Wall Wetting, Decel / Tip-out, Optional / Residual Correction, and Review / Simplification.
+- Added a provisional Guided task map and coaching-first foundation.
+- RC1 still retained temporary Engagement Model, Sample Length and Fast Callback editing/research surfaces that were removed from the intended RC2 product boundary.
+- RC1 publication text also incorrectly described Delta Window physical qualification as pending even though the scalar Apply/readback/Restore test had already passed.
+- RC1 remains available as provenance and rollback history; RC2 is the corrected public-test candidate.
 
 ## 0.4.1 — accepted internal project milestone — 2026-08-10
 
@@ -35,7 +52,6 @@ Status: **ACCEPTED PROJECT MILESTONE / NOT SEPARATELY PUBLISHED AS A PUBLIC GITH
 - Added safer staged session-folder publication and background serialization.
 - Improved report ordering and normalized Guided event/diagnostic CSV output.
 - Passed real TunerStudio use and automated promotion gates.
-- This milestone was subsequently incorporated into the broader `0.4.2-rc.1` public line rather than receiving its own public release tag.
 
 ## 0.4.0 — stable public release — 2026-08-09
 
@@ -47,12 +63,11 @@ Status: **ACCEPTED / PUBLIC STABLE**.
 - Promoted the physically validated `0.4.0-vehicle-test.12` Guided/runtime architecture.
 - Added adaptive Guided Capture, audio cues, natural opening/plateau handling, comparability grouping and prediction-active Blend Duration measurement anchoring.
 - Completed the major package/runtime decomposition and bounded Guided dispatcher architecture.
-- Preserved Passive analysis and read-only tuning guidance in that stable line.
 
 ## 0.3.19-rc.1 — historical public release candidate — 2026-08-02
 
 - Historical prerelease preceding the 0.4.x Guided architecture.
-- Superseded by `v0.4.0` and later `v0.4.2-rc.1`.
+- Superseded by `v0.4.0` and later `v0.4.2` release candidates.
 
 ## 0.3.18 — historical stable release
 

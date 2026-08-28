@@ -42,7 +42,7 @@ import java.util.function.Supplier;
 
 /** Thin TunerStudio host shell for AE Tuner (EPICEFI). */
 public final class AeTunerPlugin implements ApplicationPlugin {
-    public static final String VERSION = "0.4.2-rc.1";
+    public static final String VERSION = "0.4.2-rc.2";
     public static final String PUBLIC_REPOSITORY_URL =
             "https://github.com/PJawZK/AE-Tuner-EPICEFI_Public";
     static final String VEHICLE_TEST_BANNER =
@@ -104,7 +104,7 @@ public final class AeTunerPlugin implements ApplicationPlugin {
 
         vehicleTestStatus.setFont(vehicleTestStatus.getFont().deriveFont(Font.BOLD));
         vehicleTestStatus.setToolTipText(
-                "0.4.2-rc.1 release candidate / public test build. Guarded working-tune Apply/Restore is now a normal Guided contract whenever a reviewed method has an explicit changed plan. Engagement/Detection exposes the first scalar qualification target, Delta Window. Capture never writes automatically and no burn exists.");
+                "0.4.2-rc.2 release candidate / public test build. Guided TPS Movement / Timing coaches production detected TPS change against AccelThreshold. Delta Window is the physically qualified A/B setting; detector mode, Sample Length and Fast Callback are read-only context. Capture never writes automatically and no burn exists.");
 
         JPanel soundBar = new JPanel(new WrapLayout(FlowLayout.LEFT, 8, 3));
         soundBar.add(soundCues);
@@ -116,7 +116,7 @@ public final class AeTunerPlugin implements ApplicationPlugin {
         testSound.setToolTipText("Preview the current READY cue while stationary.");
         openAudioLab.setToolTipText("Open Evidence / Diagnostics -> Audio Cue Lab.");
         openGuidedFocus.setToolTipText(
-                "Open the modeless Guided Focus pop-out. MAP Estimate has the learned-surface heat map; Engagement / Detection exposes working-tune detector settings and the explicit Delta Window proposal control.");
+                "Open the modeless Guided Focus pop-out. MAP Estimate has the learned-surface heat map; TPS Movement / Timing coaches detected TPS movement and offers only the secondary Delta Window A/B control.");
 
         panel.setRecoveryDirtyAction(new Runnable() {
             @Override public void run() { recoveryManager.requestCheckpoint(); }
@@ -282,12 +282,12 @@ public final class AeTunerPlugin implements ApplicationPlugin {
                 + "1. Read and verify the current working tune.\n"
                 + "2. Choose one AE method in Guided Tuning. The selected method states its operator action, required channels, context channels, accumulation rule and review output.\n"
                 + "3. Capture never writes. After Finish/Review, any method that has an actual explicit ProposalWritePlan may use the common stale-check -> Apply -> readback -> Restore gateway. No burn exists.\n"
-                + "4. Engagement / Detection is upstream of the fuel methods. RC1 reads Engagement Model, Delta Window, Sample Length, fast-callback state and smoothing context from the working tune; the first write-representation qualification is the ordinary scalar Delta Window.\n"
+                + "4. TPS Movement / Timing is upstream of the fuel methods. AE Tuner reads detector mode, Delta Window, Sample Length and Fast Callback for context. Delta Window is physically qualified for guarded A/B changes; detector mode, Sample Length and Fast Callback are read-only in this workflow.\n"
                 + "5. MAP Estimate keeps accepted stable MAP at its actual TPS/RPM coordinates in compact learned memory and retains its existing guarded table Apply/Restore path.\n"
                 + "6. TPS AE groups coherent bursts into complete transient windows and reuses the existing conservative table generator; MAP Predict, Wall Wetting and Instant Fuel retain isolated evidence/review logic while their numerical tuning rules are expanded.\n"
                 + "7. After any successful Apply or Restore, Read Working Tune again before another capture so new evidence cannot silently use a pre-write baseline. Apply/Restore itself does not require the engine to be running.\n\n"
                 + "RELEASE CANDIDATE STATUS\n==========================\n"
-                + "0.4.2-rc.1 is a release candidate for public testing of the general-AE / detector-setting foundation. Delta Window is exposed as an explicit operator-selected working-tune proposal in Guided Focus so the scalar controller representation can be checked with a nearby temporary value and immediately restored. That temporary value is not presented as a tuning recommendation. Enum and shared-bit detector settings are intentionally qualified separately.\n\n"
+                + "0.4.2-rc.2 is a release candidate for public testing of the general-AE / coaching foundation. Delta Window is already physically qualified for guarded Apply/readback/Restore and remains the explicit TPS Movement / Timing A/B setting. The temporary Engagement Model editing experiment has been removed; Sample Length and Fast Callback are read-only context.\n\n"
                 + "Blend Duration numerical conversion remains withheld until its model is validated. Guarded Apply/Restore infrastructure is shared across Guided methods; there is no Burn button or burn API."
         );
         overviewPlan.setCaretPosition(0);

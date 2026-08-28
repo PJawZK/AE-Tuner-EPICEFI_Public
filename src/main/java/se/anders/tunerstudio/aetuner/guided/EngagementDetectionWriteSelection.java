@@ -3,19 +3,20 @@ package se.anders.tunerstudio.aetuner.guided;
 import se.anders.tunerstudio.aetuner.model.AeProjectSnapshot;
 import se.anders.tunerstudio.aetuner.model.EngagementModelOption;
 
-/** UI-only requested setting state; this class never writes the ECU. */
+/**
+ * UI-only state for the one supported TPS Movement / Timing A/B setting:
+ * Delta Window. Engagement Model, Sample Length and Fast Callback are retained
+ * as read-only working-tune context and are not AE Tuner edit targets.
+ */
 public final class EngagementDetectionWriteSelection {
     public static final class Snapshot {
         public final String configurationName;
         public final String engagementModel;
         public final EngagementModelOption baselineEngagementModel;
-        public final EngagementModelOption requestedEngagementModel;
         public final double baselineDeltaWindowMs;
         public final double requestedDeltaWindowMs;
         public final double baselineSampleLengthSeconds;
-        public final double requestedSampleLengthSeconds;
         public final boolean baselineFastCallback;
-        public final boolean requestedFastCallback;
         public final boolean baselineAvailable;
         public final boolean modelBaselineAvailable;
         public final boolean sampleLengthBaselineAvailable;
@@ -23,33 +24,23 @@ public final class EngagementDetectionWriteSelection {
 
         private Snapshot(String configurationName, String engagementModel,
                          EngagementModelOption baselineEngagementModel,
-                         EngagementModelOption requestedEngagementModel,
                          double baselineDeltaWindowMs, double requestedDeltaWindowMs,
                          double baselineSampleLengthSeconds,
-                         double requestedSampleLengthSeconds,
-                         boolean baselineFastCallback, boolean requestedFastCallback,
+                         boolean baselineFastCallback,
                          boolean baselineAvailable, boolean modelBaselineAvailable,
                          boolean sampleLengthBaselineAvailable,
                          boolean fastCallbackBaselineAvailable) {
             this.configurationName = configurationName;
             this.engagementModel = engagementModel;
             this.baselineEngagementModel = baselineEngagementModel;
-            this.requestedEngagementModel = requestedEngagementModel;
             this.baselineDeltaWindowMs = baselineDeltaWindowMs;
             this.requestedDeltaWindowMs = requestedDeltaWindowMs;
             this.baselineSampleLengthSeconds = baselineSampleLengthSeconds;
-            this.requestedSampleLengthSeconds = requestedSampleLengthSeconds;
             this.baselineFastCallback = baselineFastCallback;
-            this.requestedFastCallback = requestedFastCallback;
             this.baselineAvailable = baselineAvailable;
             this.modelBaselineAvailable = modelBaselineAvailable;
             this.sampleLengthBaselineAvailable = sampleLengthBaselineAvailable;
             this.fastCallbackBaselineAvailable = fastCallbackBaselineAvailable;
-        }
-
-        public boolean hasRequestedModelChange() {
-            return modelBaselineAvailable && requestedEngagementModel != null
-                    && requestedEngagementModel != baselineEngagementModel;
         }
 
         public boolean hasRequestedDeltaWindowChange() {
@@ -57,41 +48,24 @@ public final class EngagementDetectionWriteSelection {
                     && Math.abs(requestedDeltaWindowMs - baselineDeltaWindowMs) > 0.000001;
         }
 
-        public boolean hasRequestedSampleLengthChange() {
-            return sampleLengthBaselineAvailable && Double.isFinite(requestedSampleLengthSeconds)
-                    && Math.abs(requestedSampleLengthSeconds
-                    - baselineSampleLengthSeconds) > 0.000001;
-        }
-
-        public boolean hasRequestedFastCallbackChange() {
-            return fastCallbackBaselineAvailable
-                    && requestedFastCallback != baselineFastCallback;
-        }
-
         public boolean hasRequestedChange() {
-            return hasRequestedModelChange()
-                    || hasRequestedDeltaWindowChange()
-                    || hasRequestedSampleLengthChange()
-                    || hasRequestedFastCallbackChange();
+            return hasRequestedDeltaWindowChange();
         }
     }
 
     private static String configurationName = "";
     private static String engagementModel = "unknown";
     private static EngagementModelOption baselineEngagementModel;
-    private static EngagementModelOption requestedEngagementModel;
     private static double baselineDeltaWindowMs = Double.NaN;
     private static double requestedDeltaWindowMs = Double.NaN;
     private static double baselineSampleLengthSeconds = Double.NaN;
-    private static double requestedSampleLengthSeconds = Double.NaN;
     private static boolean baselineFastCallback;
-    private static Boolean requestedFastCallback;
     private static boolean fastCallbackBaselineAvailable;
     private static AeProjectSnapshot observedSnapshot;
 
     private EngagementDetectionWriteSelection() { }
 
-    /** A fresh Read Working Tune snapshot resets every temporary operator choice. */
+    /** A fresh Read Working Tune snapshot resets the temporary Delta Window choice. */
     public static synchronized void observeWorkingTune(AeProjectSnapshot snapshot) {
         if (snapshot == null) return;
         String nextConfiguration = snapshot.getConfigurationName() == null
@@ -105,12 +79,7 @@ public final class EngagementDetectionWriteSelection {
         boolean nextFastAvailable = snapshot.hasEngagementFastCallback();
         boolean freshSnapshot = snapshot != observedSnapshot;
         boolean configurationChanged = !nextConfiguration.equals(configurationName);
-        boolean modelChanged = nextModel != baselineEngagementModel;
         boolean deltaChanged = finiteChanged(nextDelta, baselineDeltaWindowMs);
-        boolean sampleLengthChanged = finiteChanged(
-                nextSampleLength, baselineSampleLengthSeconds);
-        boolean fastCallbackChanged = nextFastAvailable != fastCallbackBaselineAvailable
-                || (nextFastAvailable && nextFastCallback != baselineFastCallback);
 
         observedSnapshot = snapshot;
         configurationName = nextConfiguration;
@@ -121,30 +90,10 @@ public final class EngagementDetectionWriteSelection {
         baselineFastCallback = nextFastCallback;
         fastCallbackBaselineAvailable = nextFastAvailable;
 
-        if (freshSnapshot || configurationChanged || modelChanged
-                || requestedEngagementModel == null) {
-            requestedEngagementModel = nextModel;
-        }
         if (freshSnapshot || configurationChanged || deltaChanged
                 || !Double.isFinite(requestedDeltaWindowMs)) {
             requestedDeltaWindowMs = Double.isFinite(nextDelta) ? nextDelta : Double.NaN;
         }
-        if (freshSnapshot || configurationChanged || sampleLengthChanged
-                || !Double.isFinite(requestedSampleLengthSeconds)) {
-            requestedSampleLengthSeconds = Double.isFinite(nextSampleLength)
-                    ? nextSampleLength : Double.NaN;
-        }
-        if (freshSnapshot || configurationChanged || fastCallbackChanged
-                || requestedFastCallback == null) {
-            requestedFastCallback = Boolean.valueOf(nextFastCallback);
-        }
-    }
-
-    public static synchronized void requestEngagementModel(EngagementModelOption value) {
-        if (value == null) {
-            throw new IllegalArgumentException("Engagement Model request is required");
-        }
-        requestedEngagementModel = value;
     }
 
     public static synchronized void requestDeltaWindowMs(double value) {
@@ -154,25 +103,12 @@ public final class EngagementDetectionWriteSelection {
         requestedDeltaWindowMs = value;
     }
 
-    public static synchronized void requestSampleLengthSeconds(double value) {
-        if (!Double.isFinite(value) || value <= 0.0) {
-            throw new IllegalArgumentException("Sample Length request must be finite and positive");
-        }
-        requestedSampleLengthSeconds = value;
-    }
-
-    public static synchronized void requestFastCallback(boolean value) {
-        requestedFastCallback = Boolean.valueOf(value);
-    }
-
     public static synchronized Snapshot snapshot() {
         return new Snapshot(configurationName, engagementModel,
-                baselineEngagementModel, requestedEngagementModel,
+                baselineEngagementModel,
                 baselineDeltaWindowMs, requestedDeltaWindowMs,
-                baselineSampleLengthSeconds, requestedSampleLengthSeconds,
+                baselineSampleLengthSeconds,
                 baselineFastCallback,
-                requestedFastCallback == null
-                        ? baselineFastCallback : requestedFastCallback.booleanValue(),
                 Double.isFinite(baselineDeltaWindowMs),
                 baselineEngagementModel != null,
                 Double.isFinite(baselineSampleLengthSeconds),
@@ -183,13 +119,10 @@ public final class EngagementDetectionWriteSelection {
         configurationName = "";
         engagementModel = "unknown";
         baselineEngagementModel = null;
-        requestedEngagementModel = null;
         baselineDeltaWindowMs = Double.NaN;
         requestedDeltaWindowMs = Double.NaN;
         baselineSampleLengthSeconds = Double.NaN;
-        requestedSampleLengthSeconds = Double.NaN;
         baselineFastCallback = false;
-        requestedFastCallback = null;
         fastCallbackBaselineAvailable = false;
         observedSnapshot = null;
     }

@@ -22,9 +22,9 @@ public final class GuidedTuningNavigationRegressionTest {
             require(panel.selectedTuningAreaForTest().equals("AE Foundation"),
                     "AE Foundation must be the initial Guided tuning area");
             require(panel.tuningTaskCountForTest() == 3,
-                    "Foundation must expose model/timing, threshold/sensitivity and validation tasks");
-            require(panel.selectedTuningTaskForTest().contains("1. Detector Model / Timing"),
-                    "Detector Model / Timing must be the first AE tuning task");
+                    "Foundation must expose TPS movement/timing, threshold/sensitivity and validation tasks");
+            require(panel.selectedTuningTaskForTest().contains("1. TPS Movement / Timing"),
+                    "TPS Movement / Timing must be the first AE tuning task");
         } finally {
             panel.disposePanel();
         }

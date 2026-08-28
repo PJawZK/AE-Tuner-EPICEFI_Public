@@ -16,10 +16,10 @@ package se.anders.tunerstudio.aetuner.guided;
  */
 public enum GuidedTuningRecipe {
     ENGAGEMENT_DETECTION(
-            "1. Detector Model / Timing",
-            "Detector setting review + evidence available",
+            "1. TPS Movement / Timing",
+            "Coached timing evidence + Delta Window A/B available",
             true,
-            "Choose and characterize the shared throttle-opening detector. Current controls include Engagement Model, Delta Window, Sample Length and callback rate. Delta Window already has direct reviewed Apply/Restore; other representations are qualified separately."),
+            "Coach repeatable TPS movement against production detected TPS change and AccelThreshold. Dual Stride / Newest is expected read-only detector context. Delta Window is the physically qualified A/B setting; Sample Length and Fast Callback are informational/read-only here."),
     FOUNDATION_THRESHOLD(
             "2. Threshold / Sensitivity",
             "Planned Guided scaffold",

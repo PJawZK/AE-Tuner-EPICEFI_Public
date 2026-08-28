@@ -2,27 +2,44 @@
 
 This file records the relationship between the private engineering authority and the sanitized public distribution.
 
-## Current release candidate — 0.4.2-rc.1
+## Current release candidate — 0.4.2-rc.2
 
 - Project: AE Tuner (EPICEFI)
-- Public status: **release candidate / public test release**
-- Version: `0.4.2-rc.1`
+- Public status: **full release candidate / public test source**
+- Version: `0.4.2-rc.2`
 - Private authority repository: `PJawZK/AE-Tuner-EPICEFI-`
-- Private authority RC commit: `778a6da72a5ec1d05bcc510ed8fca0c9439189c8`
-- Private validation workflow run: `33160366938`
+- Exact validated private product source: `49b8e4cfad84050e31bf829e9006282b7f6fb960`
+- Private validation workflow run: `33170088930`
 - Public downstream repository: `PJawZK/AE-Tuner-EPICEFI_Public`
-- JAR: `ae-tuner-epicefi-0.4.2-rc.1.jar`
-- JAR SHA-256: `500fb9f7b5f7cf79701b61af48c49c5ec58c0427a82758446e5d18dc61f219e6`
+- JAR: `ae-tuner-epicefi-0.4.2-rc.2.jar`
+- JAR SHA-256: `243f79de8fbfc93f1ef90754a9fc24d5e1c768338f3e75dc9e62a0a2855c6ea6`
 - Java bytecode target: `8`
-- GitHub release tag: `v0.4.2-rc.1`
+- Intended GitHub release tag: `v0.4.2-rc.2`
 
-The RC was produced by promoting the validated Dev20 feature state to a release-candidate identity and rerunning the complete private validation gate. Full repository validation, static/write safety checks, synthetic real-plugin/Swing integration, layout checks and long-session characterization all passed before publication.
+The exact private source above passed the complete permanent validation workflow: full regression validation, static/write safety, synthetic real-plugin/Swing integration, 1366/1024/820 width checks, long-session characterization, deterministic checksum recording, and validated-JAR artifact upload.
+
+The final deterministic JAR reproduced the same SHA-256 previously observed during intermediate RC2 builds, making that checksum authoritative for the validated source.
+
+## Why RC2 supersedes RC1
+
+`v0.4.2-rc.1` remains historical provenance, but RC2 supersedes it for public testing because RC1 retained temporary detector-research/editing surfaces that were no longer part of the intended product path and incorrectly described Delta Window qualification as pending.
+
+RC2 corrects that product boundary:
+
+- first Foundation task is **TPS Movement / Timing**;
+- normal signal chain is `TPS movement -> Fuel: TPS AE change -> AccelThreshold`;
+- Dual Stride / Newest is read-only controller context;
+- Delta Window is the current guarded timing A/B setting;
+- Sample Length is read-only context;
+- Fast Callback is read-only prerequisite/information, with approximately 200 Hz intended;
+- alternate detector models and the five-model comparison are not normal Guided functionality;
+- Engagement Model editing is removed from the product path.
 
 ## Public source relationship
 
-The public RC source is derived from the exact private RC product source while deliberately excluding private-only and third-party material.
+The public RC2 source is derived from the exact validated private product source while deliberately excluding private-only and third-party material.
 
-The public distribution includes the AE Tuner product source, tests, deterministic build/validation scripts, Maven metadata, licensing files and selected public-facing design/safety documentation needed to understand the RC.
+The public distribution includes AE Tuner product source, tests, deterministic build/validation scripts, Maven metadata, licensing files, and selected public-facing design/safety documentation.
 
 The public distribution intentionally excludes:
 
@@ -30,13 +47,13 @@ The public distribution intentionally excludes:
 - private vehicle logs and tune files;
 - private generated evidence/recovery packages;
 - private continuation and repository-control documents;
-- credentials, registrations, secrets, private keys and personal machine paths.
+- credentials, registrations, secrets, private keys, and personal machine paths.
 
 The TunerStudio Plugin API is a separately licensed third-party dependency and is not redistributed with AE Tuner source or release JARs.
 
-## RC write/safety boundary
+## Write/safety boundary
 
-`0.4.2-rc.1` supports explicit guarded working-tune Apply/Restore only for a real reviewed proposal with an exact `ProposalWritePlan`.
+`0.4.2-rc.2` supports explicit guarded working-tune Apply/Restore only for a real reviewed proposal with an exact `ProposalWritePlan` owned by the active task.
 
 It does not provide:
 
@@ -46,21 +63,33 @@ It does not provide:
 - VE tuning authority;
 - ignition tuning authority.
 
-The centralized Apply path uses declared targets, stale-baseline checks, readback verification and explicit Restore. A prior real TunerStudio whole-tune comparison verified the guarded mechanism with exactly one intended changed value and zero undeclared changes in that qualification test.
+Completed physical representation qualifications include:
 
-The Detector Delta Window scalar proposal path is included in this RC for public qualification. The nearby `25 -> temporary 24 -> restore 25 ms` example is a representation check only and is not a tuning recommendation.
+- Predictive MAP Blend Duration;
+- MAP Estimate indexed table cells;
+- Delta Window scalar: `25 ms -> temporary 24 ms -> Apply/readback PASS -> Restore 25 ms PASS`.
+
+Sample Length and Fast Callback write experiments also worked during development, but both are read-only in current product authority. Engagement Model representation research was completed, but Engagement Model editing itself is scrapped from the product path.
 
 ## Previous public releases
 
-The previous public stable release is `v0.4.0`:
+### v0.4.2-rc.1
+
+Status: **SUPERSEDED PUBLIC TEST**.
+
+- Private validated source: `778a6da72a5ec1d05bcc510ed8fca0c9439189c8`
+- Public source commit: `5c02477b20b532fc6e5f76a009e0fe2e2fa5e54d`
+- JAR SHA-256: `500fb9f7b5f7cf79701b61af48c49c5ec58c0427a82758446e5d18dc61f219e6`
+
+RC1 is retained for provenance and rollback; RC2 is the corrected public-test candidate.
+
+### v0.4.0
+
+Previous public stable release:
 
 - JAR: `ae-tuner-epicefi-0.4.0.jar`
 - SHA-256: `1af45f58584b0dda8a8e2eb9b78ddfb09276f407b9264ee74bbf9408d54b13d8`
 - release date: `2026-08-09`
-
-The project also has an internal/accepted `0.4.1` development-history milestone that was not separately published as a public GitHub release before the broader `0.4.2-rc.1` public test line.
-
-Historical public tags and release assets remain available for provenance and rollback.
 
 ## Licensing
 

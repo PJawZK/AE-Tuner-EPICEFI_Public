@@ -41,9 +41,9 @@ public final class GuidedUiRegressionTest {
             assertContains(panel.selectedTuningAreaForTest(), "AE Foundation",
                     "Foundation must be the initial Guided tuning area");
             assertEquals(3, panel.tuningTaskCountForTest(),
-                    "Foundation must expose model/timing, threshold/sensitivity and validation tasks");
-            assertContains(panel.selectedTuningTaskForTest(), "1. Detector Model / Timing",
-                    "Detector Model / Timing must be the first AE Foundation task");
+                    "Foundation must expose movement/timing, threshold/sensitivity and validation tasks");
+            assertContains(panel.selectedTuningTaskForTest(), "1. TPS Movement / Timing",
+                    "TPS Movement / Timing must be the first AE Foundation task");
             assertContains(panel.workflowStageTextForTest(), "SETUP",
                     "evidence workflow must expose setup");
             assertContains(panel.workflowStageTextForTest(), "CAPTURE",

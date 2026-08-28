@@ -21,8 +21,6 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.host.AeTuningParameterCatalogRegressionTest \
     se.anders.tunerstudio.aetuner.host.ProposalApplyCoordinatorRegressionTest \
     se.anders.tunerstudio.aetuner.host.EngagementDetectionApplyWorkflowRegressionTest \
-    se.anders.tunerstudio.aetuner.host.EngagementModelApplyWorkflowRegressionTest \
-    se.anders.tunerstudio.aetuner.host.FastCallbackApplyWorkflowRegressionTest \
     se.anders.tunerstudio.aetuner.host.MapEstimateApplyResolutionRegressionTest \
     se.anders.tunerstudio.aetuner.host.GuidedBlendApplyWorkflowRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedVehicleTestLimitsRegressionTest \
@@ -44,8 +42,6 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.guided.GuidedMethodProbeSessionRegressionTest \
     se.anders.tunerstudio.aetuner.guided.EngagementDetectionRoutingRegressionTest \
     se.anders.tunerstudio.aetuner.guided.EngagementDetectionSettingRoutingRegressionTest \
-    se.anders.tunerstudio.aetuner.guided.EngagementModelSettingRoutingRegressionTest \
-    se.anders.tunerstudio.aetuner.guided.EngagementTimingSettingRoutingRegressionTest \
     se.anders.tunerstudio.aetuner.guided.EngagementFocusCoachingRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedCoachBlueprintRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedTuningNavigationRegressionTest \

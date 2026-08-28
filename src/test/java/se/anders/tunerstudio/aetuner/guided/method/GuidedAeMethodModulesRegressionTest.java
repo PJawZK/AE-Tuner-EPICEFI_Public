@@ -72,11 +72,12 @@ public final class GuidedAeMethodModulesRegressionTest {
         requireAll(module.contextRoles(), ChannelRole.AE_WINDOW_SAMPLES,
                 ChannelRole.AE_ABOVE_THRESHOLD, ChannelRole.TPS_AE_CYCLE_CNT,
                 ChannelRole.MAP_PRED_ACTIVE);
-        require(module.accumulationPlan().contains("production TPS change")
+        require(module.accumulationPlan().contains("Fuel: TPS AE change")
                         && module.accumulationPlan().contains("AccelThreshold")
-                        && module.reviewOutputs().contains("stale-positive")
+                        && module.reviewOutputs().contains("hold drop-out")
+                        && module.reviewOutputs().contains("re-arm")
                         && module.currentTuneContext(null).contains("catalogued settings"),
-                "Detector Model / Timing contract omitted TPS-movement/threshold/timing evidence");
+                "TPS Movement / Timing contract omitted TPS-movement/threshold/timing evidence");
     }
 
     private static void mapPredictCapturesTriggerAndCoherenceEvidence() {
