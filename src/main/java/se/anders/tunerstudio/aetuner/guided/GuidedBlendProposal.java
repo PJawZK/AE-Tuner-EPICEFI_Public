@@ -16,8 +16,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Read-only proposal adapter for a controlled Guided Capture Blend Duration
- * series. Passive and guided proposals both use {@link BlendDurationPolicy}.
+ * Review adapter for a controlled Guided Blend Duration series.
+ *
+ * Archive19 source-data validation retired the old largest-gap/T90 -> duration
+ * conversion as a writable proposal rule. The corrected Guided capture now
+ * measures physical catch-up to EPICEFI's final upward-latched fallbackMap
+ * target. Those durations may be statistically summarized, but no numerical
+ * Blend Duration write plan is exposed until the firmware-faithful conversion
+ * is separately validated against ECU Effective MAP/log evidence.
  */
 final class GuidedBlendProposal {
     private static final DecimalFormat F0 = new DecimalFormat("0");
@@ -27,16 +33,23 @@ final class GuidedBlendProposal {
     private final boolean available;
     private final String displayText;
     private final String copyPasteBlock;
+    private final ProposalWritePlan writePlan;
 
     private GuidedBlendProposal(boolean available, String displayText,
-                                String copyPasteBlock) {
+                                String copyPasteBlock,
+                                ProposalWritePlan writePlan) {
         this.available = available;
         this.displayText = displayText;
         this.copyPasteBlock = copyPasteBlock;
+        this.writePlan = writePlan;
     }
 
     boolean isAvailable() {
         return available;
+    }
+
+    boolean hasWritePlan() {
+        return writePlan != null;
     }
 
     String getDisplayText() {
@@ -45,6 +58,10 @@ final class GuidedBlendProposal {
 
     String getCopyPasteBlock() {
         return copyPasteBlock;
+    }
+
+    ProposalWritePlan getWritePlan() {
+        return writePlan;
     }
 
     static List<PointChoice> points(AeProjectSnapshot snapshot) {
@@ -64,13 +81,13 @@ final class GuidedBlendProposal {
     static GuidedBlendProposal build(AeProjectSnapshot snapshot, int pointIndex,
                                      List<Double> acceptedDurations) {
         if (snapshot == null || !snapshot.hasBlendDurationCurve()) {
-            return unavailable("Guided Blend Duration proposal unavailable: "
+            return unavailable("Guided Blend Duration model review unavailable: "
                     + "read the current project curve first.");
         }
         double[] rpm = snapshot.getBlendDurationRpmBins();
         double[] current = snapshot.getBlendDurationValues();
         if (pointIndex < 0 || pointIndex >= rpm.length) {
-            return unavailable("Guided Blend Duration proposal unavailable: "
+            return unavailable("Guided Blend Duration model review unavailable: "
                     + "select one actual table RPM point.");
         }
 
@@ -80,32 +97,31 @@ final class GuidedBlendProposal {
         BlendDurationPolicy.Evaluation evaluation =
                 BlendDurationPolicy.evaluate(raw);
         BlendDurationPolicy.Stats stats = evaluation.stats;
-        BlendDurationPolicy.Confidence confidence = evaluation.confidence;
-        boolean eligible = evaluation.eligible;
-
-        double[] proposed = current.clone();
-        if (eligible) {
-            proposed[pointIndex] = evaluation.proposedValue;
-        }
+        BlendDurationPolicy.Confidence repeatability = evaluation.confidence;
 
         PointChoice point = new PointChoice(pointIndex, rpm[pointIndex],
                 current[pointIndex], lowerBoundary(rpm, pointIndex),
                 upperBoundary(rpm, pointIndex));
 
         StringBuilder text = new StringBuilder();
-        text.append("CONTROLLED GUIDED BLEND DURATION PROPOSAL\n")
+        text.append("CONTROLLED GUIDED BLEND DURATION MODEL REVIEW\n")
                 .append("Selected actual table point: ")
                 .append(F0.format(point.rpm)).append(" RPM\n")
-                .append("Assignment region: ").append(point.regionText()).append("\n")
+                .append("Capture target: actual ").append(F0.format(point.rpm))
+                .append(" RPM bin | READY ±")
+                .append(F0.format(RoadBaselineTracker.RPM_ACQUIRE_TOLERANCE))
+                .append(" RPM | active capture ±")
+                .append(F0.format(RoadBaselineTracker.RPM_CAPTURE_TOLERANCE))
+                .append(" RPM\n")
                 .append("Current curve value: ").append(F2.format(point.currentValue))
                 .append(" s\n")
-                .append("Accepted comparable guided events: ").append(raw.size())
+                .append("Comparable final-target events: ").append(raw.size())
                 .append(" raw / ").append(stats.retainedCount).append(" retained")
                 .append(" | statistical outliers: ").append(stats.outlierCount)
                 .append("\n");
 
         if (stats.retainedCount > 0) {
-            text.append("Measured catch-up durations: median ")
+            text.append("Physical final-target catch-up: median ")
                     .append(F3.format(stats.median)).append(" s, mean ")
                     .append(F3.format(stats.mean)).append(" s, range ")
                     .append(F3.format(stats.minimum)).append("-")
@@ -113,80 +129,22 @@ final class GuidedBlendProposal {
                     .append(F3.format(stats.iqr)).append(" s, SD ")
                     .append(F3.format(stats.standardDeviation)).append(" s\n");
         } else {
-            text.append("Measured catch-up durations: no retained events.\n");
+            text.append("Physical final-target catch-up: no retained events.\n");
         }
 
-        text.append("Confidence: ").append(confidence.label)
-                .append(" | eligibility: ")
-                .append(eligible ? "ELIGIBLE" : "WITHHELD").append("\n")
-                .append("Decision: ").append(decision(stats, confidence)).append("\n");
+        text.append("Measurement repeatability: ").append(repeatability.label).append("\n")
+                .append("Numerical proposal eligibility: WITHHELD BY DESIGN\n")
+                .append("Decision: the previous largest-gap / 90%-catch-up conversion is retired. "
+                        + "These corrected final-target durations are evidence for firmware-model validation, not direct Blend Duration values.\n")
+                .append("No Apply Current Proposal write plan or TunerStudio copy/paste block is generated in this correction stage. "
+                        + "The working curve remains unchanged.\n")
+                .append("Next: validate the corrected measurement against EPICEFI Effective MAP / prediction-counter behavior, then define and physically test a numerical conversion rule before re-enabling Blend Duration Apply.");
 
-        if (eligible) {
-            text.append("Selected point proposal: ")
-                    .append(F2.format(current[pointIndex])).append(" -> ")
-                    .append(F2.format(proposed[pointIndex])).append(" s\n")
-                    .append("The 0.02 s margin, 0.08-0.80 s bounds, and rounding "
-                            + "were applied only to this eligible final value.\n")
-                    .append("Every other table point remains exactly unchanged. "
-                            + "No interpolation or smoothing was applied.\n")
-                    .append("Review the guided report before copying. No ECU value "
-                            + "is written or burned automatically.");
-        } else {
-            text.append("No paste-ready guided proposal is available. The current "
-                    + "curve remains unchanged.\n")
-                    .append(nextAction(stats));
-        }
-
-        String copy = eligible ? formatCurve(proposed) : "";
-        return new GuidedBlendProposal(eligible, text.toString(), copy);
+        return new GuidedBlendProposal(false, text.toString(), "", null);
     }
 
     private static GuidedBlendProposal unavailable(String reason) {
-        return new GuidedBlendProposal(false, reason, "");
-    }
-
-    private static String decision(BlendDurationPolicy.Stats stats,
-                                   BlendDurationPolicy.Confidence confidence) {
-        if (confidence == BlendDurationPolicy.Confidence.HIGH) {
-            return "high-confidence retained median may define the selected RPM point";
-        }
-        if (confidence == BlendDurationPolicy.Confidence.MEDIUM) {
-            return "medium-confidence retained median may define the selected RPM point";
-        }
-        if (stats.retainedCount < BlendDurationPolicy.MIN_EVENTS_FOR_PROPOSAL) {
-            return "need at least " + BlendDurationPolicy.MIN_EVENTS_FOR_PROPOSAL
-                    + " retained comparable held openings";
-        }
-        if (stats.range > BlendDurationPolicy.MAX_ELIGIBLE_RANGE_SECONDS) {
-            return "withheld because measured duration range exceeds 0.18 s";
-        }
-        if (stats.iqr > BlendDurationPolicy.MAX_ELIGIBLE_IQR_SECONDS) {
-            return "withheld because measured duration IQR exceeds 0.10 s";
-        }
-        if (stats.standardDeviation
-                > BlendDurationPolicy.MAX_ELIGIBLE_STDDEV_SECONDS) {
-            return "withheld because measured duration standard deviation exceeds 0.08 s";
-        }
-        return "withheld because evidence is insufficient";
-    }
-
-    private static String nextAction(BlendDurationPolicy.Stats stats) {
-        if (stats.retainedCount < BlendDurationPolicy.MIN_EVENTS_FOR_PROPOSAL) {
-            return "Collect more events only under the same guided reference profile.";
-        }
-        return "Do not add mixed events. Restart the guided series with tighter "
-                + "starting conditions and repeat the selected table point.";
-    }
-
-    private static String formatCurve(double[] values) {
-        StringBuilder text = new StringBuilder();
-        for (int i = 0; i < values.length; i++) {
-            if (i > 0) {
-                text.append('\n');
-            }
-            text.append(F2.format(values[i]));
-        }
-        return text.toString();
+        return new GuidedBlendProposal(false, reason, "", null);
     }
 
     private static double lowerBoundary(double[] rpm, int index) {
@@ -219,6 +177,7 @@ final class GuidedBlendProposal {
             this.upper = upper;
         }
 
+        /** Retained only for passive/interpolation diagnostics; writable Guided capture is bin-centered. */
         boolean contains(double startRpm) {
             return startRpm > lower && startRpm <= upper;
         }
@@ -237,21 +196,23 @@ final class GuidedBlendProposal {
                     + F0.format(upper) + " RPM";
         }
 
-        String startGuidance(double startRpm) {
-            if (contains(startRpm)) {
-                String high = rpm >= 6000.0
-                        ? " High-RPM point: use only a controlled safe test environment."
-                        : "";
-                return "Start RPM belongs to this actual table region." + high;
-            }
-            return "Start RPM is outside this table region; select the matching "
-                    + "point or change the start RPM.";
+        String startGuidance(double ignoredStartRpm) {
+            String high = rpm >= 5000.0
+                    ? " Upper-RPM point: use only a controlled safe test environment with adequate headroom before the limiter."
+                    : "";
+            return "Guided capture is locked to this actual table bin: "
+                    + F0.format(rpm) + " RPM. READY requires ±"
+                    + F0.format(RoadBaselineTracker.RPM_ACQUIRE_TOLERANCE)
+                    + " RPM and active capture may drift ±"
+                    + F0.format(RoadBaselineTracker.RPM_CAPTURE_TOLERANCE)
+                    + " RPM. Midpoint/interpolation regions do not reassign writable evidence to this cell."
+                    + high;
         }
 
         @Override
         public String toString() {
             return F0.format(rpm) + " RPM | current "
-                    + F2.format(currentValue) + " s | " + regionText();
+                    + F2.format(currentValue) + " s | actual-bin capture target";
         }
     }
 
@@ -297,13 +258,13 @@ final class GuidedBlendProposal {
                     snapshot, pointIndex, selected);
             int total = adaptiveOutcomes.size();
             int other = total - selected.size();
-            String prefix = "ADAPTIVE COMPARABILITY GROUPING\n"
-                    + "Proposal group: " + group + " | " + selected.size()
+            String prefix = "CONTROLLED COMPARABILITY GROUPING\n"
+                    + "Measurement group: " + group + " | " + selected.size()
                     + " valid event(s) combined | " + other
                     + " valid event(s) retained in other group(s) and not mixed.\n"
-                    + "Grouping uses baseline RPM/MAP, relative TPS step, fallback gap and RPM trend.\n\n";
-            return new GuidedBlendProposal(base.available,
-                    prefix + base.displayText, base.copyPasteBlock);
+                    + "Grouping uses baseline RPM/MAP, controlled relative TPS step, final target-anchor gap, RPM trend, and automatic detected gear when Automatic mode is selected.\n\n";
+            return new GuidedBlendProposal(false,
+                    prefix + base.displayText, "", null);
         }
 
         synchronized int durationCount() {

@@ -68,8 +68,10 @@ final class PedalOpeningDetector {
     boolean localTipInStarted(LiveSample sample, double baselineTps,
                               double localTpsOnsetRise) {
         double tps = sample == null ? Double.NaN : sample.get(ChannelRole.TPS);
+        double required = Math.max(PedalPlateauDetector.MIN_USABLE_STEP,
+                localTpsOnsetRise);
         return Double.isFinite(tps) && Double.isFinite(baselineTps)
-                && tps - baselineTps >= localTpsOnsetRise;
+                && tps - baselineTps >= required;
     }
 
     void beginPending(LiveSample sample) {
@@ -96,12 +98,14 @@ final class PedalOpeningDetector {
         if (Math.abs(sample.get(ChannelRole.RPM) - startRpm)
                 > RoadBaselineTracker.RPM_READY_RELEASE_TOLERANCE) {
             return Decision.returnToBaseline(
-                    "RPM left the selected road region before the opening was confirmed.",
-                    "Return near the selected RPM region and wait for READY.");
+                    "RPM left the selected actual table-bin target before the opening was confirmed.",
+                    "Return near the selected RPM bin and wait for READY.");
         }
         double rise = sample.get(ChannelRole.TPS) - baseline.tps;
+        double localRequired = Math.max(PedalPlateauDetector.MIN_USABLE_STEP,
+                limits.localTpsOnsetRise);
         if (triggered(sample) || sample.bool(ChannelRole.MAP_PRED_ACTIVE)
-                || rise >= limits.localTpsOnsetRise) {
+                || rise >= localRequired) {
             return Decision.confirm();
         }
         if (rise <= PENDING_RISE * 0.5
@@ -111,10 +115,10 @@ final class PedalOpeningDetector {
         if (pendingStarted != 0L
                 && seconds(pendingStarted, sample.getNanoTime())
                 > limits.detectorConfirmSeconds) {
-            return Decision.returnToBaseline(
-                    "A small/slow pedal movement did not become a confirmed acceleration opening within "
-                            + f2(limits.detectorConfirmSeconds) + " seconds.",
-                    "Return to normal throttle; the rolling baseline will reacquire automatically.");
+            // A non-triggered correction smaller than the minimum usable TPS
+            // step is not a failed Guided attempt. Silently return to READY so
+            // normal road/load corrections do not inflate exclusion evidence.
+            return Decision.abortToReady();
         }
         return Decision.waitForMore();
     }

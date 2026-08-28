@@ -161,7 +161,7 @@ public final class MapEstimateSuggestion {
         }
 
         StringBuilder report = new StringBuilder();
-        report.append("MAP Estimate draft copied to clipboard.\n")
+        report.append("MAP Estimate draft generated.\n")
                 .append("Rows are in descending TPS order for direct TunerStudio paste; columns follow MAP Estimate RPM bins.\n")
                 .append("Stable sample requirement: ").append(minimumSamples).append(" per cell.\n")
                 .append("Cell-spread safety: <= ").append(F2.format(MAX_CELL_STDDEV_KPA))

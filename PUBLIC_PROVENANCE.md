@@ -2,82 +2,68 @@
 
 This file records the relationship between the private engineering authority and the sanitized public distribution.
 
-## Accepted 0.4.0 upstream authority
+## Current release candidate — 0.4.2-rc.1
 
 - Project: AE Tuner (EPICEFI)
-- Accepted plugin version: `0.4.0`
+- Public status: **release candidate / public test release**
+- Version: `0.4.2-rc.1`
 - Private authority repository: `PJawZK/AE-Tuner-EPICEFI-`
+- Private authority RC commit: `778a6da72a5ec1d05bcc510ed8fca0c9439189c8`
+- Private validation workflow run: `33160366938`
 - Public downstream repository: `PJawZK/AE-Tuner-EPICEFI_Public`
-- Accepted private product-integration commit: `86178dc311df656567f0226e5a067ab460b93ffe`
-- Private accepted-state/docs head used for publication packaging: `96e60c1ce2ff0a4d25e742266cb0827eaaaa38d5`
-- Accepted JAR: `ae-tuner-epicefi-0.4.0.jar`
-- Accepted JAR SHA-256: `1af45f58584b0dda8a8e2eb9b78ddfb09276f407b9264ee74bbf9408d54b13d8`
-- Sanitized source publication ZIP: `AE-Tuner-EPICEFI_Public-0.4.0-source.zip`
-- Sanitized source ZIP SHA-256: `be8dc04abbb24ba96601fc7251a0ef7e9ad506001be4b47919ffcbcdeed1e47e`
-- Java build toolchain used for accepted deterministic reproduction: Eclipse Temurin `17.0.19+10`
+- JAR: `ae-tuner-epicefi-0.4.2-rc.1.jar`
+- JAR SHA-256: `500fb9f7b5f7cf79701b61af48c49c5ec58c0427a82758446e5d18dc61f219e6`
 - Java bytecode target: `8`
-- ECU boundary: strictly read-only
-- Acceptance date: `2026-08-09`
+- GitHub release tag: `v0.4.2-rc.1`
 
-The accepted JAR checksum was reproduced locally from the exact accepted source/toolchain and matched the deterministic CI-built artifact before physical release-identity smoke testing.
+The RC was produced by promoting the validated Dev20 feature state to a release-candidate identity and rerunning the complete private validation gate. Full repository validation, static/write safety checks, synthetic real-plugin/Swing integration, layout checks and long-session characterization all passed before publication.
 
-## Physical/validation basis
+## Public source relationship
 
-Accepted `0.4.0` is the controlled stable promotion of the physically validated `0.4.0-vehicle-test.12` runtime/architecture behavior.
+The public RC source is derived from the exact private RC product source while deliberately excluding private-only and third-party material.
 
-The accepted evidence chain includes:
-
-- deterministic repository validation — PASS;
-- real synthetic Swing/plugin-panel integration — PASS;
-- exact deterministic JAR identity reproduction — PASS;
-- stationary accepted-identity plugin smoke test — PASS;
-- prior full stationary/road Guided + Passive physical validation of the promoted runtime — PASS;
-- hide/reopen lifecycle and repeated Guided-session operation — PASS;
-- prediction-active-only Blend Duration measurement-anchor validation — PASS;
-- no ECU writes/burns and no automatic tune application.
-
-No generated Blend Duration proposal/value became an accepted tune merely because the architecture/release gate passed.
-
-## Public 0.4.0 publication state
-
-- Public source integration PR: `#2`
-- Public source integration commit: `756f235ae1d98096dacff6989b30217f449ca983`
-- Public stable branch: `main`
-- Source publication status: **integrated**
-- Public stable release tag: `v0.4.0`
-- Binary GitHub Release/JAR publication: **published**
-- Public release date: `2026-08-09`
-
-The sanitized accepted `0.4.0` product source, regression suite, release identity, validation tooling, and public documentation are integrated into public `main`, and the stable `v0.4.0` GitHub Release is published with the accepted JAR identity above.
-
-The web-upload overlay was reconciled before integration so the obsolete flat-package `0.3.18` source/tests, packaging-only manifest, and old `0.4.0-vehicle-test.5` candidate payload were removed.
-
-Release-defining parity checks against private accepted commit `86178dc311df656567f0226e5a067ab460b93ffe` confirmed matching Git blob identities for the plugin entrypoint, release `pom.xml`, validation script, and representative Guided/model regressions. The public tree keeps the accepted subsystem structure: `guided`, `host`, `model`, `passive`, `proposal`, `recovery`, and `ui`, with `AeTunerPlugin.java` as the root entrypoint.
-
-## Sanitization boundary
-
-The public `0.4.0` source payload intentionally includes product source, regression tests, Maven identity, and deterministic build/validation tooling required for the public source distribution.
+The public distribution includes the AE Tuner product source, tests, deterministic build/validation scripts, Maven metadata, licensing files and selected public-facing design/safety documentation needed to understand the RC.
 
 The public distribution intentionally excludes:
 
 - `lib/TunerStudioPluginAPI.jar`;
-- private vehicle logs, `.msl`/`.mlg` files, tune files, and generated evidence CSV/report packages;
-- retained private candidate/recovery binaries;
-- private continuation/handoff/authority documents that are not needed by public users;
-- credentials, registrations, secrets, private keys, and personal machine paths.
+- private vehicle logs and tune files;
+- private generated evidence/recovery packages;
+- private continuation and repository-control documents;
+- credentials, registrations, secrets, private keys and personal machine paths.
 
-AE Tuner source and public project documentation are published under **Apache-2.0**. The TunerStudio Plugin API binary is intentionally excluded and remains a separate third-party dependency.
+The TunerStudio Plugin API is a separately licensed third-party dependency and is not redistributed with AE Tuner source or release JARs.
 
-## Historical stable publication — 0.3.18
+## RC write/safety boundary
 
-The previous public stable baseline was `0.3.18`.
+`0.4.2-rc.1` supports explicit guarded working-tune Apply/Restore only for a real reviewed proposal with an exact `ProposalWritePlan`.
 
-- Public release tag: `v0.3.18`
-- Released JAR: `ae-tuner-epicefi-0.3.18.jar`
-- Released JAR SHA-256: `2d22c6a11407eea744df3ca81524732f0c30de90cb4c2562eb4bd9456ec44828`
-- Published source-tree commit: `6a34bf4cd15a76297cba20d415fb82b5c99ac9fc`
-- Release tag source commit: `bda28a0d7e6928b7af67ff0a7d8adbd42bae565b`
-- Original sanitized export ZIP SHA-256: `286006e6f20c5ae3e0bbb002310884a888cee927194761ce61563527c03415e8`
-- Publication date: `2026-08-02`
+It does not provide:
 
-`0.3.18` remains historical provenance and is superseded by accepted public stable release `0.4.0`.
+- automatic Apply;
+- ECU Burn;
+- hidden tune mutation;
+- VE tuning authority;
+- ignition tuning authority.
+
+The centralized Apply path uses declared targets, stale-baseline checks, readback verification and explicit Restore. A prior real TunerStudio whole-tune comparison verified the guarded mechanism with exactly one intended changed value and zero undeclared changes in that qualification test.
+
+The Detector Delta Window scalar proposal path is included in this RC for public qualification. The nearby `25 -> temporary 24 -> restore 25 ms` example is a representation check only and is not a tuning recommendation.
+
+## Previous public releases
+
+The previous public stable release is `v0.4.0`:
+
+- JAR: `ae-tuner-epicefi-0.4.0.jar`
+- SHA-256: `1af45f58584b0dda8a8e2eb9b78ddfb09276f407b9264ee74bbf9408d54b13d8`
+- release date: `2026-08-09`
+
+The project also has an internal/accepted `0.4.1` development-history milestone that was not separately published as a public GitHub release before the broader `0.4.2-rc.1` public test line.
+
+Historical public tags and release assets remain available for provenance and rollback.
+
+## Licensing
+
+AE Tuner source code and public project documentation are published under **Apache License 2.0**.
+
+Third-party products and binaries, including the TunerStudio Plugin API, remain under their own applicable licences.

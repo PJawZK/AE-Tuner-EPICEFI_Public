@@ -16,6 +16,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
+import javax.swing.ScrollPaneConstants;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
 import javax.swing.Timer;
@@ -89,13 +90,22 @@ public final class GuidedAudioCueLabPanel extends JPanel {
             cueRow.addTo(grid, row++);
         }
 
-        JScrollPane scroll = new JScrollPane(grid);
+        // GridBagLayout centers a small grid inside a large viewport by default.
+        // Anchor the actual editor at the top-left so the Audio Cue Lab reads as
+        // a normal diagnostics page rather than an island in an empty box.
+        JPanel gridAnchor = new JPanel(new BorderLayout());
+        gridAnchor.add(grid, BorderLayout.NORTH);
+        JScrollPane scroll = new JScrollPane(gridAnchor);
         scroll.getVerticalScrollBar().setUnitIncrement(24);
+        scroll.setHorizontalScrollBarPolicy(
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        scroll.setVerticalScrollBarPolicy(
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
         scroll.setBorder(BorderFactory.createTitledBorder(
                 "Pending audio profile — frozen when a Guided Session starts"));
         add(scroll, BorderLayout.CENTER);
 
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        JPanel buttons = new JPanel(new WrapLayout(FlowLayout.LEFT, 8, 4));
         JButton testAll = new JButton("Test all cues");
         JButton success = new JButton("Demo successful event sequence");
         JButton failure = new JButton("Demo excluded / return sequence");
@@ -123,6 +133,7 @@ public final class GuidedAudioCueLabPanel extends JPanel {
         GridBagConstraints c = new GridBagConstraints();
         c.insets = new Insets(3, 4, 3, 4);
         c.fill = GridBagConstraints.HORIZONTAL;
+        c.anchor = GridBagConstraints.NORTHWEST;
         c.weightx = 0.0;
         return c;
     }

@@ -11,40 +11,21 @@ import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Bounded per-attempt samples plus advisory gear/VSS evidence. */
+/** Bounded per-attempt samples. Session gear recognition belongs to the READY baseline. */
 final class GuidedAttemptEvidence {
     private static final int MAX_SAMPLES = 320;
 
     private final List<LiveSample> samples = new ArrayList<LiveSample>();
-    private int gearMin = Integer.MAX_VALUE;
-    private int gearMax = Integer.MIN_VALUE;
-    private int gearSamples;
-    private int badVss;
     private int captureSamples;
 
     void reset() {
         samples.clear();
-        gearMin = Integer.MAX_VALUE;
-        gearMax = Integer.MIN_VALUE;
-        gearSamples = 0;
-        badVss = 0;
         captureSamples = 0;
     }
 
     void add(LiveSample sample) {
         if (sample == null) return;
         captureSamples++;
-        double detected = sample.get(ChannelRole.GEAR);
-        if (Double.isFinite(detected) && detected >= 1.0 && detected <= 8.0) {
-            int value = (int) Math.round(detected);
-            gearMin = Math.min(gearMin, value);
-            gearMax = Math.max(gearMax, value);
-            gearSamples++;
-        }
-        double vss = sample.get(ChannelRole.VSS);
-        if (!Double.isFinite(vss) || vss <= 0.0 || vss > 300.0) {
-            badVss++;
-        }
         record(sample);
     }
 
@@ -77,10 +58,16 @@ final class GuidedAttemptEvidence {
                                       LiveSample end,
                                       double duration,
                                       BlendDurationCaptureConfig settings) {
+        int sessionDetectedGear = baseline == null
+                ? 0 : baseline.sessionDetectedGear();
+        GuidedEventGearEvidence.Result eventGear =
+                settings != null && settings.automaticGear
+                ? GuidedEventGearEvidence.evaluate(samples, sessionDetectedGear)
+                : GuidedEventGearEvidence.Result.unavailable(sessionDetectedGear);
         return BlendDurationAttempt.build(number,
                 baseline.rpm, baseline.map, baseline.tps,
                 measurementAnchor, holdAnchor, end, duration, settings,
-                gearMin, gearMax, gearSamples, badVss, captureSamples);
+                sessionDetectedGear, 0, 0, captureSamples, eventGear);
     }
 
     private void record(LiveSample sample) {

@@ -1,18 +1,18 @@
 package se.anders.tunerstudio.aetuner.guided;
 
+import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 import se.anders.tunerstudio.aetuner.host.*;
 import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
 import se.anders.tunerstudio.aetuner.ui.*;
-import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** Pure natural-pedal plateau analysis for adaptive Guided capture. */
+/** Pure natural-pedal plateau analysis. Target-step policy belongs to the session config. */
 final class PedalPlateauDetector {
     static final double WINDOW_SECONDS = 0.20;
     static final double RANGE_LIMIT = 5.0;

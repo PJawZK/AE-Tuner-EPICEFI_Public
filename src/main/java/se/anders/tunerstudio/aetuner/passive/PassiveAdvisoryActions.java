@@ -11,6 +11,7 @@ import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 import java.io.File;
 import java.io.IOException;
 import java.text.DecimalFormat;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import javax.swing.JComponent;
@@ -18,6 +19,7 @@ import javax.swing.JSpinner;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.SwingWorker;
 
 /**
  * Read-only export, clipboard, proposal and recovery actions for the passive
@@ -40,6 +42,8 @@ final class PassiveAdvisoryActions {
     private final SessionMonitor sessionMonitor;
     private final AeEventDetector eventDetector;
     private final RecommendationHistory recommendationHistory;
+    private volatile double lastSessionExportMillis = Double.NaN;
+    private volatile boolean exportInProgress;
 
     PassiveAdvisoryActions(JComponent parent,
                            JTextArea notes,
@@ -107,59 +111,145 @@ final class PassiveAdvisoryActions {
 
     void copySuggestedBlendDuration(AeProjectSnapshot projectSnapshot,
                                     List<TransientEvent> events) {
-        MapBlendSuggestion suggestion = MapBlendSuggestion.build(
-                projectSnapshot, events);
-        showNotes(suggestion.getDisplayText(), true);
-        if (suggestion.isAvailable()) {
-            copyToClipboard(suggestion.getCopyPasteBlock());
-        }
+        showNotes(MapPredictReportBuilder.BLEND_DURATION_WITHHELD_TEXT
+                + "\n\nNo Blend Duration values were copied to the clipboard.", true);
     }
 
-    double saveMapPredictReport(String configurationName,
-                                AeProjectSnapshot projectSnapshot,
-                                List<TransientEvent> events,
-                                EnumMap<ChannelRole, String> selectedChannels,
-                                EnumMap<ChannelRole, Double> latestChannelValues,
-                                double sampleRateHz,
-                                long sessionStartedNano,
-                                double lastCsvExportMillis,
-                                double previousReportDurationMillis) {
-        File file = AdvisoryExportCoordinator.chooseReportTarget(parent);
-        if (file == null) {
+    double saveMapPredictReport(final String configurationName,
+                                final AeProjectSnapshot projectSnapshot,
+                                final List<TransientEvent> events,
+                                final EnumMap<ChannelRole, String> selectedChannels,
+                                final EnumMap<ChannelRole, Double> latestChannelValues,
+                                final double sampleRateHz,
+                                final long sessionStartedNano,
+                                final double lastCsvExportMillis,
+                                final double previousReportDurationMillis) {
+        if (exportInProgress) {
+            showNotes("Passive Session export is already in progress.\n"
+                    + "Wait for the completion or failure message before starting another export.",
+                    true);
             return previousReportDurationMillis;
         }
 
-        long exportStartedNano = System.nanoTime();
-        SessionDiagnostics diagnostics = SessionDiagnostics.build(
-                sessionStartedNano, System.nanoTime(), events,
+        final File parentFolder = SessionExportSupport.chooseParent(parent, "Passive");
+        if (parentFolder == null) {
+            return previousReportDurationMillis;
+        }
+
+        final int minimum = minimumSamples();
+        final double cap = mapCap();
+
+        // The visible chooser is DIRECTORIES_ONLY. A non-directory selection can
+        // therefore only come from a programmatic/legacy caller. Preserve that
+        // non-UI path so existing integrations can still request one report file,
+        // while normal users always get the new session-folder export below.
+        if (!parentFolder.isDirectory()) {
+            long started = System.nanoTime();
+            try {
+                String report = buildReport(configurationName, projectSnapshot,
+                        events, selectedChannels, latestChannelValues,
+                        sampleRateHz, sessionStartedNano, lastCsvExportMillis,
+                        previousReportDurationMillis, minimum, cap, started);
+                SessionExportSupport.writeTextAtomic(parentFolder, report);
+                double elapsed = SessionExportSupport.elapsedMillis(started);
+                lastSessionExportMillis = elapsed;
+                showNotes("Passive report compatibility export complete.\n"
+                        + parentFolder.getAbsolutePath() + "\n"
+                        + F1.format(elapsed) + " ms", true);
+                return elapsed;
+            } catch (IOException ex) {
+                showNotes("Passive report compatibility export failed: "
+                        + ex.getMessage(), true);
+                return previousReportDurationMillis;
+            }
+        }
+
+        // Freeze all user-visible export evidence before the background worker
+        // starts. Live capture may continue, but this export remains one coherent
+        // point-in-time Passive session snapshot.
+        final List<TransientEvent> eventSnapshot = events == null
+                ? new ArrayList<TransientEvent>()
+                : new ArrayList<TransientEvent>(events);
+        final EnumMap<ChannelRole, String> selectedChannelSnapshot =
+                new EnumMap<ChannelRole, String>(ChannelRole.class);
+        if (selectedChannels != null) selectedChannelSnapshot.putAll(selectedChannels);
+        final EnumMap<ChannelRole, Double> latestChannelSnapshot =
+                new EnumMap<ChannelRole, Double>(ChannelRole.class);
+        if (latestChannelValues != null) latestChannelSnapshot.putAll(latestChannelValues);
+        final double priorReportDuration = Double.isFinite(lastSessionExportMillis)
+                ? lastSessionExportMillis : previousReportDurationMillis;
+        final SessionDiagnostics diagnosticsSnapshot = SessionDiagnostics.build(
+                sessionStartedNano, System.nanoTime(), eventSnapshot,
                 eventDetector.getRingSampleCount(), eventDetector.getActiveSampleCount(),
                 mapEstimateCollector.getAcceptedSamples(), recommendationHistory.size(),
-                lastCsvExportMillis, previousReportDurationMillis);
-        int minimum = minimumSamples();
-        double cap = mapCap();
-        MapEstimateSuggestion mapSuggestion = MapEstimateSuggestion.build(
+                lastCsvExportMillis, priorReportDuration);
+        final MapEstimateSuggestion mapSuggestionSnapshot = MapEstimateSuggestion.build(
                 projectSnapshot, mapEstimateCollector, minimum, cap);
-        MapBlendSuggestion blendSuggestion = MapBlendSuggestion.build(
-                projectSnapshot, events);
-        SessionReview review = SessionReview.build(events, sessionMonitor.snapshot());
+        final MapBlendSuggestion blendSuggestionSnapshot = MapBlendSuggestion.build(
+                projectSnapshot, eventSnapshot);
+        final SessionReview reviewSnapshot = SessionReview.build(
+                eventSnapshot, sessionMonitor.snapshot());
 
-        String text = MapPredictReportBuilder.build(
-                configurationName, events, sampleRateHz, minimum, cap, diagnostics,
-                mapSuggestion, blendSuggestion, selectedChannels, latestChannelValues,
-                review, exportStartedNano);
+        exportInProgress = true;
+        showNotes("Exporting Passive Session...\n"
+                + "A fixed session snapshot has been captured.\n"
+                + "Writing report and structured evidence in the background.\n"
+                + "Do not close TunerStudio until the export reports completion.", true);
 
-        try {
-            AdvisoryExportCoordinator.writeReport(file, text);
-            double elapsed = AdvisoryExportCoordinator.elapsedMillis(exportStartedNano);
-            showNotes("Saved combined MAP Estimate, Blend Duration, and session review report to\n"
-                    + file.getAbsolutePath()
-                    + "\nReport generation and write duration: "
-                    + F1.format(elapsed) + " ms", true);
-            return elapsed;
-        } catch (IOException ex) {
-            showNotes("MAP Predict report save failed: " + ex.getMessage(), true);
-            return previousReportDurationMillis;
-        }
+        new SwingWorker<PassiveExportResult, Void>() {
+            @Override
+            protected PassiveExportResult doInBackground() throws Exception {
+                long exportStartedNano = System.nanoTime();
+                SessionExportSupport.StagedFolder staged = null;
+                try {
+                    String report = MapPredictReportBuilder.build(
+                            configurationName, eventSnapshot, sampleRateHz,
+                            minimum, cap, diagnosticsSnapshot,
+                            mapSuggestionSnapshot, blendSuggestionSnapshot,
+                            selectedChannelSnapshot, latestChannelSnapshot,
+                            reviewSnapshot, exportStartedNano);
+
+                    staged = SessionExportSupport.stageSessionFolder(
+                            parentFolder, "passive");
+                    SessionExportSupport.writeTextAtomic(
+                            staged.file("passive-report.txt"), report);
+                    int fileCount = 1;
+                    if (!eventSnapshot.isEmpty()) {
+                        SessionExportSupport.writeEventsCsvAtomic(
+                                staged.file("passive-events.csv"), eventSnapshot);
+                        fileCount++;
+                    }
+                    File folder = staged.finish();
+                    double elapsed = SessionExportSupport.elapsedMillis(exportStartedNano);
+                    lastSessionExportMillis = elapsed;
+                    return new PassiveExportResult(folder, fileCount, elapsed,
+                            eventSnapshot.size());
+                } catch (Exception ex) {
+                    if (staged != null) staged.cleanup();
+                    throw ex;
+                }
+            }
+
+            @Override
+            protected void done() {
+                exportInProgress = false;
+                try {
+                    PassiveExportResult result = get();
+                    showNotes("Passive Session export complete.\n"
+                            + result.eventCount + " captured event(s) | "
+                            + result.fileCount + " file(s) | "
+                            + F1.format(result.elapsedMillis) + " ms\n"
+                            + result.folder.getAbsolutePath(), true);
+                } catch (Exception ex) {
+                    Throwable cause = ex.getCause() == null ? ex : ex.getCause();
+                    showNotes("Passive Session export failed: "
+                            + cause.getMessage()
+                            + "\nIncomplete data was not promoted to a final session folder.",
+                            true);
+                }
+            }
+        }.execute();
+        return previousReportDurationMillis;
     }
 
     EvidenceRecoverySnapshot.Passive recoverySnapshot(
@@ -179,22 +269,12 @@ final class PassiveAdvisoryActions {
             return null;
         }
         long exportStartedNano = System.nanoTime();
-        SessionDiagnostics diagnostics = SessionDiagnostics.build(
-                sessionStartedNano, System.nanoTime(), events,
-                eventDetector.getRingSampleCount(), eventDetector.getActiveSampleCount(),
-                mapSamples, recommendationHistory.size(),
-                lastCsvExportMillis, lastReportExportMillis);
         int minimum = minimumSamples();
         double cap = mapCap();
-        MapEstimateSuggestion mapSuggestion = MapEstimateSuggestion.build(
-                projectSnapshot, mapEstimateCollector, minimum, cap);
-        MapBlendSuggestion blendSuggestion = MapBlendSuggestion.build(
-                projectSnapshot, events);
-        SessionReview review = SessionReview.build(events, sessionMonitor.snapshot());
-        String report = MapPredictReportBuilder.build(
-                configurationName, events, sampleRateHz, minimum, cap, diagnostics,
-                mapSuggestion, blendSuggestion, selectedChannels, latestChannelValues,
-                review, exportStartedNano);
+        String report = buildReport(configurationName, projectSnapshot, events,
+                selectedChannels, latestChannelValues, sampleRateHz,
+                sessionStartedNano, lastCsvExportMillis, lastReportExportMillis,
+                minimum, cap, exportStartedNano);
         String key = EvidenceRecoverySnapshot.safeKey(
                 (configurationName == null ? "controller" : configurationName)
                         + "-" + Long.toHexString(sessionStartedNano),
@@ -217,6 +297,37 @@ final class PassiveAdvisoryActions {
         }
     }
 
+    private String buildReport(String configurationName,
+                               AeProjectSnapshot projectSnapshot,
+                               List<TransientEvent> events,
+                               EnumMap<ChannelRole, String> selectedChannels,
+                               EnumMap<ChannelRole, Double> latestChannelValues,
+                               double sampleRateHz,
+                               long sessionStartedNano,
+                               double lastCsvExportMillis,
+                               double previousReportDurationMillis,
+                               int minimum,
+                               double cap,
+                               long exportStartedNano) {
+        double priorReportDuration = Double.isFinite(lastSessionExportMillis)
+                ? lastSessionExportMillis : previousReportDurationMillis;
+        SessionDiagnostics diagnostics = SessionDiagnostics.build(
+                sessionStartedNano, System.nanoTime(), events,
+                eventDetector.getRingSampleCount(), eventDetector.getActiveSampleCount(),
+                mapEstimateCollector.getAcceptedSamples(), recommendationHistory.size(),
+                lastCsvExportMillis, priorReportDuration);
+        MapEstimateSuggestion mapSuggestion = MapEstimateSuggestion.build(
+                projectSnapshot, mapEstimateCollector, minimum, cap);
+        MapBlendSuggestion blendSuggestion = MapBlendSuggestion.build(
+                projectSnapshot, events);
+        SessionReview review = SessionReview.build(events, sessionMonitor.snapshot());
+        return MapPredictReportBuilder.build(
+                configurationName, events, sampleRateHz, minimum, cap,
+                diagnostics, mapSuggestion, blendSuggestion,
+                selectedChannels, latestChannelValues, review,
+                exportStartedNano);
+    }
+
     private void copyToClipboard(String text) {
         String error = AdvisoryExportCoordinator.copyToClipboard(text);
         if (error != null) {
@@ -229,6 +340,21 @@ final class PassiveAdvisoryActions {
         notes.setCaretPosition(0);
         if (showNotesTab && lowerTabs.getTabCount() > 1) {
             lowerTabs.setSelectedIndex(1);
+        }
+    }
+
+    private static final class PassiveExportResult {
+        final File folder;
+        final int fileCount;
+        final double elapsedMillis;
+        final int eventCount;
+
+        PassiveExportResult(File folder, int fileCount,
+                            double elapsedMillis, int eventCount) {
+            this.folder = folder;
+            this.fileCount = fileCount;
+            this.elapsedMillis = elapsedMillis;
+            this.eventCount = eventCount;
         }
     }
 }

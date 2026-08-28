@@ -30,34 +30,41 @@ final class BlendDurationGuidedSummary {
         List<BlendDurationAttempt> best = groups.bestAttempts();
         BlendDurationSeriesStats stats = BlendDurationSeriesStats.from(best);
         StringBuilder result = new StringBuilder(latestResult);
-        result.append("\n\nRecipe: Adaptive Predictive MAP Blend Duration")
-                .append("\nRoad RPM region: ").append(f0(settings.startRpm))
-                .append(" ±").append(f0(RoadBaselineTracker.RPM_ACQUIRE_TOLERANCE))
-                .append(" acquire / ±").append(f0(RoadBaselineTracker.RPM_READY_RELEASE_TOLERANCE))
-                .append(" READY retain")
-                .append(" | desired TPS step: +")
-                .append(f1(settings.desiredTpsStep)).append(" points (advisory)")
-                .append(" | gear: ").append(settings.gearText())
-                .append("\nActual valid events: ").append(validCount)
+        result.append("\n\nTuning task: Predictive MAP Blend Duration");
+        if (state == GuidedCaptureState.IDLE) {
+            result.append("\nSession setup: not armed — Start Capture uses the selected table bin and current setup controls shown above.");
+        } else {
+            result.append("\nCapture RPM target: ").append(f0(settings.startRpm)).append(" RPM")
+                    .append(" | READY/acquire ±").append(f0(RoadBaselineTracker.RPM_ACQUIRE_TOLERANCE))
+                    .append(" RPM | active capture ±").append(f0(RoadBaselineTracker.RPM_CAPTURE_TOLERANCE))
+                    .append(" RPM")
+                    .append(" | target TPS step: +")
+                    .append(f1(settings.desiredTpsStep))
+                    .append(" | accepted +").append(f1(settings.targetStepLow()))
+                    .append(" to +").append(f1(settings.targetStepHigh()))
+                    .append(" | gear: ").append(settings.gearText());
+        }
+        result.append("\nActual valid events: ").append(validCount)
                 .append(" | excluded: ").append(excluded)
                 .append(" | returned: ").append(returnedToBaseline)
                 .append(" | attempts: ").append(attempts)
                 .append("\nComparability groups: ").append(groups.summary());
         if (groups.bestGroupCount() > 0) {
-            result.append("\nProposal group: ").append(groups.bestGroupId())
+            result.append("\nMeasurement group: ").append(groups.bestGroupId())
                     .append(" ").append(groups.bestGroupCount())
                     .append("/").append(settings.targetCount)
                     .append(" comparable valid events");
         }
         if (stats.count > 0) {
-            result.append("\nBest-group duration median: ")
+            result.append("\nBest-group final-target catch-up median: ")
                     .append(f3(stats.median)).append(" s | range: ")
                     .append(f3(stats.min)).append("-")
                     .append(f3(stats.max)).append(" s | width: ")
                     .append(f3(stats.range)).append(" s");
         }
         result.append("\n").append(quality(stats, groups.bestGroupCount()))
-                .append("\n\nRead-only: adaptive Guided Capture never writes ECU RAM, burns settings, or removes passive/raw events.");
+                .append("\nNumerical Blend Duration proposal/apply is intentionally withheld while the corrected firmware-faithful conversion rule is being validated.")
+                .append("\n\nRead-only: Guided measurement/capture never writes ECU RAM, burns settings, or removes passive/raw events.");
         return new GuidedSessionSnapshot(state, stateName(state, plateauAcquired),
                 instruction, checkText, result.toString(),
                 validCount, lastAttemptTrace);
@@ -65,28 +72,28 @@ final class BlendDurationGuidedSummary {
 
     private static String quality(BlendDurationSeriesStats stats, int bestGroupCount) {
         if (bestGroupCount < 3) {
-            return "Proposal-group quality: INCOMPLETE — valid events remain retained in their groups.";
+            return "Measurement-group repeatability: INCOMPLETE — valid final-target events remain retained in their groups.";
         }
         if (stats.range > 0.18 || stats.iqr > 0.10 || stats.sd > 0.08) {
-            return "Proposal-group quality: LOW — capture remains valid, but duration spread withholds a proposal.";
+            return "Measurement-group repeatability: LOW — capture remains valid, but the physical final-target duration spread is broad.";
         }
         if (bestGroupCount >= 5 && stats.range <= 0.10
                 && stats.iqr <= 0.05 && stats.sd <= 0.04) {
-            return "Proposal-group quality: HIGH — current best group meets the existing high-confidence spread limits.";
+            return "Measurement-group repeatability: HIGH — the current best group is tightly repeatable.";
         }
-        return "Proposal-group quality: MEDIUM — current best group meets the existing proposal spread limits.";
+        return "Measurement-group repeatability: MEDIUM — the current best group is sufficiently consistent for model review.";
     }
 
     private static String stateName(GuidedCaptureState state,
                                     boolean plateauAcquired) {
         switch (state) {
             case SETTLING: return "ESTABLISHING ROAD BASELINE";
-            case READY: return "READY — MAKE ONE MODERATE OPENING";
+            case READY: return "READY — MAKE ONE CONTROLLED OPENING";
             case OPENING_PENDING: return "OPENING PENDING";
             case CAPTURING:
                 return plateauAcquired
-                        ? "PEDAL HOLD ACQUIRED — HOLD"
-                        : "OPENING — LET PEDAL SETTLE";
+                        ? "TARGET TPS HOLD ACQUIRED — HOLD"
+                        : "OPENING — SETTLE INSIDE TARGET STEP";
             case ACCEPTED:
             case WARNING:
                 return "VALID EVENT — RETURN TO NORMAL THROTTLE";

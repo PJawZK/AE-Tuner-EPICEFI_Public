@@ -17,8 +17,12 @@ import java.util.Locale;
 final class RoadBaselineTracker {
     static final double BASELINE_SECONDS = 0.75;
     static final double WINDOW_SECONDS = 1.10;
-    static final double RPM_ACQUIRE_TOLERANCE = 300.0;
-    static final double RPM_READY_RELEASE_TOLERANCE = 450.0;
+    /** Actual selected Blend Duration table bin must be approached closely before READY. */
+    static final double RPM_ACQUIRE_TOLERANCE = 200.0;
+    /** READY is cancelled if the driver leaves the same actual-bin acquisition window. */
+    static final double RPM_READY_RELEASE_TOLERANCE = 200.0;
+    /** Once the opening is confirmed, modest acceleration drift is permitted. */
+    static final double RPM_CAPTURE_TOLERANCE = 300.0;
     static final double RPM_RESIDUAL_RANGE = 100.0;
     static final double MAP_RESIDUAL_RANGE = 3.0;
     static final double TPS_RESIDUAL_RANGE = 1.4;
@@ -26,10 +30,26 @@ final class RoadBaselineTracker {
     static final double MAP_SLOPE_LIMIT = 12.0;
     static final double TPS_SLOPE_LIMIT = 4.5;
 
+    /**
+     * Automatic gear is intentionally a one-time Guided-session latch. The
+     * rolling recognizer is only allowed to collect evidence until one gear is
+     * committed from the first controlled opening after READY. After that,
+     * observe() becomes a no-op until clear() starts a new Guided session.
+     */
+    static final double GEAR_WINDOW_SECONDS = 1.50;
+    static final double GEAR_MIN_DOMINANT_SECONDS = 0.45;
+    static final int GEAR_MIN_SAMPLES = 6;
+    static final double GEAR_MIN_CONFIDENCE = 0.75;
+    static final double GEAR_MAX_VSS_KPH = 300.0;
+    static final double GEAR_MAX_VSS_STEP_KPH = 25.0;
+    static final double GEAR_VSS_CONTINUITY_SECONDS = 0.35;
+
     private final ArrayDeque<LiveSample> window = new ArrayDeque<LiveSample>();
+    private final SessionGearLatch sessionGearLatch = new SessionGearLatch();
 
     void clear() {
         window.clear();
+        sessionGearLatch.reset();
     }
 
     void add(LiveSample sample) {
@@ -40,6 +60,10 @@ final class RoadBaselineTracker {
                 > WINDOW_SECONDS) {
             window.removeFirst();
         }
+        sessionGearLatch.observe(sample);
+        if (triggered(sample)) {
+            sessionGearLatch.commitIfReady(sample.getSeconds());
+        }
     }
 
     Baseline baseline(boolean excludeLast) {
@@ -47,9 +71,14 @@ final class RoadBaselineTracker {
         if (samples.isEmpty()) {
             return new Baseline(Double.NaN, Double.NaN, Double.NaN);
         }
+        double now = window.isEmpty()
+                ? samples.get(samples.size() - 1).getSeconds()
+                : window.peekLast().getSeconds();
+        SessionGearLatch.Candidate gearCandidate = sessionGearLatch.candidate(now);
         return new Baseline(trendEnd(samples, ChannelRole.RPM),
                 trendEnd(samples, ChannelRole.MAP),
-                trendEnd(samples, ChannelRole.TPS));
+                trendEnd(samples, ChannelRole.TPS),
+                sessionGearLatch, gearCandidate);
     }
 
     AcquireCheck acquireCheck(LiveSample sample, double startRpm,
@@ -77,7 +106,7 @@ final class RoadBaselineTracker {
         add(text, valid, "Required RPM/TPS/MAP/fallbackMap channels valid");
         add(text, safe, "Engine running with no crank/cut/trigger fault");
         add(text, quiet, "No active acceleration detector/prediction burst");
-        add(text, rpmRegion, "RPM inside road region " + f0(startRpm)
+        add(text, rpmRegion, "RPM near actual selected Blend Duration bin " + f0(startRpm)
                 + " ±" + f0(RPM_ACQUIRE_TOLERANCE));
         add(text, stats.duration >= BASELINE_SECONDS * 0.95,
                 "Rolling baseline collected for about " + f2(BASELINE_SECONDS) + " s");
@@ -100,6 +129,7 @@ final class RoadBaselineTracker {
 
         boolean ready = valid && safe && quiet && rpmRegion
                 && trendSmooth && recovered;
+        sessionGearLatch.setReady(ready);
         return new AcquireCheck(ready, recovered, text.toString());
     }
 
@@ -124,26 +154,31 @@ final class RoadBaselineTracker {
         add(text, valid, "Required channels remain valid");
         add(text, safe, "Running/safety state remains valid");
         add(text, quiet, "Waiting for one acceleration opening");
-        add(text, rpmHeld, "READY retained within " + f0(startRpm)
+        add(text, rpmHeld, "READY retained near actual table bin " + f0(startRpm)
                 + " ±" + f0(RPM_READY_RELEASE_TOLERANCE) + " RPM");
         add(text, smooth,
                 "Rolling baseline follows gradual road/load changes without abrupt residual movement");
         if (!valid || !safe) {
+            sessionGearLatch.setReady(false);
             return new ReadyCheck(false, text.toString(),
                     "READY cancelled by channel or safety state. Resume smooth driving.");
         }
         if (!rpmHeld) {
+            sessionGearLatch.setReady(false);
             return new ReadyCheck(false, text.toString(),
-                    "READY cancelled because RPM left the selected road region.");
+                    "READY cancelled because RPM left the selected table-bin target.");
         }
         if (!quiet) {
+            sessionGearLatch.setReady(false);
             return new ReadyCheck(false, text.toString(),
                     "READY cancelled by transient activity before a recognized opening.");
         }
         if (!smooth) {
+            sessionGearLatch.setReady(false);
             return new ReadyCheck(false, text.toString(),
                     "Road baseline became abrupt; continue normal driving until it settles again.");
         }
+        sessionGearLatch.setReady(true);
         return new ReadyCheck(true, text.toString(), "");
     }
 
@@ -151,16 +186,42 @@ final class RoadBaselineTracker {
         final double rpm;
         final double map;
         final double tps;
+        private final SessionGearLatch gearLatch;
+        private final SessionGearLatch.Candidate gearCandidate;
 
         Baseline(double rpm, double map, double tps) {
+            this(rpm, map, tps, null, SessionGearLatch.Candidate.unavailable());
+        }
+
+        private Baseline(double rpm, double map, double tps,
+                         SessionGearLatch gearLatch,
+                         SessionGearLatch.Candidate gearCandidate) {
             this.rpm = rpm;
             this.map = map;
             this.tps = tps;
+            this.gearLatch = gearLatch;
+            this.gearCandidate = gearCandidate == null
+                    ? SessionGearLatch.Candidate.unavailable() : gearCandidate;
         }
 
         boolean valid() {
             return Double.isFinite(rpm) && Double.isFinite(map)
                     && Double.isFinite(tps);
+        }
+
+        /**
+         * Normally already committed at the first recognized opening after
+         * READY. This fallback commits the frozen READY candidate if the local
+         * opening path completed without the ECU trigger appearing first.
+         */
+        int sessionDetectedGear() {
+            return gearLatch == null ? 0 : gearLatch.commit(gearCandidate);
+        }
+
+        String sessionGearEvidence() {
+            return gearLatch == null
+                    ? "session gear evidence unavailable"
+                    : gearLatch.statusText(gearCandidate);
         }
     }
 
@@ -284,6 +345,205 @@ final class RoadBaselineTracker {
             double range = min == Double.POSITIVE_INFINITY
                     ? Double.POSITIVE_INFINITY : max - min;
             return new Fit(slope, intercept, range);
+        }
+    }
+
+    /**
+     * One-way session gear recognizer. VSS corruption removes a sample from the
+     * vote; it never resets a candidate and can never replace a committed gear.
+     */
+    private static final class SessionGearLatch {
+        private final ArrayDeque<GearSample> votes = new ArrayDeque<GearSample>();
+        private int lockedGear;
+        private double lastTrustedVss = Double.NaN;
+        private double lastTrustedSeconds = Double.NaN;
+        private int rejectedVssSamples;
+        private int ignoredGearSamples;
+        private boolean readyArmed;
+        private String lockedEvidence = "";
+
+        void reset() {
+            votes.clear();
+            lockedGear = 0;
+            lastTrustedVss = Double.NaN;
+            lastTrustedSeconds = Double.NaN;
+            rejectedVssSamples = 0;
+            ignoredGearSamples = 0;
+            readyArmed = false;
+            lockedEvidence = "";
+        }
+
+        void setReady(boolean ready) {
+            if (lockedGear == 0) readyArmed = ready;
+        }
+
+        void observe(LiveSample sample) {
+            if (sample == null || lockedGear != 0) return;
+            double now = sample.getSeconds();
+            prune(now);
+
+            double vss = sample.get(ChannelRole.VSS);
+            if (!Double.isFinite(vss) || vss <= 0.0 || vss > GEAR_MAX_VSS_KPH) {
+                rejectedVssSamples++;
+                return;
+            }
+            if (Double.isFinite(lastTrustedVss)
+                    && Double.isFinite(lastTrustedSeconds)
+                    && now - lastTrustedSeconds <= GEAR_VSS_CONTINUITY_SECONDS
+                    && Math.abs(vss - lastTrustedVss) > GEAR_MAX_VSS_STEP_KPH) {
+                rejectedVssSamples++;
+                return;
+            }
+            lastTrustedVss = vss;
+            lastTrustedSeconds = now;
+
+            double rawGear = sample.get(ChannelRole.GEAR);
+            int gear = Double.isFinite(rawGear) ? (int) Math.round(rawGear) : 0;
+            if (!Double.isFinite(rawGear) || gear < 1 || gear > 8
+                    || Math.abs(rawGear - gear) > 0.25) {
+                ignoredGearSamples++;
+                return;
+            }
+            votes.addLast(new GearSample(now, gear));
+            prune(now);
+        }
+
+        void commitIfReady(double now) {
+            if (lockedGear != 0 || !readyArmed) return;
+            commit(candidate(now));
+        }
+
+        Candidate candidate(double now) {
+            if (lockedGear != 0) {
+                return Candidate.locked(lockedGear, lockedEvidence);
+            }
+            prune(now);
+            if (votes.size() < GEAR_MIN_SAMPLES) {
+                return Candidate.unavailable(votes.size(), rejectedVssSamples,
+                        ignoredGearSamples, "too little trusted gear evidence");
+            }
+
+            int[] counts = new int[9];
+            double[] first = new double[9];
+            double[] last = new double[9];
+            for (int i = 0; i < first.length; i++) {
+                first[i] = Double.NaN;
+                last[i] = Double.NaN;
+            }
+            for (GearSample vote : votes) {
+                counts[vote.gear]++;
+                if (!Double.isFinite(first[vote.gear])) first[vote.gear] = vote.seconds;
+                last[vote.gear] = vote.seconds;
+            }
+
+            int dominantGear = 0;
+            int dominantCount = 0;
+            for (int gear = 1; gear <= 8; gear++) {
+                if (counts[gear] > dominantCount) {
+                    dominantGear = gear;
+                    dominantCount = counts[gear];
+                }
+            }
+            double confidence = dominantCount / (double) votes.size();
+            double span = dominantGear == 0 || !Double.isFinite(first[dominantGear])
+                    ? 0.0 : Math.max(0.0, last[dominantGear] - first[dominantGear]);
+            boolean valid = dominantCount >= GEAR_MIN_SAMPLES
+                    && confidence >= GEAR_MIN_CONFIDENCE
+                    && span >= GEAR_MIN_DOMINANT_SECONDS;
+            return new Candidate(valid, dominantGear, votes.size(), dominantCount,
+                    confidence, span, rejectedVssSamples, ignoredGearSamples,
+                    valid ? "confident READY-window dominant gear"
+                            : "READY-window gear evidence not yet dominant/stable enough");
+        }
+
+        int commit(Candidate candidate) {
+            if (lockedGear != 0) return lockedGear;
+            if (candidate == null || !candidate.valid) return 0;
+            lockedGear = candidate.gear;
+            lockedEvidence = candidate.summary();
+            readyArmed = false;
+            votes.clear();
+            return lockedGear;
+        }
+
+        String statusText(Candidate candidate) {
+            if (lockedGear != 0) {
+                return "session gear " + lockedGear + " latched | " + lockedEvidence;
+            }
+            return candidate == null ? "session gear not latched"
+                    : "session gear not latched | " + candidate.summary();
+        }
+
+        private void prune(double now) {
+            while (!votes.isEmpty()
+                    && now - votes.peekFirst().seconds > GEAR_WINDOW_SECONDS) {
+                votes.removeFirst();
+            }
+        }
+
+        static final class Candidate {
+            final boolean valid;
+            final int gear;
+            final int trustedSamples;
+            final int dominantSamples;
+            final double confidence;
+            final double dominantSpan;
+            final int rejectedVssSamples;
+            final int ignoredGearSamples;
+            final String reason;
+
+            Candidate(boolean valid, int gear, int trustedSamples,
+                      int dominantSamples, double confidence,
+                      double dominantSpan, int rejectedVssSamples,
+                      int ignoredGearSamples, String reason) {
+                this.valid = valid;
+                this.gear = gear;
+                this.trustedSamples = trustedSamples;
+                this.dominantSamples = dominantSamples;
+                this.confidence = confidence;
+                this.dominantSpan = dominantSpan;
+                this.rejectedVssSamples = rejectedVssSamples;
+                this.ignoredGearSamples = ignoredGearSamples;
+                this.reason = reason == null ? "" : reason;
+            }
+
+            static Candidate unavailable() {
+                return unavailable(0, 0, 0, "no session gear evidence");
+            }
+
+            static Candidate unavailable(int trusted, int rejected,
+                                         int ignored, String reason) {
+                return new Candidate(false, 0, trusted, 0, 0.0, 0.0,
+                        rejected, ignored, reason);
+            }
+
+            static Candidate locked(int gear, String evidence) {
+                return new Candidate(true, gear, 0, 0, 1.0,
+                        GEAR_MIN_DOMINANT_SECONDS, 0, 0,
+                        evidence == null ? "already latched" : evidence);
+            }
+
+            String summary() {
+                String confidenceText = trustedSamples <= 0 ? "n/a"
+                        : String.format(Locale.US, "%.0f%%", confidence * 100.0);
+                return "candidate " + (gear > 0 ? Integer.toString(gear) : "n/a")
+                        + " | dominant " + dominantSamples + "/" + trustedSamples
+                        + " (" + confidenceText + ")"
+                        + " | dominant span " + f2(dominantSpan) + " s"
+                        + " | rejected VSS spike/dropout samples " + rejectedVssSamples
+                        + " | ignored unavailable/non-integer gear samples " + ignoredGearSamples
+                        + " | " + reason;
+            }
+        }
+
+        private static final class GearSample {
+            final double seconds;
+            final int gear;
+
+            GearSample(double seconds, int gear) {
+                this.seconds = seconds;
+                this.gear = gear;
+            }
         }
     }
 

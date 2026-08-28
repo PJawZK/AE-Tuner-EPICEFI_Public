@@ -9,7 +9,9 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 
 if [[ ! -d target/classes || ! -d target/test-classes ]]; then
-  bash scripts/validate.sh
+  echo "Synthetic integration prerequisites are missing." >&2
+  echo "Run 'bash scripts/check-fast.sh' for development or 'bash scripts/validate.sh' for a milestone first." >&2
+  exit 1
 fi
 
 export SYNTHETIC_INTEGRATION_OUT="$OUT"
@@ -17,40 +19,35 @@ export SYNTHETIC_INTEGRATION_OUT="$OUT"
 xvfb-run -a -s '-screen 0 1440x1000x24' \
   java -Djava.awt.headless=false \
   -cp 'target/classes:target/test-classes:lib/TunerStudioPluginAPI.jar' \
-  se.anders.tunerstudio.aetuner.passive.SyntheticPluginIntegrationTest
+  se.anders.tunerstudio.aetuner.passive.SyntheticPluginIntegrationEntryPoint
 
 for required in \
   result.txt \
-  synthetic-v0317-shutdown.txt \
-  synthetic-session-guidance.txt \
-  synthetic-events.csv \
-  synthetic-map-predict-report.txt \
-  synthetic-plugin-panel.png \
-  synthetic-plugin-panel-narrow.png \
-  synthetic-plugin-overview-narrow-bottom.png
+  workspace-overview-1366.png \
+  workspace-passive-setup-1366.png \
+  workspace-evidence-audio-1366.png \
+  workspace-guided-1366.png \
+  workspace-guided-focus-map-estimate.png
 do
   test -s "$OUT/$required" || {
-    echo "Synthetic integration output missing or empty: $required" >&2
+    echo "Synthetic workspace integration output missing or empty: $required" >&2
     exit 1
   }
 done
 
-REPORT="$OUT/synthetic-map-predict-report.txt"
-grep -q 'Predictive Map Blend Duration per-RPM evidence.' "$REPORT"
-grep -q 'No interpolation or smoothing is applied.' "$REPORT"
-grep -q '600 RPM point (region' "$REPORT"
-grep -q '2450 RPM point (region' "$REPORT"
-grep -q 'No paste-ready Blend Duration proposal is available.' "$REPORT"
-grep -q 'multiple detector bursts remain visible diagnostically but never define the base curve' "$REPORT"
+grep -q 'Workspace synthetic integration: passed' "$OUT/result.txt"
+grep -q 'Passive tabs: Overview | Setup / Calibration' "$OUT/result.txt"
+grep -q 'Evidence tabs: Overview | Channels / Runtime | Audio Cue Lab | Recovery / Audit' "$OUT/result.txt"
+grep -q 'Guided Restore/Reconnect horizontal reachability: 1366 / 1024 / 820 PASS' "$OUT/result.txt"
+grep -q 'Guided Focus: modeless MAP Estimate heat map open/hide/reopen PASS' "$OUT/result.txt"
 
 sha256sum \
-  "$OUT/synthetic-v0317-shutdown.txt" \
-  "$OUT/synthetic-session-guidance.txt" \
-  "$OUT/synthetic-events.csv" \
-  "$OUT/synthetic-map-predict-report.txt" \
-  "$OUT/synthetic-plugin-panel.png" \
-  "$OUT/synthetic-plugin-panel-narrow.png" \
-  "$OUT/synthetic-plugin-overview-narrow-bottom.png" \
+  "$OUT/result.txt" \
+  "$OUT/workspace-overview-1366.png" \
+  "$OUT/workspace-passive-setup-1366.png" \
+  "$OUT/workspace-evidence-audio-1366.png" \
+  "$OUT/workspace-guided-1366.png" \
+  "$OUT/workspace-guided-focus-map-estimate.png" \
   > "$OUT/evidence.sha256"
 
-echo "Synthetic plugin integration evidence written to $OUT"
+echo "Synthetic workspace integration evidence written to $OUT"

@@ -78,15 +78,10 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
     private final JTextArea sessionModeLabel = createStatusText("Session mode: read AE project data first", 4);
     private final JTextArea guidanceLabel = createStatusText("AE tuning guidance: read project data and collect events.", 4);
     private final JTextArea mapCollectionLabel = createStatusText("MAP Estimate collection: waiting for project data.", 2);
-    // Session review is intentionally long-form diagnostic evidence. Its rows
-    // contribute to the Technical-details page height, which has its own
-    // scrollbar, rather than clipping the review into a compact status card.
     private final JTextArea sessionReviewLabel = createStatusText("Session review: no data yet.", 80);
     private final JTextArea recommendationHistoryText = createStatusText(
             "Session Guidance: waiting for the first recommendation.", 18);
 
-    // Compact, color-coded overview. Detailed diagnostic text remains available
-    // on the Technical details tab.
     private final JLabel overviewConnectionLabel = new JLabel("TunerStudio project not connected");
     private final JLabel overviewRateLabel = new JLabel("Sample rate: n/a");
     private final StatusCard workflowCard = new StatusCard("Current tuning stage", 190, 66);
@@ -107,8 +102,6 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
     private final StatusCard fullLoadSafetyCard = new StatusCard("Session / full-load safety", 350, 78);
 
     {
-        // Four MAP lines need slightly less vertical font space on high-DPI
-        // laptop scaling. Keep the card readable without widening the row.
         mapValuesCard.setValueFontSize(11f);
     }
     private final JTextField thresholdField = new JTextField("1.50", 6);
@@ -149,12 +142,12 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
     private final Timer refreshTimer;
 
     private final Object lock = new Object();
-    /** Serializes the host callback path with reset, calibration, reconnect, and disconnect. */
     private final Object samplingLock = new Object();
     private final EnumMap<ChannelRole, String> channelNames = new EnumMap<ChannelRole, String>(ChannelRole.class);
     private final EnumMap<ChannelRole, Double> latestValues = new EnumMap<ChannelRole, Double>(ChannelRole.class);
     private final Map<String, ChannelRole> subscribedChannels = new HashMap<String, ChannelRole>();
     private final Set<String> availableOutputChannels = new HashSet<String>();
+    private final CoherentLiveSampleAssembler coherentSampler = new CoherentLiveSampleAssembler();
     private final AeEventDetector eventDetector = new AeEventDetector();
     private final TpsNoiseCalibration calibration = new TpsNoiseCalibration();
     private final MapEstimateCollector mapEstimateCollector = new MapEstimateCollector();
@@ -219,9 +212,6 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
     }
 
     private static JTextArea createStatusText(String text, int rows) {
-        // A one-column preferred width lets the surrounding technical card
-        // determine wrapping. The explicit row count keeps the card height
-        // stable while live values update, avoiding scrollbar-range jumps.
         JTextArea area = new JTextArea(text, rows, 1);
         area.setEditable(false);
         area.setLineWrap(true);
@@ -264,6 +254,7 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
                 channelNames.clear();
                 availableOutputChannels.clear();
             }
+            coherentSampler.reset();
             previousSample = null;
             lastSampleNano = 0L;
             lastRateWindowNano = 0L;
@@ -271,8 +262,6 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
             sampleRateHz = 0.0;
             eventDetector.resetTracking();
         }
-        // Do not call host code while holding the sampling-state lock. Some host
-        // implementations may wait for an in-flight callback to finish here.
         if (serverToUnsubscribe != null) {
             serverToUnsubscribe.unsubscribe(this);
         }
@@ -298,9 +287,14 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
             }
         }
 
-        if (sampleCaptureEnabled
-                && (role == ChannelRole.TIME || role == ChannelRole.TPS || role == ChannelRole.RPM)) {
-            maybeRecordSample();
+        if (sampleCaptureEnabled && role != null) {
+            synchronized (samplingLock) {
+                CoherentLiveSampleAssembler.Frame frame = coherentSampler.accept(
+                        role, value, System.nanoTime());
+                if (frame != null) {
+                    maybeRecordSampleLocked(frame);
+                }
+            }
         }
     }
 
@@ -399,6 +393,7 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
             resolveOutputChannels();
             subscribeResolvedChannels();
             synchronized (samplingLock) {
+                coherentSampler.reset();
                 previousSample = null;
                 lastSampleNano = 0L;
                 lastRateWindowNano = 0L;
@@ -446,18 +441,23 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
     }
 
     private String findAvailableChannel(ChannelRole role) {
-    return OutputChannelResolver.resolve(role, availableOutputChannels);
-}
+        return OutputChannelResolver.resolve(role, availableOutputChannels);
+    }
 
-private void subscribeResolvedChannels() throws ControllerException {
+    private void subscribeResolvedChannels() throws ControllerException {
+        EnumMap<ChannelRole, String> names;
         synchronized (lock) {
             subscribedChannels.clear();
+            names = new EnumMap<ChannelRole, String>(channelNames);
         }
-        for (Map.Entry<ChannelRole, String> entry : channelNames.entrySet()) {
-            outputChannelServer.subscribe(configurationName, entry.getValue(), this);
+        synchronized (samplingLock) {
+            coherentSampler.configureResolvedRoles(names.keySet());
+        }
+        for (Map.Entry<ChannelRole, String> entry : names.entrySet()) {
             synchronized (lock) {
                 subscribedChannels.put(entry.getValue(), entry.getKey());
             }
+            outputChannelServer.subscribe(configurationName, entry.getValue(), this);
         }
     }
 
@@ -511,6 +511,7 @@ private void subscribeResolvedChannels() throws ControllerException {
                 capturedEvents.clear();
                 latestValues.clear();
             }
+            coherentSampler.reset();
             eventDetector.resetSession();
             mapEstimateCollector.clear();
             mapEstimateCollector.configure(projectSnapshot);
@@ -532,7 +533,7 @@ private void subscribeResolvedChannels() throws ControllerException {
         recommendationHistory.reset();
         recommendationHistoryText.setText(recommendationHistory.toDisplayText());
         recommendationHistoryText.setCaretPosition(0);
-        setNotesText("Session reset. Plugin is still read-only and will not write to ECU RAM/flash.", true);
+        setNotesText("Session reset. Passive Analysis remains read-only and will not write ECU RAM/flash.", true);
         plotPanel.setEvent(null);
         refreshUi();
     }
@@ -589,6 +590,73 @@ private void subscribeResolvedChannels() throws ControllerException {
                 lastCsvExportMillis, lastReportExportMillis);
     }
 
+    /** Shared controller/channel diagnostics shown under Evidence / Diagnostics. */
+    public String runtimeDiagnosticsText() {
+        EnumMap<ChannelRole, String> names;
+        EnumMap<ChannelRole, Double> values;
+        int subscribed;
+        synchronized (lock) {
+            names = new EnumMap<ChannelRole, String>(channelNames);
+            values = new EnumMap<ChannelRole, Double>(latestValues);
+            subscribed = subscribedChannels.size();
+        }
+        long coherentFrames;
+        long incompleteFrames;
+        long duplicateBoundaries;
+        long quietGapBoundaries;
+        long maxBurstSpanNano;
+        String requiredRoles;
+        synchronized (samplingLock) {
+            coherentFrames = coherentSampler.emittedFrames();
+            incompleteFrames = coherentSampler.incompleteFrames();
+            duplicateBoundaries = coherentSampler.duplicateBoundaries();
+            quietGapBoundaries = coherentSampler.quietGapBoundaries();
+            maxBurstSpanNano = coherentSampler.maxBurstSpanNano();
+            requiredRoles = coherentSampler.requiredRolesText();
+        }
+        StringBuilder out = new StringBuilder();
+        out.append("CONTROLLER / RUNTIME\n")
+                .append("====================\n")
+                .append("Project: ").append(configurationName == null ? "unknown" : configurationName).append('\n')
+                .append("Controller access: ").append(controllerAccess == null ? "DISCONNECTED" : "CONNECTED").append('\n')
+                .append("Passive sample capture: ").append(sampleCaptureEnabled ? "ACTIVE" : "SUSPENDED").append('\n')
+                .append("Delivered coherent sample rate: ").append(sampleRateHz > 0.0 ? F1.format(sampleRateHz) + " Hz" : "n/a").append('\n')
+                .append("Subscribed live channels: ").append(subscribed).append('\n')
+                .append("Coherent frames: ").append(coherentFrames)
+                .append(" emitted / ").append(incompleteFrames).append(" incomplete dropped\n")
+                .append("Frame boundaries: ").append(duplicateBoundaries)
+                .append(" repeated-role / ").append(quietGapBoundaries).append(" quiet-gap\n")
+                .append("Max callback burst span: ")
+                .append(F3.format(maxBurstSpanNano / 1000000.0)).append(" ms\n")
+                .append("Coherence-required resolved roles: ").append(requiredRoles).append('\n')
+                .append("Passive event outcomes: ").append(acceptedEvents).append(" accepted / ")
+                .append(rejectedEvents).append(" rejected\n\n")
+                .append("CURRENT PROJECT SNAPSHOT\n")
+                .append("========================\n")
+                .append(projectSnapshot == null ? "Working tune not read." : projectSnapshot.toDisplayText())
+                .append("\n\nRESOLVED OUTPUT CHANNELS\n")
+                .append("========================\n");
+        if (names.isEmpty()) {
+            out.append("No live output channels resolved.\n");
+        } else {
+            for (ChannelRole role : ChannelRole.values()) {
+                String name = names.get(role);
+                if (name == null) continue;
+                Double value = values.get(role);
+                out.append(role.name()).append(" -> ").append(name)
+                        .append(" = ")
+                        .append(value == null || !Double.isFinite(value.doubleValue())
+                                ? "n/a" : F3.format(value.doubleValue()))
+                        .append('\n');
+            }
+        }
+        out.append("\nPASSIVE DETECTOR SCOPE\n")
+                .append("======================\n")
+                .append("TPS noise calibration and the manual TPSdot threshold belong to Passive event detection only. ")
+                .append("Guided opening confirmation uses its own ECU detector/prediction and local usable-step rules.");
+        return out.toString();
+    }
+
     private List<TransientEvent> capturedEventSnapshot() {
         synchronized (lock) {
             return new ArrayList<TransientEvent>(capturedEvents);
@@ -622,49 +690,38 @@ private void subscribeResolvedChannels() throws ControllerException {
         }
     }
 
-    private void maybeRecordSample() {
-        synchronized (samplingLock) {
-            maybeRecordSampleLocked();
-        }
-    }
-
-    private void maybeRecordSampleLocked() {
-        long now = System.nanoTime();
+    private void maybeRecordSampleLocked(CoherentLiveSampleAssembler.Frame frame) {
+        if (frame == null) return;
+        long now = frame.nanoTime;
         if (now - lastSampleNano < MIN_SAMPLE_GAP_NS) {
             return;
         }
         lastSampleNano = now;
 
-        LiveSample sample;
-        synchronized (lock) {
-            if (!latestValues.containsKey(ChannelRole.TPS)) {
-                return;
-            }
-            EnumMap<ChannelRole, Double> snapshot = new EnumMap<ChannelRole, Double>(ChannelRole.class);
-            snapshot.putAll(latestValues);
-            // The EpicEFI `seconds` output channel is usually whole-second ECU uptime,
-            // which is too coarse for TPSdot. Use the local receive timestamp for
-            // live transient detection and keep the ECU time only as a displayed channel.
-            double seconds = now / 1000000000.0;
-
-            double tpsDot = 0.0;
-            double mapDot = 0.0;
-            if (previousSample != null) {
-                double dt = Math.max(0.001, seconds - previousSample.getSeconds());
-                double tps = value(snapshot, ChannelRole.TPS);
-                double lastTps = previousSample.get(ChannelRole.TPS);
-                if (Double.isFinite(tps) && Double.isFinite(lastTps)) {
-                    tpsDot = (tps - lastTps) / dt;
-                }
-                double map = value(snapshot, ChannelRole.MAP);
-                double lastMap = previousSample.get(ChannelRole.MAP);
-                if (Double.isFinite(map) && Double.isFinite(lastMap)) {
-                    mapDot = (map - lastMap) / dt;
-                }
-            }
-            sample = new LiveSample(now, seconds, snapshot, tpsDot, mapDot);
-            previousSample = sample;
+        EnumMap<ChannelRole, Double> snapshot =
+                new EnumMap<ChannelRole, Double>(frame.values);
+        if (!snapshot.containsKey(ChannelRole.TPS)) {
+            return;
         }
+        double seconds = now / 1000000000.0;
+
+        double tpsDot = 0.0;
+        double mapDot = 0.0;
+        if (previousSample != null) {
+            double dt = Math.max(0.001, seconds - previousSample.getSeconds());
+            double tps = value(snapshot, ChannelRole.TPS);
+            double lastTps = previousSample.get(ChannelRole.TPS);
+            if (Double.isFinite(tps) && Double.isFinite(lastTps)) {
+                tpsDot = (tps - lastTps) / dt;
+            }
+            double map = value(snapshot, ChannelRole.MAP);
+            double lastMap = previousSample.get(ChannelRole.MAP);
+            if (Double.isFinite(map) && Double.isFinite(lastMap)) {
+                mapDot = (map - lastMap) / dt;
+            }
+        }
+        LiveSample sample = new LiveSample(now, seconds, snapshot, tpsDot, mapDot);
+        previousSample = sample;
 
         samplesInWindow++;
         if (lastRateWindowNano == 0L) {
@@ -790,5 +847,4 @@ private void subscribeResolvedChannels() throws ControllerException {
     private static String normalize(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
-
 }

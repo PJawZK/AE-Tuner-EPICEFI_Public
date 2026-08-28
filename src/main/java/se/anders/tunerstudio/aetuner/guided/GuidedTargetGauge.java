@@ -85,13 +85,15 @@ final class GuidedTargetGauge extends JPanel {
         minimum = 0.0;
         maximum = 100.0;
         boolean hasFrozenBaseline = Double.isFinite(baselineTps);
+        double acceptedStepLow = BlendDurationCaptureConfig.targetStepLow(desiredStep);
+        double acceptedStepHigh = BlendDurationCaptureConfig.targetStepHigh(desiredStep);
         target = hasFrozenBaseline
                 ? clamp(baselineTps + desiredStep, minimum, maximum)
                 : Double.NaN;
         innerLow = hasFrozenBaseline
-                ? clamp(target - 5.0, minimum, maximum) : Double.NaN;
+                ? clamp(baselineTps + acceptedStepLow, minimum, maximum) : Double.NaN;
         innerHigh = hasFrozenBaseline
-                ? clamp(target + 5.0, minimum, maximum) : Double.NaN;
+                ? clamp(baselineTps + acceptedStepHigh, minimum, maximum) : Double.NaN;
         outerLow = innerLow;
         outerHigh = innerHigh;
         double actualStep = Double.isFinite(nextValue) && hasFrozenBaseline
@@ -100,12 +102,15 @@ final class GuidedTargetGauge extends JPanel {
             label.setText("TPS " + format(nextValue, 1) + "% — frozen baseline "
                     + format(baselineTps, 1) + "% — actual step "
                     + (Double.isFinite(actualStep) && actualStep >= 0.0 ? "+" : "")
-                    + format(actualStep, 1) + " — guide +" + format(desiredStep, 1)
-                    + " (not an absolute acceptance band)");
+                    + format(actualStep, 1) + " — target step +" + format(desiredStep, 1)
+                    + " — accepted +" + format(acceptedStepLow, 1)
+                    + " to +" + format(acceptedStepHigh, 1));
         } else {
-            label.setText("TPS " + format(nextValue, 1) + "% — guide +"
+            label.setText("TPS " + format(nextValue, 1) + "% — target step +"
                     + format(desiredStep, 1)
-                    + " (not an absolute acceptance band) — target marker waits for frozen opening baseline");
+                    + " — accepted +" + format(acceptedStepLow, 1)
+                    + " to +" + format(acceptedStepHigh, 1)
+                    + " — target marker waits for frozen opening baseline");
         }
         track.repaint();
     }
@@ -113,14 +118,17 @@ final class GuidedTargetGauge extends JPanel {
     void setRpmAdaptive(double nextValue, double nextTarget) {
         value = nextValue;
         target = nextTarget;
-        minimum = Math.max(0.0, nextTarget - 600.0);
-        maximum = nextTarget + 600.0;
-        innerLow = nextTarget - 300.0;
-        innerHigh = nextTarget + 300.0;
-        outerLow = nextTarget - 450.0;
-        outerHigh = nextTarget + 450.0;
-        label.setText("RPM " + format(nextValue, 0) + " — road region "
-                + format(nextTarget, 0) + " ±300 — READY retain ±450");
+        double view = Math.max(500.0, RoadBaselineTracker.RPM_CAPTURE_TOLERANCE + 200.0);
+        minimum = Math.max(0.0, nextTarget - view);
+        maximum = nextTarget + view;
+        innerLow = nextTarget - RoadBaselineTracker.RPM_ACQUIRE_TOLERANCE;
+        innerHigh = nextTarget + RoadBaselineTracker.RPM_ACQUIRE_TOLERANCE;
+        outerLow = nextTarget - RoadBaselineTracker.RPM_CAPTURE_TOLERANCE;
+        outerHigh = nextTarget + RoadBaselineTracker.RPM_CAPTURE_TOLERANCE;
+        label.setText("RPM " + format(nextValue, 0) + " — actual table bin "
+                + format(nextTarget, 0) + " — READY ±"
+                + format(RoadBaselineTracker.RPM_ACQUIRE_TOLERANCE, 0)
+                + "; capture ±" + format(RoadBaselineTracker.RPM_CAPTURE_TOLERANCE, 0));
         track.repaint();
     }
 

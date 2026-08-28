@@ -34,6 +34,3 @@ Thumbs.db
 *.pem
 *.p12
 *.jks
-
-# Third-party build dependency supplied locally
-lib/TunerStudioPluginAPI.jar

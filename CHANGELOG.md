@@ -1,91 +1,62 @@
 # Changelog
 
-## 0.4.0
+## 0.4.2-rc.1 — release candidate — 2026-08-28
 
-Status: **physically validated and accepted stable baseline**.
+Status: **RELEASE CANDIDATE / PUBLIC TEST**.
 
-Accepted JAR SHA-256:
+- Full release-candidate identity: `0.4.2-rc.1`.
+- Private authority RC commit: `778a6da72a5ec1d05bcc510ed8fca0c9439189c8`.
+- RC JAR: `ae-tuner-epicefi-0.4.2-rc.1.jar`.
+- RC JAR SHA-256: `500fb9f7b5f7cf79701b61af48c49c5ec58c0427a82758446e5d18dc61f219e6`.
+- Java target: Java 8 bytecode.
+- Published as GitHub prerelease `v0.4.2-rc.1` for broader public testing and feedback.
+- Reframes AE Tuner as a general transient-fuelling / AE tuner rather than a MAP Predict-only tool.
+- Adds seven Guided Tuning areas: AE Foundation, TPS AE, MAP Predict, Wall Wetting, Decel / Tip-out, Optional / Residual Correction, and Review / Simplification.
+- Adds a provisional Guided task map with local numbering inside each area.
+- Adds a coaching-first foundation across the complete Guided task map while keeping planned tasks honest about incomplete evidence/recommendation logic.
+- Preserves specialized real Guided behaviour where already implemented, including MAP Estimate and Detector Model / Timing Focus surfaces.
+- Adds Engagement/Detection working-tune setting support for Engagement Model, Delta Window, Sample Length and Fast Callback through the shared guarded proposal/write architecture.
+- Preserves the centralized explicit `ProposalWritePlan` Apply/readback/Restore contract.
+- Automatic Apply remains prohibited.
+- ECU Burn remains unavailable; there is no Burn button or production Burn API.
+- VE and ignition remain outside AE Tuner tuning authority; ignition is observation/confounder context only.
+- Carries forward Passive analysis, session exports, recovery/audit support, audio-led Guided operation, bounded Guided sample dispatch and long-session safeguards.
+- Full private regression validation and synthetic real-plugin/Swing integration passed for the exact RC identity before publication.
+- Detector Delta Window `25 -> temporary 24 -> verified Apply -> Restore 25` remains a bounded setting-representation qualification path; `24 ms` is not a tuning recommendation.
+- Blend Duration numerical conversion remains withheld until its model is sufficiently validated.
 
-`1af45f58584b0dda8a8e2eb9b78ddfb09276f407b9264ee74bbf9408d54b13d8`
+## 0.4.1 — accepted internal project milestone — 2026-08-10
 
-- Promoted the physically validated Guided/Passive architecture to the stable `0.4.0` identity without adding ECU write capability.
-- Added Adaptive **Guided Capture** for Predictive MAP Blend Duration evidence using natural pedal openings rather than requiring exact pre-scripted throttle steps.
-- Added frozen pre-opening TPS guidance so the target does not chase live TPS after the opening begins.
-- Requires MAP prediction to be active at the Blend Duration measurement anchor; stale prediction-inactive fallback-MAP gaps are not valid anchors.
-- Added attempt traces, typed outcomes/evidence, comparability grouping, retained/raw evidence, and Guided session summaries.
-- Added one-shot audio workflow cues and a stationary **Audio Cue Lab**.
-- Added local evidence checkpoint/recovery support.
-- Replaced synchronous/static Guided sample publication with a bounded instance-local dispatcher so Passive/TunerStudio sample delivery does not wait for Guided computation.
-- Split Guided, host compatibility, shared model, Passive analysis, proposal/report, recovery, and reusable UI responsibilities into focused packages.
-- Split the previous monolithic transient-event analysis/presentation path into event model, analyzer, assessment, formatter, and MAP-prediction metrics components.
-- Preserved MAP Estimate evidence, Session Guidance, event capture, reports/CSV export, running/cranking/key-off safety classification, trigger/fault/cut evidence, and Java 8 bytecode.
-- Passed deterministic validation and real synthetic Swing/plugin-panel integration.
-- Physical testing covered stationary startup/live data, audio, repeated hide/reopen, repeated Guided sessions, road workflow, Passive continuity under Guided load, and measurement-anchor correctness.
-- No generated Blend Duration proposal/value became an automatically accepted tune through this release.
+Status: **ACCEPTED PROJECT MILESTONE / NOT SEPARATELY PUBLISHED AS A PUBLIC GITHUB RELEASE**.
 
-## 0.3.19 — superseded development candidate
+- Accepted private integration commit: `d396cb0a0c50770a31630ea95e89cd865c80470e`.
+- Accepted JAR SHA-256: `8946d8b841285454550bfd0dc0929ef0be98306d01b08a171ce8781ff4a4851e`.
+- Consolidated Passive and Guided session export workflows.
+- Added safer staged session-folder publication and background serialization.
+- Improved report ordering and normalized Guided event/diagnostic CSV output.
+- Passed real TunerStudio use and automated promotion gates.
+- This milestone was subsequently incorporated into the broader `0.4.2-rc.1` public line rather than receiving its own public release tag.
 
-The `0.3.19` development line introduced the per-RPM Predictive MAP Blend Duration evidence model that was later carried forward and physically validated as part of `0.4.0`.
+## 0.4.0 — stable public release — 2026-08-09
 
-- Assigned evidence to actual Blend Duration RPM regions.
-- Added retained held-opening counts, observed coverage, median/mean/range/IQR/standard-deviation/outlier evidence, confidence, and eligibility.
-- Added explicit rejection reasons for discontinuities, missing detector bursts, repeated stabs, insufficient MAP gap, throttle release, unresolved catch-up, invalid duration, and missing RPM.
-- Preserved unsupported/ineligible RPM points without silent interpolation or smoothing.
-- Kept repeated-stab events diagnostic-only for the base Blend Duration curve.
+Status: **ACCEPTED / PUBLIC STABLE**.
 
-`0.3.19` is not a current release; its relevant work is incorporated into accepted `0.4.0`.
+- Public tag: `v0.4.0`.
+- JAR: `ae-tuner-epicefi-0.4.0.jar`.
+- JAR SHA-256: `1af45f58584b0dda8a8e2eb9b78ddfb09276f407b9264ee74bbf9408d54b13d8`.
+- Promoted the physically validated `0.4.0-vehicle-test.12` Guided/runtime architecture.
+- Added adaptive Guided Capture, audio cues, natural opening/plateau handling, comparability grouping and prediction-active Blend Duration measurement anchoring.
+- Completed the major package/runtime decomposition and bounded Guided dispatcher architecture.
+- Preserved Passive analysis and read-only tuning guidance in that stable line.
 
-## 0.3.18
+## 0.3.19-rc.1 — historical public release candidate — 2026-08-02
 
-- Consolidated the physically accepted v0.3.17 operational-state, cut-reason and ignition-counter safety behavior with the merged deterministic Swing integration harness.
-- Added the session-only Recommendation History and dedicated Session Guidance tab with clickable recommendation-card navigation.
-- Verified the asynchronous shutdown sequence through automated Swing integration without false or duplicate shutdown guidance.
-- Kept Recommendation History memory-only and excluded it from reports, CSV exports, project files and ECU state.
-- Synchronized source, Maven, manifest and JAR filename identity as version 0.3.18.
-- Preserved MAP Estimate, Predictive Map Blend Duration, transient-event logic and strictly read-only ECU behavior.
+- Historical prerelease preceding the 0.4.x Guided architecture.
+- Superseded by `v0.4.0` and later `v0.4.2-rc.1`.
 
-## 0.3.17
+## 0.3.18 — historical stable release
 
-- Made either resolved explicit ignition-off signal override a lagging `running` value during asynchronous output-channel updates.
-- Added a short coherent-running guard before a cut reason code alone can create a critical running cut recommendation.
-- Kept actual `Total spark cut` and `Total fuel cut` outputs immediately safety-critical while reporting them separately from `Ign: Cut Code` and `Fuel: Cut Code`.
-- Split ignition diagnostic-counter positive increments into running, cranking, key-off, and unknown-state totals while preserving reset counts.
-- Added deterministic regressions for the physical shutdown sequence that previously produced a false running cut warning.
-- Preserved MAP Estimate, Predictive Map Blend Duration, transient-event logic, and strictly read-only ECU behavior.
+- JAR SHA-256: `2d22c6a11407eea744df3ca81524732f0c30de90cb4c2562eb4bd9456ec44828`.
+- Superseded by later public releases.
 
-## 0.3.16
-
-- Added exact generated EPICEFI output-channel names for running/cranking, ignition and fuel cut reasons, and ignition diagnostic counters.
-- Extracted deterministic output-channel resolution so internal-name mappings are regression-tested.
-- Added saved-report evidence showing each critical role's selected TunerStudio channel/latest raw value, or attempted candidates when unresolved.
-- Preserved running/cranking/key-off safety classification, counter accumulation, tuning algorithms, and strictly read-only behavior.
-
-## 0.3.15
-
-- Classified live safety evidence as running, cranking, key-off/coast-down, or unknown using resolved operating-state channels with RPM and battery-voltage fallbacks.
-- Kept running trigger/sync loss and running fault/cut activity safety-critical while retaining cranking and key-off activity as diagnostic context.
-- Excluded normal key-off trigger pulses and cut codes from running-engine troubleshooting recommendations.
-- Accumulated positive Trigger Error Counter and ignition diagnostic-counter increments across resets while reporting resets separately.
-- Added deterministic coverage for running, cranking, key-off, counter-reset, and resolved-zero behavior.
-- Made CSV/report filenames and report headers derive from the plugin version.
-
-## 0.3.14
-
-- Monitored trigger/sync faults, ignition/injector faults, cuts, stop codes, and diagnostic counters across the complete live session rather than only full-load samples.
-- Kept boost, lambda, injector-duty, ignition-timing, and fuel-pressure full-load summaries restricted to explicit full-load samples.
-- Added critical-channel evidence states that distinguish received values, received zero/inactive values, and unresolved/unavailable channels.
-- Prevented unsupported `none seen` safety conclusions when required fault/cut channels did not deliver live values.
-- Added deterministic low-load trigger-fault regression coverage.
-
-## 0.3.13
-
-- Distinguished normal timer-counter increments within one continuous TPS-change burst from genuine repeated pedal stabs.
-- Started catch-up timing after the final trigger/reset sample and rejected events where throttle was released before measured MAP caught up.
-- Added prediction-trigger-burst evidence to CSV export.
-- Preserved all unvisited MAP Estimate cells and reported out-of-range unvisited values as warnings rather than silently changing them.
-- Added per-cell MAP spread, changed/excluded-cell, sample-count, and standard-deviation evidence.
-- Raised the minimum meaningful Wall Wetting event threshold to avoid idle/background numerical correction events.
-
-## 0.3.11
-
-- Stabilized Overview and Technical details scrolling and section sizing.
+Detailed development history remains available in Git history and the corresponding GitHub release notes.

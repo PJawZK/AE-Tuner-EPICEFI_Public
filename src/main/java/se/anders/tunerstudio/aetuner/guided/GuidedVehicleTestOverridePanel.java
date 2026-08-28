@@ -19,7 +19,8 @@ import javax.swing.SpinnerNumberModel;
 import java.awt.FlowLayout;
 
 /**
- * Non-persistent test controls for the next Guided Capture session.
+ * Internal non-persistent vehicle-test controls retained for development/test use.
+ * This panel is intentionally not exposed in the normal user-facing workspace.
  */
 public final class GuidedVehicleTestOverridePanel extends JPanel {
     private final JCheckBox enabled =
@@ -29,7 +30,9 @@ public final class GuidedVehicleTestOverridePanel extends JPanel {
     private final JSpinner mapCatchup = spinner(1.20, 0.50, 3.00, 0.05);
     private final JSpinner tpsTolerance = spinner(3.00, 0.50, 10.00, 0.25);
     private final JSpinner boundaryEpsilon = spinner(0.05, 0.00, 0.50, 0.01);
-    private final JSpinner localOnset = spinner(2.00, 0.50, 10.00, 0.25);
+    private final JSpinner localOnset = spinner(
+            GuidedVehicleTestLimits.DEFAULT_LOCAL_TPS_ONSET_RISE,
+            PedalPlateauDetector.MIN_USABLE_STEP, 20.00, 0.50);
     private final JButton restore = new JButton("Restore candidate defaults");
     private final JLabel status = new JLabel();
 
@@ -53,7 +56,7 @@ public final class GuidedVehicleTestOverridePanel extends JPanel {
         second.add(tpsTolerance);
         second.add(new JLabel("Boundary epsilon %"));
         second.add(boundaryEpsilon);
-        second.add(new JLabel("Local TPS onset rise"));
+        second.add(new JLabel("Local TPS confirmation rise"));
         second.add(localOnset);
         second.add(restore);
         add(second);
@@ -75,7 +78,7 @@ public final class GuidedVehicleTestOverridePanel extends JPanel {
         boundaryEpsilon.setToolTipText(
                 "Small numerical allowance used only at the target-band boundary.");
         localOnset.setToolTipText(
-                "Minimum baseline-to-current TPS rise that may provisionally start capture before the ECU detector.");
+                "Minimum baseline-to-current TPS rise that may confirm a local-only opening without ECU detector/prediction evidence. It cannot be lower than the recipe's +10 TPS usable-step minimum.");
 
         enabled.addActionListener(event -> apply());
         detectorConfirm.addChangeListener(event -> apply());
@@ -86,6 +89,10 @@ public final class GuidedVehicleTestOverridePanel extends JPanel {
         localOnset.addChangeListener(event -> apply());
         restore.addActionListener(event -> restoreDefaults());
         apply();
+
+        // Retained only as an internal development/test utility. The normal
+        // plugin workspace must not present vehicle-test tuning-limit knobs.
+        setVisible(false);
     }
 
     private static JPanel row() {

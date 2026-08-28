@@ -41,6 +41,20 @@ public final class AeProjectSnapshot {
     private final double[] blendDurationRpmBins;
     private final double[] blendDurationValues;
 
+    // Shared upstream AE engagement/detection settings. These are read from the
+    // working tune so reviewed detector-setting plans can stale-check against
+    // the exact baseline instead of relying on vehicle-running evidence.
+    private final String engagementModel;
+    private final double engagementDeltaWindowMs;
+    private final double engagementSampleLengthSeconds;
+    private final boolean engagementFastCallback;
+    private final boolean engagementFastCallbackAvailable;
+    private final double deltaTpsAverageAlpha;
+
+    /**
+     * Backward-compatible constructor retained for the existing synthetic test
+     * fixtures. Detector settings are unknown when this constructor is used.
+     */
     public AeProjectSnapshot(String configurationName,
                       double[] cycleBins,
                       double[] tpsToBins,
@@ -65,6 +79,101 @@ public final class AeProjectSnapshot {
                       double[][] mapEstimateTable,
                       double[] blendDurationRpmBins,
                       double[] blendDurationValues) {
+        this(configurationName,
+                cycleBins, tpsToBins, cycleValues,
+                thresholdRpmBins, thresholdValues,
+                extraShotMultiplier, extraShotTimer,
+                cltCorrBins, cltCorr,
+                tpsAeEnabled, wallWettingEnabled, wallWettingModel,
+                extraShotEnabled, mapEstimateEnabled,
+                dynamicThresholdEnabled, dynamicThresholdAverageStatic,
+                wallTauTable, wallBetaTable,
+                mapEstimateRpmBins, mapEstimateTpsBins, mapEstimateTable,
+                blendDurationRpmBins, blendDurationValues,
+                "unknown", Double.NaN, Double.NaN, false, false, Double.NaN);
+    }
+
+    /**
+     * Backward-compatible complete constructor. An explicitly supplied Fast
+     * Callback value is treated as a known baseline. Runtime snapshots use the
+     * overload with a separate availability flag.
+     */
+    public AeProjectSnapshot(String configurationName,
+                      double[] cycleBins,
+                      double[] tpsToBins,
+                      double[][] cycleValues,
+                      double[] thresholdRpmBins,
+                      double[] thresholdValues,
+                      double extraShotMultiplier,
+                      double extraShotTimer,
+                      double[] cltCorrBins,
+                      double[] cltCorr,
+                      boolean tpsAeEnabled,
+                      boolean wallWettingEnabled,
+                      String wallWettingModel,
+                      boolean extraShotEnabled,
+                      boolean mapEstimateEnabled,
+                      boolean dynamicThresholdEnabled,
+                      boolean dynamicThresholdAverageStatic,
+                      double[][] wallTauTable,
+                      double[][] wallBetaTable,
+                      double[] mapEstimateRpmBins,
+                      double[] mapEstimateTpsBins,
+                      double[][] mapEstimateTable,
+                      double[] blendDurationRpmBins,
+                      double[] blendDurationValues,
+                      String engagementModel,
+                      double engagementDeltaWindowMs,
+                      double engagementSampleLengthSeconds,
+                      boolean engagementFastCallback,
+                      double deltaTpsAverageAlpha) {
+        this(configurationName,
+                cycleBins, tpsToBins, cycleValues,
+                thresholdRpmBins, thresholdValues,
+                extraShotMultiplier, extraShotTimer,
+                cltCorrBins, cltCorr,
+                tpsAeEnabled, wallWettingEnabled, wallWettingModel,
+                extraShotEnabled, mapEstimateEnabled,
+                dynamicThresholdEnabled, dynamicThresholdAverageStatic,
+                wallTauTable, wallBetaTable,
+                mapEstimateRpmBins, mapEstimateTpsBins, mapEstimateTable,
+                blendDurationRpmBins, blendDurationValues,
+                engagementModel, engagementDeltaWindowMs,
+                engagementSampleLengthSeconds, engagementFastCallback, true,
+                deltaTpsAverageAlpha);
+    }
+
+    /** Complete working-tune snapshot including Fast Callback read validity. */
+    public AeProjectSnapshot(String configurationName,
+                      double[] cycleBins,
+                      double[] tpsToBins,
+                      double[][] cycleValues,
+                      double[] thresholdRpmBins,
+                      double[] thresholdValues,
+                      double extraShotMultiplier,
+                      double extraShotTimer,
+                      double[] cltCorrBins,
+                      double[] cltCorr,
+                      boolean tpsAeEnabled,
+                      boolean wallWettingEnabled,
+                      String wallWettingModel,
+                      boolean extraShotEnabled,
+                      boolean mapEstimateEnabled,
+                      boolean dynamicThresholdEnabled,
+                      boolean dynamicThresholdAverageStatic,
+                      double[][] wallTauTable,
+                      double[][] wallBetaTable,
+                      double[] mapEstimateRpmBins,
+                      double[] mapEstimateTpsBins,
+                      double[][] mapEstimateTable,
+                      double[] blendDurationRpmBins,
+                      double[] blendDurationValues,
+                      String engagementModel,
+                      double engagementDeltaWindowMs,
+                      double engagementSampleLengthSeconds,
+                      boolean engagementFastCallback,
+                      boolean engagementFastCallbackAvailable,
+                      double deltaTpsAverageAlpha) {
         this.configurationName = configurationName;
         this.cycleBins = cloneArray(cycleBins);
         this.tpsToBins = cloneArray(tpsToBins);
@@ -91,6 +200,13 @@ public final class AeProjectSnapshot {
         this.mapEstimateTable = cloneTable(mapEstimateTable);
         this.blendDurationRpmBins = cloneArray(blendDurationRpmBins);
         this.blendDurationValues = cloneArray(blendDurationValues);
+        this.engagementModel = engagementModel == null || engagementModel.trim().length() == 0
+                ? "unknown" : engagementModel.trim();
+        this.engagementDeltaWindowMs = engagementDeltaWindowMs;
+        this.engagementSampleLengthSeconds = engagementSampleLengthSeconds;
+        this.engagementFastCallback = engagementFastCallback;
+        this.engagementFastCallbackAvailable = engagementFastCallbackAvailable;
+        this.deltaTpsAverageAlpha = deltaTpsAverageAlpha;
     }
 
     public String getConfigurationName() { return configurationName; }
@@ -110,6 +226,53 @@ public final class AeProjectSnapshot {
     public boolean isMapEstimateEnabled() { return mapEstimateEnabled; }
     public boolean isDynamicThresholdEnabled() { return dynamicThresholdEnabled; }
     public boolean isDynamicThresholdAverageStatic() { return dynamicThresholdAverageStatic; }
+
+    public String getEngagementModel() { return engagementModel; }
+    public double getEngagementDeltaWindowMs() { return engagementDeltaWindowMs; }
+    public double getEngagementSampleLengthSeconds() { return engagementSampleLengthSeconds; }
+    public boolean isEngagementFastCallback() { return engagementFastCallback; }
+    public boolean hasEngagementFastCallback() { return engagementFastCallbackAvailable; }
+    public double getDeltaTpsAverageAlpha() { return deltaTpsAverageAlpha; }
+    public boolean hasEngagementDeltaWindow() { return Double.isFinite(engagementDeltaWindowMs); }
+    public boolean hasEngagementSampleLength() { return Double.isFinite(engagementSampleLengthSeconds); }
+
+    public String engagementSettingsText() {
+        return "Engagement model " + engagementModel
+                + " | Delta Window " + finiteText(engagementDeltaWindowMs, " ms")
+                + " | Sample Length " + finiteText(engagementSampleLengthSeconds, " s")
+                + " | Fast callback " + (engagementFastCallbackAvailable
+                        ? (engagementFastCallback ? "ON" : "OFF") : "unknown")
+                + " | Delta TPS smoothing alpha " + finiteText(deltaTpsAverageAlpha, "");
+    }
+
+    /** Concise method-state view for the top-level workflow Overview. */
+    public String methodStatusText() {
+        StringBuilder out = new StringBuilder();
+        out.append("TPS cycle AE: ").append(enabled(tpsAeEnabled)).append('\n')
+                .append("Predictive MAP / MAP Estimate: ").append(enabled(mapEstimateEnabled)).append('\n')
+                .append("Wall Wetting: ").append(enabled(wallWettingEnabled)).append('\n')
+                .append("Instant Fuel Pulse: ").append(enabled(extraShotEnabled));
+        return out.toString();
+    }
+
+    /**
+     * Provisional combination review. This deliberately avoids declaring
+     * untested combinations invalid; the matrix can become stricter as each
+     * AE method is physically characterized.
+     */
+    public String combinationStatusText() {
+        if (mapEstimateEnabled && tpsAeEnabled) {
+            return "REVIEW: Predictive MAP and TPS cycle AE are both enabled. "
+                    + "That combination is outside AE Tuner's currently validated MAP Predict workflow. "
+                    + "It is not automatically classified as wrong; verify intent before tuning.";
+        }
+        if (!mapEstimateEnabled && !tpsAeEnabled
+                && !wallWettingEnabled && !extraShotEnabled) {
+            return "REVIEW: all transient-fuelling methods currently visible to AE Tuner are disabled.";
+        }
+        return "No provisional redundancy warning for the current enabled/disabled combination. "
+                + "Combination rules will be expanded as each AE method is implemented and physically validated.";
+    }
 
     boolean hasAdvancedWallTables() {
         return wallTauRows > 0 && wallTauCols > 0 && wallBetaRows > 0 && wallBetaCols > 0;
@@ -163,6 +326,7 @@ public final class AeProjectSnapshot {
                         + " / Predictive Map Blend Duration " + summarize(blendDurationValues)
                 : "Use MAP estimate during transient OFF";
         return "Config " + configurationName
+                + " | " + engagementSettingsText()
                 + " | TPS Acceleration Enrichment " + (tpsAeEnabled ? "ON" : "OFF")
                 + " | " + dynamicText
                 + " | " + wallText
@@ -174,6 +338,14 @@ public final class AeProjectSnapshot {
                 + " | ExtraShot x" + F2.format(extraShotMultiplier)
                 + " for " + F2.format(extraShotTimer) + " cycle(s)"
                 + " | CLT AE correction " + summarize(cltCorrBins) + " -> " + summarize(cltCorr);
+    }
+
+    private static String enabled(boolean value) {
+        return value ? "ENABLED" : "DISABLED";
+    }
+
+    private static String finiteText(double value, String suffix) {
+        return Double.isFinite(value) ? F2.format(value) + suffix : "unknown";
     }
 
     private static String dimensions(double[][] table) {
@@ -224,17 +396,19 @@ public final class AeProjectSnapshot {
         return y[y.length - 1];
     }
 
-    private static double[] cloneArray(double[] values) {
-        return values == null ? new double[0] : values.clone();
+    private static String dimensions(double[] values) {
+        return values == null ? "n/a" : Integer.toString(values.length);
     }
 
-    private static double[][] cloneTable(double[][] values) {
-        if (values == null) {
-            return new double[0][0];
-        }
-        double[][] copy = new double[values.length][];
-        for (int i = 0; i < values.length; i++) {
-            copy[i] = values[i] == null ? new double[0] : values[i].clone();
+    private static double[] cloneArray(double[] source) {
+        return source == null ? new double[0] : source.clone();
+    }
+
+    private static double[][] cloneTable(double[][] source) {
+        if (source == null) return new double[0][];
+        double[][] copy = new double[source.length][];
+        for (int i = 0; i < source.length; i++) {
+            copy[i] = source[i] == null ? new double[0] : source[i].clone();
         }
         return copy;
     }

@@ -38,6 +38,12 @@ public final class AeControllerBridge {
     private static final String PARAM_BLEND_DURATION_RPM_BINS = "predictiveMapBlendDurationBins";
     private static final String PARAM_BLEND_DURATION_VALUES = "predictiveMapBlendDurationValues";
 
+    private static final String PARAM_ENGAGEMENT_MODEL = AeParameterNames.TPS_AE_DETECT_MODE;
+    private static final String PARAM_ENGAGEMENT_DELTA_WINDOW = AeParameterNames.TPS_AE_DELTA_WINDOW_MS;
+    private static final String PARAM_ENGAGEMENT_SAMPLE_LENGTH = AeParameterNames.TPS_ACCEL_LOOKBACK;
+    private static final String PARAM_ENGAGEMENT_FAST_CALLBACK = AeParameterNames.TPS_AE_FAST_CALLBACK;
+    private static final String PARAM_DELTA_TPS_AVERAGE_ALPHA = AeParameterNames.DELTA_TPS_AVERAGE_ALPHA;
+
     private final ControllerAccess controllerAccess;
 
     public AeControllerBridge(ControllerAccess controllerAccess) {
@@ -54,6 +60,8 @@ public final class AeControllerBridge {
         }
 
         String configurationName = findEpicEfiConfiguration(server);
+        BooleanRead fastCallback = readBooleanOptionalState(
+                server, configurationName, PARAM_ENGAGEMENT_FAST_CALLBACK);
         return new AeProjectSnapshot(
                 configurationName,
                 readAxis(server, configurationName, PARAM_CYCLE_BINS),
@@ -78,7 +86,13 @@ public final class AeControllerBridge {
                 readAxisOptional(server, configurationName, PARAM_MAP_ESTIMATE_TPS_BINS),
                 readTableOptional(server, configurationName, PARAM_MAP_ESTIMATE_TABLE),
                 readAxisOptional(server, configurationName, PARAM_BLEND_DURATION_RPM_BINS),
-                readAxisOptional(server, configurationName, PARAM_BLEND_DURATION_VALUES));
+                readAxisOptional(server, configurationName, PARAM_BLEND_DURATION_VALUES),
+                readStringOptional(server, configurationName, PARAM_ENGAGEMENT_MODEL, "unknown"),
+                readScalarOptional(server, configurationName, PARAM_ENGAGEMENT_DELTA_WINDOW),
+                readScalarOptional(server, configurationName, PARAM_ENGAGEMENT_SAMPLE_LENGTH),
+                fastCallback.value,
+                fastCallback.available,
+                readScalarOptional(server, configurationName, PARAM_DELTA_TPS_AVERAGE_ALPHA));
     }
 
     private String findEpicEfiConfiguration(ControllerParameterServer server)
@@ -120,61 +134,71 @@ public final class AeControllerBridge {
         return parameter.getScalarValue();
     }
 
+    private static double readScalarOptional(ControllerParameterServer server,
+                                             String configurationName,
+                                             String parameterName) {
+        try {
+            return readScalar(server, configurationName, parameterName);
+        } catch (Exception ex) {
+            return Double.NaN;
+        }
+    }
+
     private static boolean readBooleanOptional(ControllerParameterServer server,
                                                String configurationName,
                                                String parameterName,
                                                boolean fallback) {
+        BooleanRead result = readBooleanOptionalState(server, configurationName, parameterName);
+        return result.available ? result.value : fallback;
+    }
+
+    /**
+     * Read an optional boolean/bit parameter without collapsing unreadable into
+     * a real OFF baseline. This is important for direct writes to shared-word
+     * bits such as tpsAeFastCallback.
+     */
+    private static BooleanRead readBooleanOptionalState(ControllerParameterServer server,
+                                                        String configurationName,
+                                                        String parameterName) {
         try {
             ControllerParameter parameter = server.getControllerParameter(configurationName, parameterName);
-            if (parameter == null) {
-                return fallback;
-            }
+            if (parameter == null) return BooleanRead.unavailable();
 
             String rawValue = parameter.getStringValue();
             if (rawValue != null && rawValue.trim().length() > 0) {
-                String value = rawValue.trim().replace("\"", "").toLowerCase(java.util.Locale.ROOT);
+                String value = rawValue.trim().replace("\"", "")
+                        .toLowerCase(java.util.Locale.ROOT);
 
-                // Bit fields are returned differently by different TunerStudio/API builds.
-                // Prefer the displayed description, including numeric descriptions, instead
-                // of treating the containing bit-field word as a boolean scalar.
                 if ("true".equals(value) || "on".equals(value) || "enabled".equals(value)
                         || "yes".equals(value) || value.startsWith("true ")
                         || value.startsWith("on ") || value.startsWith("enabled ")) {
-                    return true;
+                    return BooleanRead.known(true);
                 }
                 if ("false".equals(value) || "off".equals(value) || "disabled".equals(value)
                         || "no".equals(value) || value.startsWith("false ")
                         || value.startsWith("off ") || value.startsWith("disabled ")) {
-                    return false;
+                    return BooleanRead.known(false);
                 }
 
                 try {
                     double numericDescription = Double.parseDouble(value);
-                    if (Math.abs(numericDescription) < 1.0e-9) {
-                        return false;
-                    }
-                    if (Math.abs(numericDescription - 1.0) < 1.0e-9) {
-                        return true;
-                    }
-                    return fallback;
+                    if (Math.abs(numericDescription) < 1.0e-9) return BooleanRead.known(false);
+                    if (Math.abs(numericDescription - 1.0) < 1.0e-9) return BooleanRead.known(true);
+                    return BooleanRead.unavailable();
                 } catch (NumberFormatException ignored) {
-                    return fallback;
+                    return BooleanRead.unavailable();
                 }
             }
 
             // Only accept an unambiguous standalone 0/1 scalar. Some API builds
-            // expose the whole containing bit-field word here, which must not be
-            // interpreted as true merely because another bit is set.
+            // expose the whole containing bit-field word here, so any other
+            // value is not a valid boolean baseline.
             double scalar = parameter.getScalarValue();
-            if (Math.abs(scalar) < 1.0e-9) {
-                return false;
-            }
-            if (Math.abs(scalar - 1.0) < 1.0e-9) {
-                return true;
-            }
-            return fallback;
+            if (Math.abs(scalar) < 1.0e-9) return BooleanRead.known(false);
+            if (Math.abs(scalar - 1.0) < 1.0e-9) return BooleanRead.known(true);
+            return BooleanRead.unavailable();
         } catch (Exception ex) {
-            return fallback;
+            return BooleanRead.unavailable();
         }
     }
 
@@ -215,7 +239,6 @@ public final class AeControllerBridge {
         return cloneTable(parameter.getArrayValues());
     }
 
-
     private static double[] readAxisOptional(ControllerParameterServer server,
                                              String configurationName,
                                              String parameterName) {
@@ -251,19 +274,28 @@ public final class AeControllerBridge {
         double[][] array = parameter.getArrayValues();
         int count = 0;
         for (double[] row : array) {
-            if (row != null) {
-                count += row.length;
-            }
+            if (row != null) count += row.length;
         }
         double[] result = new double[count];
         int index = 0;
         for (double[] row : array) {
             if (row != null) {
-                for (double value : row) {
-                    result[index++] = value;
-                }
+                for (double value : row) result[index++] = value;
             }
         }
         return result;
+    }
+
+    private static final class BooleanRead {
+        final boolean value;
+        final boolean available;
+
+        private BooleanRead(boolean value, boolean available) {
+            this.value = value;
+            this.available = available;
+        }
+
+        static BooleanRead known(boolean value) { return new BooleanRead(value, true); }
+        static BooleanRead unavailable() { return new BooleanRead(false, false); }
     }
 }

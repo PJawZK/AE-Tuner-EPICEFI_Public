@@ -10,8 +10,9 @@ import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.List;
 
 /** Serializes captured event evidence without owning any Swing state. */
@@ -23,7 +24,8 @@ public final class EventCsvWriter {
         if (events == null || events.isEmpty()) {
             throw new IllegalArgumentException("At least one captured event is required");
         }
-        BufferedWriter writer = new BufferedWriter(new FileWriter(file));
+        BufferedWriter writer = Files.newBufferedWriter(
+                file.toPath(), StandardCharsets.UTF_8);
         try {
             writer.write(events.get(0).toCsvHeader());
             writer.newLine();

@@ -8,10 +8,8 @@ import se.anders.tunerstudio.aetuner.recovery.*;
 import se.anders.tunerstudio.aetuner.ui.*;
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 
-import java.awt.Component;
 import java.awt.FlowLayout;
 import javax.swing.JButton;
-import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSpinner;
 import javax.swing.JTextField;
@@ -36,43 +34,28 @@ final class ControlPanelBuilder {
                         JTextField mapCapField) {
         JPanel panel = new WrappingColumnPanel();
 
-        JPanel rowOne = wrappingRow();
-        rowOne.setAlignmentX(JPanel.LEFT_ALIGNMENT);
-        rowOne.add(reconnectButton);
-        rowOne.add(readProjectButton);
-        rowOne.add(saveCsvButton);
-        rowOne.add(suggestTableButton);
-        rowOne.add(suggestMapEstimateButton);
-        rowOne.add(suggestBlendButton);
-        rowOne.add(sessionReviewButton);
-        rowOne.add(resetButton);
+        sessionReviewButton.setText("Export Passive Session");
+        sessionReviewButton.setToolTipText(
+                "Export all Passive session evidence into one session folder");
+        // Retain the legacy button in one component hierarchy for lifecycle/listener
+        // compatibility, but keep it invisible so Passive exposes one export action.
+        saveCsvButton.setVisible(false);
 
-        JPanel rowTwo = wrappingRow();
-        rowTwo.setAlignmentX(JPanel.LEFT_ALIGNMENT);
-        rowTwo.add(settingGroup("Manual TPSdot threshold %/s:", thresholdField));
-        rowTwo.add(settingGroup("Calibration seconds:", calibrationSeconds));
-        rowTwo.add(calibrateButton);
-        rowTwo.add(applyCalibrationButton);
+        JPanel actions = new JPanel(new WrapLayout(FlowLayout.LEFT, 6, 3));
+        actions.setAlignmentX(JPanel.LEFT_ALIGNMENT);
+        actions.add(reconnectButton);
+        actions.add(readProjectButton);
+        actions.add(suggestTableButton);
+        actions.add(suggestMapEstimateButton);
+        actions.add(suggestBlendButton);
+        actions.add(sessionReviewButton);
+        actions.add(saveCsvButton);
+        actions.add(resetButton);
+        panel.add(actions);
 
-        JPanel rowThree = wrappingRow();
-        rowThree.setAlignmentX(JPanel.LEFT_ALIGNMENT);
-        rowThree.add(settingGroup("MAP draft minimum samples/cell:", mapMinimumSamples));
-        rowThree.add(settingGroup("Turbo MAP cap kPa (TPS >=33.5%):", mapCapField));
-
-        panel.add(rowOne);
-        panel.add(rowTwo);
-        panel.add(rowThree);
+        // Threshold/noise calibration and Passive analysis parameters now live
+        // under Passive Analysis -> Setup / Calibration. Keeping them out of
+        // the global action strip makes their scope explicit.
         return panel;
-    }
-
-    private static JPanel wrappingRow() {
-        return new JPanel(new WrapLayout(FlowLayout.LEFT, 6, 3));
-    }
-
-    private static JPanel settingGroup(String label, Component editor) {
-        JPanel group = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        group.add(new JLabel(label));
-        group.add(editor);
-        return group;
     }
 }

@@ -18,9 +18,9 @@ public final class PhaseA3LegacyInvariantMigrationTest {
     public static void main(String[] args) {
         pauseRequiresBaselineReacquisition();
         pendingOpeningConfirmsAndSmallAbortReturnsReady();
-        unconfirmedOpeningIsAuditedAndCued();
+        unconfirmedSmallOpeningSilentlyReturnsReady();
         acquisitionTimerStartsAtConfirmation();
-        vssDropoutRemainsAdvisory();
+        manualGearDoesNotDependOnVss();
         discardPreservesPassiveEvidenceStatement();
         System.out.println("PhaseA3LegacyInvariantMigrationTest passed");
     }
@@ -76,7 +76,7 @@ public final class PhaseA3LegacyInvariantMigrationTest {
         session.reset();
     }
 
-    private static void unconfirmedOpeningIsAuditedAndCued() {
+    private static void unconfirmedSmallOpeningSilentlyReturnsReady() {
         BlendDurationGuidedSession session = session();
         final List<GuidedWorkflowEvent> events = new ArrayList<GuidedWorkflowEvent>();
         session.setWorkflowEventListener(new GuidedWorkflowEvent.Listener() {
@@ -91,18 +91,16 @@ public final class PhaseA3LegacyInvariantMigrationTest {
                 false, false, 2, 40));
         session.accept(sample(t + 0.70, 2000, 50.5, 9.4, 50.5,
                 false, false, 2, 40));
-        require(session.snapshot().state == GuidedCaptureState.RETURNING,
-                "unconfirmed partial opening was not made explicit");
+        require(session.snapshot().state == GuidedCaptureState.READY,
+                "sub-10-TPS unconfirmed road correction did not silently restore READY");
         require(events.contains(GuidedWorkflowEvent.OPENING_PENDING),
                 "OPENING_PENDING event was not emitted");
-        require(events.contains(GuidedWorkflowEvent.RETURN_TO_BASELINE),
-                "RETURN_TO_BASELINE event was not emitted");
-        GuidedOutcome outcome = session.drainOutcome();
-        require(outcome != null
-                        && outcome.decision == GuidedOutcome.Decision.RETURN_TO_BASELINE,
-                "unconfirmed opening did not produce typed return outcome");
-        require(outcome.trace.contains("RETURN_TO_BASELINE"),
-                "partial-opening compact trace was not retained");
+        require(!events.contains(GuidedWorkflowEvent.RETURN_TO_BASELINE),
+                "small non-triggered road correction produced a RETURN_TO_BASELINE cue");
+        require(session.drainOutcome() == null,
+                "small non-triggered road correction entered the Guided outcome audit ledger");
+        require(session.snapshot().result.contains("attempts: 0"),
+                "small non-triggered road correction incremented the attempt count");
         session.reset();
     }
 
@@ -116,16 +114,18 @@ public final class PhaseA3LegacyInvariantMigrationTest {
         session.accept(sample(t + 0.50, 2010, 60, 14.0, 90,
                 true, true, 2, 40));
         session.accept(sample(t + 0.70, 2020, 70, 22.0, 90,
-                false, false, 2, 40));
+                false, true, 2, 40));
         session.accept(sample(t + 0.90, 2040, 80, 30.0, 90,
-                false, false, 2, 40));
+                false, true, 2, 40));
         session.accept(sample(t + 1.00, 2050, 83, 30.5, 90,
-                false, false, 2, 40));
+                false, true, 2, 40));
         session.accept(sample(t + 1.10, 2060, 85, 30.2, 90,
+                false, true, 2, 40));
+        session.accept(sample(t + 1.20, 2070, 90, 30.2, 90,
                 false, false, 2, 40));
-        session.accept(sample(t + 1.20, 2070, 88, 30.2, 90,
-                false, false, 2, 40));
-        session.accept(sample(t + 1.25, 2080, 89, 30.1, 90,
+        // Catch is recorded at +1.20, but completion deliberately waits long
+        // enough after plateau acquisition to make the driver cue perceptible.
+        session.accept(sample(t + 1.30, 2080, 90, 30.1, 90,
                 false, false, 2, 40));
         GuidedOutcome outcome = session.drainOutcome();
         require(outcome != null && outcome.isValid(),
@@ -133,22 +133,22 @@ public final class PhaseA3LegacyInvariantMigrationTest {
         require(outcome.durationSeconds > 0.65 && outcome.durationSeconds < 0.75,
                 "duration did not remain anchored to confirmed current-event prediction");
         require(outcome.trace.contains("measurement_anchor_dt_s="),
-                "valid adaptive event lost measurement-anchor trace evidence");
-        require(outcome.trace.length() < 12000,
-                "compact attempt trace exceeded historical bounded-export limit");
+                "valid controlled event lost final-target anchor trace evidence");
+        require(outcome.trace.length() < 20000,
+                "compact attempt trace exceeded revised bounded-export limit");
         session.reset();
     }
 
-    private static void vssDropoutRemainsAdvisory() {
+    private static void manualGearDoesNotDependOnVss() {
         BlendDurationGuidedSession session = session();
         double t = settle(session, 40.0);
         GuidedOutcome outcome = completeOpening(session, t, 0.0);
         require(outcome != null && outcome.isValid(),
-                "VSS dropout rejected otherwise valid MAP evidence");
-        require(outcome.decision == GuidedOutcome.Decision.VALID_WITH_WARNING,
-                "VSS dropout was not retained as advisory warning");
-        require(outcome.details.contains("VSS/gear evidence is unreliable"),
-                "VSS advisory warning was not visible");
+                "VSS dropout rejected otherwise valid MAP evidence in manual gear mode");
+        require(outcome.details.contains("manual 2"),
+                "manual authoritative gear was not visible in retained event details");
+        require(!outcome.details.contains("automatic gear/VSS evidence did not establish"),
+                "manual gear still depends on VSS/detected-gear reliability");
         session.reset();
     }
 
@@ -190,16 +190,18 @@ public final class PhaseA3LegacyInvariantMigrationTest {
         session.accept(sample(t + 0.05, 2000, 60, 14.0, 90,
                 true, true, 2, vss));
         session.accept(sample(t + 0.20, 2020, 70, 25.0, 90,
-                false, false, 2, vss));
+                false, true, 2, vss));
         session.accept(sample(t + 0.30, 2040, 80, 30.0, 90,
-                false, false, 2, vss));
+                false, true, 2, vss));
         session.accept(sample(t + 0.40, 2050, 84, 30.2, 90,
-                false, false, 2, vss));
+                false, true, 2, vss));
         session.accept(sample(t + 0.50, 2060, 86, 30.1, 90,
-                false, false, 2, vss));
+                false, true, 2, vss));
         session.accept(sample(t + 0.60, 2070, 88, 30.2, 90,
+                false, true, 2, vss));
+        session.accept(sample(t + 0.65, 2080, 90, 30.1, 90,
                 false, false, 2, vss));
-        session.accept(sample(t + 0.65, 2080, 89, 30.1, 90,
+        session.accept(sample(t + 0.80, 2080, 90, 30.1, 90,
                 false, false, 2, vss));
         return session.drainOutcome();
     }

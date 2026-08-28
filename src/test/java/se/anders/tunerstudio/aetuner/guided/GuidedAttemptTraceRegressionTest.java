@@ -46,8 +46,8 @@ public final class GuidedAttemptTraceRegressionTest {
                 "baseline metadata changed");
         require(trace.contains("desired_tps_step,22.0\n"),
                 "TPS-step metadata changed");
-        require(trace.contains("dt_s,rpm,tps,map,fallbackMap,gap,tpsdot,detector,prediction\n"),
-                "trace columns changed");
+        require(trace.contains("dt_s,rpm,tps,map,fallbackMap,effectiveMap,gap,tpsdot,detector,prediction,predResetCnt,predExpired,gear,vss\n"),
+                "firmware-validation trace columns changed");
         require(trace.contains("measurement_anchor_dt_s=0.100,gap_kpa=23.00\n"),
                 "measurement anchor metadata changed");
         require(trace.contains("natural_hold_dt_s=0.200,tps=29.5\n"),
@@ -71,8 +71,10 @@ public final class GuidedAttemptTraceRegressionTest {
                 0.75, 0.20, 5.0, 8.0,
                 null, Double.NaN, null, samples.get(samples.size() - 1));
         String[] lines = trace.split("\\n");
-        require(lines.length < 60,
-                "bounded trace expanded unexpectedly: " + lines.length + " lines");
+        require(lines.length < 180,
+                "bounded firmware-validation trace expanded unexpectedly: " + lines.length + " lines");
+        require(trace.length() < 20000,
+                "bounded firmware-validation trace exceeded export size guard: " + trace.length());
         require(trace.contains("outcome_dt_s=3.190"),
                 "final outcome timing missing from bounded trace");
     }

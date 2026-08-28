@@ -317,8 +317,7 @@ public final class EvidenceRecoveryManager {
         if (override != null && override.trim().length() > 0) {
             return Paths.get(override.trim());
         }
-        String home = System.getProperty("user.home", ".");
-        return Paths.get(home, ".ae-tuner-epicefi", "recovery");
+        return SessionExportSupport.lastSessionDirectory().toPath();
     }
 
     private static String safeMessage(Throwable throwable) {

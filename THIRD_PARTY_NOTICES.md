@@ -17,11 +17,12 @@ The Apache-2.0 licence applies to AE Tuner material published by this project. I
 
 The private development repository contains `lib/TunerStudioPluginAPI.jar` because it is required to compile the plugin.
 
-The binary is a separate third-party dependency and is intentionally excluded from this public source distribution.
+The binary is a separate third-party dependency and is intentionally excluded from public source/release distribution.
 
 - It is not covered by AE Tuner's Apache-2.0 licence.
 - It must not be embedded in AE Tuner release JARs.
-- Developers building from source obtain an authorized copy independently.
+- Public source/release packaging must exclude it.
+- Developers building from public source obtain an authorized copy independently.
 - Normal users installing a prebuilt AE Tuner plugin JAR do not install the API JAR separately.
 
 See `lib/README.md`.

@@ -1,12 +1,7 @@
 package se.anders.tunerstudio.aetuner.proposal;
 
-import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
-import se.anders.tunerstudio.aetuner.guided.*;
-import se.anders.tunerstudio.aetuner.model.*;
-import se.anders.tunerstudio.aetuner.recovery.*;
-import se.anders.tunerstudio.aetuner.ui.*;
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
+import se.anders.tunerstudio.aetuner.model.TransientEvent;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -17,15 +12,17 @@ import java.util.List;
  * MAP Blend Duration proposals.
  *
  * Raw measured durations are filtered and summarized before any table bounds
- * are applied. The conservative margin, clamp and rounding are used only when
- * an eligible final proposal is produced.
+ * are applied. The conservative margin, clamp and controller-resolution
+ * quantization are used only when an eligible final proposal is produced.
  */
 public final class BlendDurationPolicy {
     static final double MIN_DURATION = 0.08;
     static final double MAX_DURATION = 0.80;
     static final double PROPOSAL_MARGIN_SECONDS = 0.02;
+    /** EpicEFI predictiveMapBlendDurationValues is U08 with 0.02 s scaling. */
+    public static final double TABLE_RESOLUTION_SECONDS = 0.02;
     public static final int MIN_EVENTS_FOR_PROPOSAL = 3;
-    static final int MIN_EVENTS_HIGH_CONFIDENCE = 5;
+    public static final int MIN_EVENTS_HIGH_CONFIDENCE = 5;
     public static final double MAX_ELIGIBLE_RANGE_SECONDS = 0.18;
     public static final double MAX_ELIGIBLE_IQR_SECONDS = 0.10;
     public static final double MAX_ELIGIBLE_STDDEV_SECONDS = 0.08;
@@ -102,8 +99,31 @@ public final class BlendDurationPolicy {
     }
 
     static double finalProposal(double retainedMedian) {
-        return round2(clamp(retainedMedian + PROPOSAL_MARGIN_SECONDS,
-                MIN_DURATION, MAX_DURATION));
+        double bounded = clamp(retainedMedian + PROPOSAL_MARGIN_SECONDS,
+                MIN_DURATION, MAX_DURATION);
+        return ceilToControllerResolution(bounded);
+    }
+
+    static boolean isRepresentableTableValue(double value) {
+        if (!Double.isFinite(value) || value < MIN_DURATION - 1.0e-9
+                || value > MAX_DURATION + 1.0e-9) {
+            return false;
+        }
+        double steps = value / TABLE_RESOLUTION_SECONDS;
+        return Math.abs(steps - Math.rint(steps)) < 1.0e-9;
+    }
+
+    private static double ceilToControllerResolution(double value) {
+        // The +0.02 s proposal margin is deliberately conservative. Use the
+        // smallest representable table value that is not below the bounded
+        // margin-adjusted target, rather than nearest-grid rounding which could
+        // silently reduce that margin by up to half a controller step.
+        double steps = Math.ceil((value - 1.0e-12) / TABLE_RESOLUTION_SECONDS);
+        double quantized = steps * TABLE_RESOLUTION_SECONDS;
+        quantized = Math.min(MAX_DURATION, Math.max(MIN_DURATION, quantized));
+        // Remove normal binary floating-point tails while preserving the real
+        // 0.02-second controller grid.
+        return Math.round(quantized * 100.0) / 100.0;
     }
 
     private static Confidence confidence(Stats stats) {
@@ -203,9 +223,5 @@ public final class BlendDurationPolicy {
 
     private static double clamp(double value, double minimum, double maximum) {
         return Math.max(minimum, Math.min(maximum, value));
-    }
-
-    private static double round2(double value) {
-        return Math.round(value * 100.0) / 100.0;
     }
 }

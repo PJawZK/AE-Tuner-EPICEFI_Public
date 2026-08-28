@@ -20,7 +20,7 @@ public final class BlendDurationPolicyRegressionTest {
         mediumAndHighConfidenceUseTheSameGates();
         wideEvidenceStaysWithheld();
         outlierFilteringUsesRawDurations();
-        marginClampAndRoundingAreFinalOnly();
+        marginClampAndControllerResolutionAreFinalOnly();
         invalidValuesDoNotCreateEvidence();
         System.out.println("BlendDurationPolicyRegressionTest passed");
     }
@@ -52,6 +52,8 @@ public final class BlendDurationPolicyRegressionTest {
         assertEquals(BlendDurationPolicy.Confidence.HIGH,
                 high.confidence, "five tightly clustered events should be high confidence");
         assertTrue(high.eligible, "high confidence must be eligible");
+        assertTrue(BlendDurationPolicy.isRepresentableTableValue(high.proposedValue),
+                "eligible proposal must land on the real 0.02-second controller grid");
     }
 
     private static void wideEvidenceStaysWithheld() {
@@ -75,16 +77,24 @@ public final class BlendDurationPolicyRegressionTest {
         assertClose(0.515, result.stats.median, 0.0000001,
                 "retained median must remain raw and unbounded");
         assertClose(0.54, result.proposedValue, 0.0000001,
-                "only the eligible final proposal should receive margin and rounding");
+                "only the eligible final proposal should receive margin and controller quantization");
     }
 
-    private static void marginClampAndRoundingAreFinalOnly() {
+    private static void marginClampAndControllerResolutionAreFinalOnly() {
         assertClose(0.08, BlendDurationPolicy.finalProposal(0.01), 0.0000001,
                 "lower bound applies only to final proposal");
         assertClose(0.80, BlendDurationPolicy.finalProposal(1.40), 0.0000001,
                 "upper bound applies only to final proposal");
-        assertClose(0.55, BlendDurationPolicy.finalProposal(0.529594391),
-                0.0000001, "proposal must add 0.02 then round to two decimals");
+        assertClose(0.56, BlendDurationPolicy.finalProposal(0.529594391),
+                0.0000001,
+                "proposal must add 0.02 then round upward to the smallest representable 0.02-second table value");
+        assertClose(0.54, BlendDurationPolicy.finalProposal(0.51),
+                0.0000001,
+                "formerly generated 0.53-second value must move upward to a representable table value");
+        assertTrue(BlendDurationPolicy.isRepresentableTableValue(0.54),
+                "0.54 s should be representable at 0.02-second resolution");
+        assertFalse(BlendDurationPolicy.isRepresentableTableValue(0.53),
+                "0.53 s must never be presented as directly writable because the ECU table cannot represent it");
     }
 
     private static void invalidValuesDoNotCreateEvidence() {

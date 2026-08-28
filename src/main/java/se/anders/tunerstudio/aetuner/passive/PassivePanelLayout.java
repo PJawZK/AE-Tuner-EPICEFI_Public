@@ -9,12 +9,10 @@ import se.anders.tunerstudio.aetuner.ui.*;
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 
 import java.awt.BorderLayout;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
@@ -226,7 +224,7 @@ final class PassivePanelLayout {
                 controls.calibrate, controls.applyCalibration,
                 controls.mapMinimumSamples, controls.mapCap), BorderLayout.NORTH);
 
-        JComponent status = buildStatusPanel(content, overview, technical);
+        JComponent status = buildStatusPanel(content, overview, technical, controls);
         MainContentBuilder.configure(content.mainScroll, content.channelScroll,
                 content.channelTable, content.latestEventText,
                 content.recommendationHistoryText, content.lowerTabs,
@@ -236,19 +234,19 @@ final class PassivePanelLayout {
 
     private static JComponent buildStatusPanel(Content content,
                                                Overview overview,
-                                               Technical technical) {
+                                               Technical technical,
+                                               Controls controls) {
         JTabbedPane tabs = new StableTabbedPane();
         JComponent overviewPanel = buildOverviewPanel(content, overview);
-        JComponent technicalPanel = buildTechnicalStatusPanel(content, technical);
+        JComponent setupPanel = buildSetupCalibrationPanel(technical, controls);
         NestedScrollWheelHandoff.install(content.overviewScroll, content.mainScroll);
-        NestedScrollWheelHandoff.install(content.technicalScroll, content.mainScroll);
 
         tabs.addTab("Overview", overviewPanel);
-        tabs.addTab("Technical details", technicalPanel);
+        tabs.addTab("Setup / Calibration", setupPanel);
         tabs.setToolTipTextAt(0,
-                "Clear summary of configuration, live state, progress, and next action.");
+                "Passive-analysis summary, live state, progress and recommendations.");
         tabs.setToolTipTextAt(1,
-                "Project and diagnostic details. Scroll this tab for all wrapped text.");
+                "Passive detector calibration and Passive analysis parameters. These settings do not control Guided thresholds.");
         tabs.setFocusable(false);
         tabs.setRequestFocusEnabled(false);
         setStatusTabsHeight(tabs, 500);
@@ -296,6 +294,62 @@ final class PassivePanelLayout {
         return content.overviewScroll;
     }
 
+    private static JComponent buildSetupCalibrationPanel(Technical technical,
+                                                         Controls controls) {
+        WrappingColumnPanel panel = new WrappingColumnPanel();
+        panel.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+
+        JTextArea scope = new JTextArea(
+                "TPS noise calibration belongs to Passive event detection. "
+                + "It calibrates AE Tuner's Passive TPS-movement threshold only; "
+                + "it does not alter ECU settings and does not set Guided Tuning opening thresholds.");
+        scope.setEditable(false);
+        scope.setLineWrap(true);
+        scope.setWrapStyleWord(true);
+        scope.setOpaque(false);
+        scope.setFocusable(false);
+        scope.setAlignmentX(JPanel.LEFT_ALIGNMENT);
+        scope.setMaximumSize(new Dimension(Integer.MAX_VALUE, 70));
+
+        JPanel calibration = new JPanel(new WrapLayout(FlowLayout.LEFT, 8, 4));
+        calibration.setBorder(BorderFactory.createTitledBorder(
+                "Passive TPS noise calibration"));
+        calibration.add(settingGroup("Manual TPSdot threshold %/s:", controls.threshold));
+        calibration.add(settingGroup("Calibration seconds:", controls.calibrationSeconds));
+        calibration.add(controls.calibrate);
+        calibration.add(controls.applyCalibration);
+        calibration.setAlignmentX(JPanel.LEFT_ALIGNMENT);
+
+        JPanel analysis = new JPanel(new WrapLayout(FlowLayout.LEFT, 8, 4));
+        analysis.setBorder(BorderFactory.createTitledBorder(
+                "Passive analysis parameters"));
+        analysis.add(settingGroup("MAP draft minimum samples/cell:", controls.mapMinimumSamples));
+        analysis.add(settingGroup("Turbo MAP cap kPa (TPS >=33.5%):", controls.mapCap));
+        analysis.setAlignmentX(JPanel.LEFT_ALIGNMENT);
+
+        JPanel status = new JPanel();
+        status.setLayout(new BoxLayout(status, BoxLayout.Y_AXIS));
+        status.setBorder(BorderFactory.createTitledBorder("Calibration status"));
+        technical.calibration.setAlignmentX(JPanel.LEFT_ALIGNMENT);
+        technical.calibration.setMaximumSize(
+                new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        status.add(technical.calibration);
+        status.setAlignmentX(JPanel.LEFT_ALIGNMENT);
+
+        panel.add(scope);
+        panel.add(calibration);
+        panel.add(analysis);
+        panel.add(status);
+        return panel;
+    }
+
+    private static JPanel settingGroup(String label, Component editor) {
+        JPanel group = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        group.add(new JLabel(label));
+        group.add(editor);
+        return group;
+    }
+
     private static JPanel buildCardRow(String title, StatusCard... cards) {
         JPanel row = new JPanel(new WrapLayout(FlowLayout.LEFT, 6, 3));
         row.setBorder(BorderFactory.createTitledBorder(title));
@@ -305,92 +359,6 @@ final class PassivePanelLayout {
         row.setAlignmentX(JPanel.LEFT_ALIGNMENT);
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
         return row;
-    }
-
-    private static JComponent buildTechnicalStatusPanel(Content content,
-                                                        Technical technical) {
-        ViewportWidthPanel panel = new ViewportWidthPanel();
-        panel.setLayout(new GridBagLayout());
-        panel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder(
-                        "Read-only v" + AeTunerPlugin.VERSION),
-                BorderFactory.createEmptyBorder(2, 3, 2, 3)));
-
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.anchor = GridBagConstraints.NORTHWEST;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(2, 3, 2, 3);
-        gbc.weightx = 0.5;
-        gbc.weighty = 0.0;
-
-        addTechnicalCard(panel, gbc, 0, 0, 1,
-                buildTechnicalSection("Project and connection", 52,
-                        technical.connection, technical.sampleRate));
-        addTechnicalCard(panel, gbc, 1, 0, 1,
-                buildTechnicalSection("Detector and calibration", 52,
-                        technical.calibration, technical.eventCount));
-        addTechnicalCard(panel, gbc, 0, 1, 2,
-                buildTechnicalSection("Active configuration", 66,
-                        technical.snapshot));
-        addTechnicalCard(panel, gbc, 0, 2, 2,
-                buildTechnicalSection("Live transient paths", 48,
-                        technical.fuelPathStatus));
-        addTechnicalCard(panel, gbc, 0, 3, 2,
-                buildTechnicalSection("Session classification", 64,
-                        technical.sessionMode));
-        addTechnicalCard(panel, gbc, 0, 4, 2,
-                buildTechnicalSection("Guidance and MAP collection", 82,
-                        technical.guidance, technical.mapCollection));
-        addTechnicalCard(panel, gbc, 0, 5, 2,
-                buildTechnicalSection("Low-RPM and full-load review", 64,
-                        technical.sessionReview));
-
-        Dimension natural = panel.getPreferredSize();
-        panel.setPreferredSize(new Dimension(1000, Math.max(560, natural.height)));
-        panel.setMinimumSize(new Dimension(700, 560));
-
-        content.technicalScroll.setViewportView(panel);
-        content.technicalScroll.setBorder(null);
-        content.technicalScroll.setHorizontalScrollBarPolicy(
-                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        content.technicalScroll.setVerticalScrollBarPolicy(
-                ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
-        content.technicalScroll.getVerticalScrollBar().setUnitIncrement(18);
-        content.technicalScroll.getVerticalScrollBar().setBlockIncrement(90);
-        return content.technicalScroll;
-    }
-
-    private static void addTechnicalCard(JPanel panel,
-                                         GridBagConstraints template,
-                                         int x, int y, int width,
-                                         JComponent card) {
-        GridBagConstraints gbc = (GridBagConstraints) template.clone();
-        gbc.gridx = x;
-        gbc.gridy = y;
-        gbc.gridwidth = width;
-        panel.add(card, gbc);
-    }
-
-    private static JPanel buildTechnicalSection(String title,
-                                                int height,
-                                                JComponent... components) {
-        JPanel section = new JPanel();
-        section.setLayout(new BoxLayout(section, BoxLayout.Y_AXIS));
-        section.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder(title),
-                BorderFactory.createEmptyBorder(1, 5, 3, 5)));
-        for (JComponent component : components) {
-            component.setAlignmentX(JPanel.LEFT_ALIGNMENT);
-            component.setMaximumSize(
-                    new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-            section.add(component);
-        }
-        Dimension preferred = section.getPreferredSize();
-        section.setPreferredSize(new Dimension(Math.max(1, preferred.width),
-                Math.max(height, preferred.height)));
-        section.setMinimumSize(new Dimension(1, height));
-        section.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-        return section;
     }
 
     private static void setStatusTabsHeight(JTabbedPane tabs, int height) {

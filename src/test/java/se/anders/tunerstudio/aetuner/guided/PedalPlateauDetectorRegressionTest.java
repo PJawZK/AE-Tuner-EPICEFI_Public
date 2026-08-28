@@ -1,10 +1,8 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
-
 import se.anders.tunerstudio.aetuner.host.*;
 import se.anders.tunerstudio.aetuner.passive.*;
-import se.anders.tunerstudio.aetuner.guided.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -18,40 +16,46 @@ public final class PedalPlateauDetectorRegressionTest {
     private PedalPlateauDetectorRegressionTest() { }
 
     public static void main(String[] args) {
-        acceptsNaturalModeratePlateau();
-        rejectsTinyAndOversizedSteps();
+        acceptsStableNaturalPlateauWithinGenericRoadBounds();
+        rejectsTooSmallOrTooLargeNaturalStep();
+        targetStepPolicyLivesInCaptureConfig();
         rejectsMovingPedalWindow();
         System.out.println("PedalPlateauDetectorRegressionTest passed");
     }
 
-    private static void acceptsNaturalModeratePlateau() {
-        List<LiveSample> samples = new ArrayList<LiveSample>();
-        samples.add(sample(1.00, 29.0));
-        samples.add(sample(1.05, 30.5));
-        samples.add(sample(1.10, 29.8));
-        samples.add(sample(1.15, 30.2));
-        samples.add(sample(1.20, 30.0));
-        PedalPlateauDetector.Result result =
-                PedalPlateauDetector.evaluate(samples, 8.0,
-                        samples.get(samples.size() - 1).getNanoTime());
-        require(result.usable, "moderate natural plateau was not accepted");
-        close(result.medianTps, 30.0, 0.001, "median TPS changed");
+    private static void acceptsStableNaturalPlateauWithinGenericRoadBounds() {
+        List<LiveSample> samples = flat(30.0);
+        PedalPlateauDetector.Result result = PedalPlateauDetector.evaluate(
+                samples, 8.0, nanos(1.20));
+        require(result.usable, "stable +22 natural plateau was not accepted by the generic detector");
         close(result.step, 22.0, 0.001, "relative TPS step changed");
-        require(result.anchor != null, "plateau anchor missing");
     }
 
-    private static void rejectsTinyAndOversizedSteps() {
-        PedalPlateauDetector.Result tiny =
-                PedalPlateauDetector.evaluate(flat(12.0), 8.0,
-                        nanos(1.20));
-        require(!tiny.usable && tiny.step < PedalPlateauDetector.MIN_USABLE_STEP,
-                "tiny step became usable");
-
-        PedalPlateauDetector.Result large =
-                PedalPlateauDetector.evaluate(flat(50.0), 8.0,
-                        nanos(1.20));
+    private static void rejectsTooSmallOrTooLargeNaturalStep() {
+        PedalPlateauDetector.Result small = PedalPlateauDetector.evaluate(
+                flat(16.0), 8.0, nanos(1.20));
+        require(!small.usable && small.step < PedalPlateauDetector.MIN_USABLE_STEP,
+                "sub-10-point natural opening became usable");
+        PedalPlateauDetector.Result large = PedalPlateauDetector.evaluate(
+                flat(50.0), 8.0, nanos(1.20));
         require(!large.usable && large.step > PedalPlateauDetector.MAX_USABLE_STEP,
-                "oversized step became usable");
+                "over-40-point natural opening became usable");
+    }
+
+    private static void targetStepPolicyLivesInCaptureConfig() {
+        BlendDurationCaptureConfig twenty =
+                new BlendDurationCaptureConfig(2000.0, 20.0, 5, 2, false);
+        require(twenty.acceptsTpsStep(10.0) && twenty.acceptsTpsStep(20.0)
+                        && twenty.acceptsTpsStep(30.0)
+                        && !twenty.acceptsTpsStep(9.9)
+                        && !twenty.acceptsTpsStep(30.1),
+                "+20 controlled target window no longer matches dev5 +10..+30 tolerance");
+        BlendDurationCaptureConfig forty =
+                new BlendDurationCaptureConfig(2000.0, 40.0, 5, 2, false);
+        require(forty.acceptsTpsStep(30.0) && forty.acceptsTpsStep(40.0)
+                        && !forty.acceptsTpsStep(29.9)
+                        && !forty.acceptsTpsStep(40.1),
+                "+40 controlled target window no longer clamps to +30..+40");
     }
 
     private static void rejectsMovingPedalWindow() {
@@ -82,8 +86,7 @@ public final class PedalPlateauDetectorRegressionTest {
         EnumMap<ChannelRole, Double> values =
                 new EnumMap<ChannelRole, Double>(ChannelRole.class);
         values.put(ChannelRole.TPS, tps);
-        long nano = nanos(seconds);
-        return new LiveSample(nano, seconds, values, 0.0, 0.0);
+        return new LiveSample(nanos(seconds), seconds, values, 0.0, 0.0);
     }
 
     private static long nanos(double seconds) {

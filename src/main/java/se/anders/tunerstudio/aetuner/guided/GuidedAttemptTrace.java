@@ -13,7 +13,7 @@ import java.util.Locale;
 
 /** Bounded, read-only compact trace formatter for one Guided attempt. */
 final class GuidedAttemptTrace {
-    private static final int MAX_TRACE_ROWS = 40;
+    private static final int MAX_TRACE_ROWS = 160;
 
     private GuidedAttemptTrace() { }
 
@@ -37,7 +37,7 @@ final class GuidedAttemptTrace {
                 .append("plateau_range_limit,").append(f1(plateauRange)).append('\n')
                 .append("major_pedal_move,").append(f1(majorPedalMove)).append('\n')
                 .append("timing_limits,").append(limits.summary()).append('\n')
-                .append("dt_s,rpm,tps,map,fallbackMap,gap,tpsdot,detector,prediction\n");
+                .append("dt_s,rpm,tps,map,fallbackMap,effectiveMap,gap,tpsdot,detector,prediction,predResetCnt,predExpired,gear,vss\n");
         if (attemptSamples == null || attemptSamples.isEmpty()) {
             trace.append("no samples\n");
             return trace.toString();
@@ -79,11 +79,16 @@ final class GuidedAttemptTrace {
                 .append(f1(sample.get(ChannelRole.TPS))).append(',')
                 .append(f2(map)).append(',')
                 .append(f2(fallback)).append(',')
+                .append(f2(sample.get(ChannelRole.EFFECTIVE_MAP))).append(',')
                 .append(f2(Double.isFinite(map) && Double.isFinite(fallback)
                         ? fallback - map : Double.NaN)).append(',')
                 .append(f2(sample.getTpsDot())).append(',')
                 .append(triggered(sample) ? '1' : '0').append(',')
-                .append(sample.bool(ChannelRole.MAP_PRED_ACTIVE) ? '1' : '0')
+                .append(sample.bool(ChannelRole.MAP_PRED_ACTIVE) ? '1' : '0').append(',')
+                .append(f0(sample.get(ChannelRole.MAP_PRED_RESET_CNT))).append(',')
+                .append(f0(sample.get(ChannelRole.MAP_PRED_EVENT_OVER))).append(',')
+                .append(f0(sample.get(ChannelRole.GEAR))).append(',')
+                .append(f2(sample.get(ChannelRole.VSS)))
                 .append('\n');
     }
 
@@ -100,18 +105,18 @@ final class GuidedAttemptTrace {
     }
 
     private static String f0(double value) {
-        return String.format(Locale.US, "%.0f", value);
+        return Double.isFinite(value) ? String.format(Locale.US, "%.0f", value) : "NaN";
     }
 
     private static String f1(double value) {
-        return String.format(Locale.US, "%.1f", value);
+        return Double.isFinite(value) ? String.format(Locale.US, "%.1f", value) : "NaN";
     }
 
     private static String f2(double value) {
-        return String.format(Locale.US, "%.2f", value);
+        return Double.isFinite(value) ? String.format(Locale.US, "%.2f", value) : "NaN";
     }
 
     private static String f3(double value) {
-        return String.format(Locale.US, "%.3f", value);
+        return Double.isFinite(value) ? String.format(Locale.US, "%.3f", value) : "NaN";
     }
 }

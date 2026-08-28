@@ -19,7 +19,11 @@ import java.util.Locale;
  *
  * Capture validity is intentionally separate from comparability. A clean event
  * is retained even if no existing group matches it. Only events assigned to the
- * same group are later combined for a proposal.
+ * same group are later combined for measurement repeatability review.
+ *
+ * Manual gear is authoritative operator metadata and never requires ECU gear
+ * confirmation. Automatic gear uses the short latched ECU detection as an
+ * additional comparability dimension; Ignore gear does not use it.
  */
 final class BlendDurationComparabilityGroups {
     static final double RPM_LIMIT = 250.0;
@@ -62,8 +66,22 @@ final class BlendDurationComparabilityGroups {
         }
         Match before = best.count == 0 ? Match.accept(0.0, false) : best.match(attempt);
         best.add(attempt);
+
+        Group leading = bestGroup();
+        boolean advancesLeading = leading != null && best.id.equals(leading.id);
+        String progress = advancesLeading
+                ? " | VALID — ADVANCES LEADING GROUP " + best.id
+                    + " (" + best.count + " comparable event"
+                    + (best.count == 1 ? "" : "s") + ")"
+                : " | VALID — RETAINED IN DIFFERENT GROUP " + best.id
+                    + " (" + best.count + " event"
+                    + (best.count == 1 ? "" : "s") + "); leading group "
+                    + (leading == null ? "n/a" : leading.id)
+                    + " remains at " + (leading == null ? 0 : leading.count)
+                    + " comparable event"
+                    + (leading != null && leading.count == 1 ? "" : "s");
         return new Assignment(best.id, best.count, before.nearBoundary,
-                best.description(attempt, before.nearBoundary));
+                best.description(attempt, before.nearBoundary) + progress);
     }
 
     synchronized void rebuild(List<BlendDurationAttempt> attempts) {
@@ -113,7 +131,8 @@ final class BlendDurationComparabilityGroups {
                     .append(" event").append(group.count == 1 ? "" : "s")
                     .append(" @ ").append(f0(group.meanRpm)).append(" RPM / ")
                     .append(f1(group.meanMap)).append(" kPa / +")
-                    .append(f1(group.meanStep)).append(" TPS");
+                    .append(f1(group.meanStep)).append(" TPS / ")
+                    .append(group.gearSummary());
         }
         return out.toString();
     }
@@ -151,6 +170,9 @@ final class BlendDurationComparabilityGroups {
         double meanStep;
         double meanGap;
         String trend = "STABLE";
+        boolean automaticGear;
+        int manualGear;
+        int comparisonGear;
 
         Group(String id) {
             this.id = id;
@@ -159,6 +181,7 @@ final class BlendDurationComparabilityGroups {
         Match match(BlendDurationAttempt attempt) {
             if (count == 0) return Match.accept(0.0, false);
             if (!finite(attempt)) return Match.reject();
+            if (!gearCompatible(attempt)) return Match.reject();
             double rpmDiff = Math.abs(attempt.baseRpm - meanRpm);
             double mapDiff = Math.abs(attempt.baseMap - meanMap);
             double stepDiff = Math.abs(attempt.tpsStep - meanStep);
@@ -181,6 +204,16 @@ final class BlendDurationComparabilityGroups {
             return Match.accept(score, near);
         }
 
+        private boolean gearCompatible(BlendDurationAttempt attempt) {
+            if (attempt.settings == null) return true;
+            if (automaticGear != attempt.settings.automaticGear) return false;
+            if (manualGear != attempt.settings.manualGear) return false;
+            if (!automaticGear) return true;
+            int next = attempt.comparisonGear();
+            if (comparisonGear == 0 && next == 0) return true;
+            return comparisonGear > 0 && next > 0 && comparisonGear == next;
+        }
+
         void add(BlendDurationAttempt attempt) {
             int next = count + 1;
             meanRpm = weighted(meanRpm, attempt.baseRpm, count, next);
@@ -189,6 +222,11 @@ final class BlendDurationComparabilityGroups {
             meanGap = weighted(meanGap, attempt.gap, count, next);
             if (count == 0 || "STABLE".equals(trend)) {
                 trend = attempt.trend;
+            }
+            if (count == 0 && attempt.settings != null) {
+                automaticGear = attempt.settings.automaticGear;
+                manualGear = attempt.settings.manualGear;
+                comparisonGear = attempt.comparisonGear();
             }
             count = next;
             attempts.add(attempt);
@@ -203,11 +241,22 @@ final class BlendDurationComparabilityGroups {
                     .append(" | baseline ").append(f0(attempt.baseRpm))
                     .append(" RPM / ").append(f1(attempt.baseMap)).append(" kPa")
                     .append(" | TPS step +").append(f1(attempt.tpsStep))
-                    .append(" | gap ").append(f1(attempt.gap)).append(" kPa");
+                    .append(" | final target-anchor gap ").append(f1(attempt.gap)).append(" kPa")
+                    .append(" | ").append(attempt.gearText());
             if (nearBoundary) {
                 out.append(" | near group boundary; retained but not discarded");
             }
             return out.toString();
+        }
+
+        String gearSummary() {
+            if (automaticGear) {
+                return comparisonGear > 0
+                        ? "detected gear " + comparisonGear
+                        : "detected gear unknown";
+            }
+            if (manualGear > 0) return "manual " + manualGear;
+            return "gear ignored";
         }
 
         private static double weighted(double current, double next,

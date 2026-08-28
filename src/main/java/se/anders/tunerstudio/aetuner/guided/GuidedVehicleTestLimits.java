@@ -24,7 +24,12 @@ final class GuidedVehicleTestLimits {
     static final double DEFAULT_MAP_CATCHUP_SECONDS = 1.20;
     static final double DEFAULT_TPS_TOLERANCE = 3.00;
     static final double DEFAULT_TPS_BOUNDARY_EPSILON = 0.05;
-    static final double DEFAULT_LOCAL_TPS_ONSET_RISE = 2.00;
+    /**
+     * Local-only confirmation must be large enough that the event can still
+     * satisfy the recipe's minimum usable natural TPS step. Smaller road/pedal
+     * corrections remain pending unless the ECU detector/prediction confirms them.
+     */
+    static final double DEFAULT_LOCAL_TPS_ONSET_RISE = PedalPlateauDetector.MIN_USABLE_STEP;
 
     private static Snapshot pending = defaults(false);
     private static Snapshot active;
@@ -54,7 +59,7 @@ final class GuidedVehicleTestLimits {
                 mapCatchupSeconds,
                 tpsTolerance,
                 tpsBoundaryEpsilon,
-                localTpsOnsetRise);
+                Math.max(PedalPlateauDetector.MIN_USABLE_STEP, localTpsOnsetRise));
     }
 
     static synchronized void restoreCandidateDefaults() {
@@ -103,7 +108,8 @@ final class GuidedVehicleTestLimits {
             this.mapCatchupSeconds = mapCatchupSeconds;
             this.tpsTolerance = tpsTolerance;
             this.tpsBoundaryEpsilon = tpsBoundaryEpsilon;
-            this.localTpsOnsetRise = localTpsOnsetRise;
+            this.localTpsOnsetRise = Math.max(
+                    PedalPlateauDetector.MIN_USABLE_STEP, localTpsOnsetRise);
         }
 
         String summary() {
@@ -113,7 +119,7 @@ final class GuidedVehicleTestLimits {
                     + " | MAP catch-up " + f2(mapCatchupSeconds) + " s"
                     + " | TPS ±" + f2(tpsTolerance) + "%"
                     + " +" + f2(tpsBoundaryEpsilon) + " epsilon"
-                    + " | local onset +" + f2(localTpsOnsetRise) + " TPS";
+                    + " | local confirmation +" + f2(localTpsOnsetRise) + " TPS";
         }
 
         boolean hasNonDefaultValues() {
