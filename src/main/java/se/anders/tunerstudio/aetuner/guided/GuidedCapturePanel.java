@@ -50,8 +50,9 @@ import java.util.function.Supplier;
  * without contaminating another method's capture or tuning math.
  *
  * Guarded working-tune Apply/Restore is common infrastructure for every method.
- * Capture never writes. A completed method may expose an exact ProposalWritePlan,
- * which is applied only through ProposalApplyCoordinator. Burn is not exposed.
+ * Capture never writes. A completed method or an operator-reviewed validated
+ * task-settings edit may expose an exact ProposalWritePlan, which is applied
+ * only through ProposalApplyCoordinator. Burn is not exposed.
  */
 public final class GuidedCapturePanel extends JPanel {
     private static final long STARTUP_IGNORE_NS = 3000000000L;
@@ -64,6 +65,8 @@ public final class GuidedCapturePanel extends JPanel {
     private final GuidedEvidenceRecorder evidence = new GuidedEvidenceRecorder();
     private final GuidedBlendProposal.Tracker proposalTracker =
             new GuidedBlendProposal.Tracker();
+    private final GuidedProposalValidationSession validationSession =
+            new GuidedProposalValidationSession();
     private final JLabel connection =
             new JLabel("Guided tuning: sample worker not connected");
     private final JLabel rate = new JLabel("Sample rate: n/a");
@@ -124,7 +127,9 @@ public final class GuidedCapturePanel extends JPanel {
     private final JButton reset = new JButton("Reset Session");
     private final JButton saveReport = new JButton("Export Evidence");
     private final JButton copyReviewedDraft = new JButton("Copy Reviewed Draft");
+    private final JButton reviewTaskSettings = new JButton("Edit/Review Task Settings");
     private final JButton applyProposal = new JButton("Apply Current Proposal");
+    private final JButton acceptValidationKeep = new JButton("Accept Validation KEEP");
     private final JButton restoreProposal = new JButton("Restore Previous Apply");
     private final JButton readProject = new JButton("Read Working Tune");
     private final JButton reconnect = new JButton("Reconnect");
@@ -156,6 +161,8 @@ public final class GuidedCapturePanel extends JPanel {
     private volatile boolean currentProposalApplied;
     private volatile boolean workingTuneReadRequiredAfterApply;
     private volatile String appliedProposalSummary = "";
+    private volatile ProposalWritePlan stagedTaskSettingsPlan;
+    private volatile GuidedTuningRecipe stagedTaskSettingsTask;
     private Runnable pauseAudioAction = new Runnable() {
         @Override
         public void run() { }
@@ -177,8 +184,12 @@ public final class GuidedCapturePanel extends JPanel {
                 "Export retained evidence. When browsing another method, this button exports the previous unexported method first so switching can continue safely.");
         copyReviewedDraft.setToolTipText(
                 "Copy a reviewed paste-ready draft when the selected method produces one. Clipboard copy never writes the working tune; Apply is a separate explicit action. No burn.");
+        reviewTaskSettings.setToolTipText(
+                "Edit any physically validated controller settings declared for the selected Guided task, stage all reviewed changes as one ProposalWritePlan, then use the existing Apply/Restore controls. No burn.");
         applyProposal.setToolTipText(
-                "Explicitly apply only the exact values declared by the selected method's reviewed ProposalWritePlan. Any Guided method may expose a plan when its tuning logic supports a change. No burn.");
+                "Explicitly apply only the exact values declared by the selected method's reviewed ProposalWritePlan. Operator-reviewed task settings take precedence when staged. No burn.");
+        acceptValidationKeep.setToolTipText(
+                "Accept a completed method-owned A/B KEEP verdict. This performs no controller write and no burn; it only records that the currently applied working-tune value passed validation.");
         restoreProposal.setToolTipText(
                 "Restore the most recent AE Tuner apply only when the working tune still matches that applied state. No mutation is permitted during active capture. No burn.");
         tuningArea.setToolTipText(
@@ -256,6 +267,7 @@ public final class GuidedCapturePanel extends JPanel {
 
         JPanel controls = new JPanel(new WrapLayout(FlowLayout.LEFT, 8, 4));
         controls.add(readProject);
+        controls.add(reviewTaskSettings);
         controls.add(start);
         controls.add(pause);
         controls.add(finish);
@@ -265,6 +277,7 @@ public final class GuidedCapturePanel extends JPanel {
         controls.add(reset);
         controls.add(reconnect);
         controls.add(applyProposal);
+        controls.add(acceptValidationKeep);
         controls.add(restoreProposal);
 
         JPanel north = new JPanel();
@@ -359,15 +372,20 @@ public final class GuidedCapturePanel extends JPanel {
                 evidence.finish(session.snapshot());
             } else if (activeCaptureMode() == GuidedAeMethodModule.CaptureMode.READ_ONLY_PROBE) {
                 probeSession.finish();
+                if (validationSession.canEvaluate(selectedRecipe())) {
+                    validationSession.evaluateAfter(projectSnapshot, probeSession.evidenceSnapshot());
+                }
             }
             recoveryDirtyAction.run();
             refresh();
         });
         reset.addActionListener(event -> resetGuidedSession());
         readProject.addActionListener(event -> readProjectAxes());
+        reviewTaskSettings.addActionListener(event -> reviewTaskSettings());
         saveReport.addActionListener(event -> exportSession());
         copyReviewedDraft.addActionListener(event -> copyReviewedDraft());
         applyProposal.addActionListener(event -> applyCurrentProposal());
+        acceptValidationKeep.addActionListener(event -> acceptValidationKeep());
         restoreProposal.addActionListener(event -> restorePreviousApply());
         reconnect.addActionListener(event -> connectSampleDispatcher());
         tuningArea.addActionListener(event -> {
@@ -448,6 +466,11 @@ public final class GuidedCapturePanel extends JPanel {
     }
 
     private void onTuningSelectionChanged() {
+        GuidedTuningRecipe selected = selectedRecipe();
+        if (stagedTaskSettingsTask != null && stagedTaskSettingsTask != selected) {
+            clearStagedTaskSettings();
+            applyStatus = "Staged task settings were discarded because the Guided task changed. Re-open Edit/Review Task Settings for the newly selected task.";
+        }
         updateTuningPathGuidance();
         refresh();
         refreshSelectedMethodStatus();
@@ -496,17 +519,31 @@ public final class GuidedCapturePanel extends JPanel {
     }
 
     private void resetGuidedSession() {
+        boolean mustReadWorkingTune = workingTuneReadRequiredAfterApply;
+        String retainedApplyManifest = lastApplyManifestJson;
+        boolean retainedCurrentProposalApplied = currentProposalApplied;
+        String retainedAppliedProposalSummary = appliedProposalSummary;
         session.reset();
         probeSession.reset();
         evidence.reset();
         proposalTracker.reset();
+        clearStagedTaskSettings();
         activeRecipe = selectedRecipe();
         probeEvidenceExported = true;
-        lastApplyManifestJson = "";
-        currentProposalApplied = false;
-        workingTuneReadRequiredAfterApply = false;
-        appliedProposalSummary = "";
-        applyStatus = "Guided session reset; no apply manifest is attached to the new session.";
+        validationSession.onGuidedReset();
+        if (mustReadWorkingTune) {
+            lastApplyManifestJson = retainedApplyManifest;
+            currentProposalApplied = retainedCurrentProposalApplied;
+            workingTuneReadRequiredAfterApply = true;
+            appliedProposalSummary = retainedAppliedProposalSummary;
+            applyStatus = "Guided session reset; the latest Apply/Restore changed the working-tune baseline. Read Working Tune before another capture or task-settings edit.";
+        } else {
+            lastApplyManifestJson = "";
+            currentProposalApplied = false;
+            workingTuneReadRequiredAfterApply = false;
+            appliedProposalSummary = "";
+            applyStatus = "Guided session reset; no apply manifest is attached to the new session.";
+        }
         pauseAudioAction.run();
         recoveryDirtyAction.run();
         refresh();
@@ -545,6 +582,66 @@ public final class GuidedCapturePanel extends JPanel {
 
     private GuidedAeMethodModule selectedModule() {
         return GuidedAeMethodModules.forRecipe(selectedRecipe());
+    }
+
+    private GuidedControllerSettingInventory.TaskInventory selectedTaskInventory() {
+        return GuidedControllerSettingInventory.find(selectedRecipe());
+    }
+
+    private boolean selectedTaskSettingsSupported() {
+        GuidedControllerSettingInventory.TaskInventory inventory = selectedTaskInventory();
+        return inventory != null
+                && inventory.hasWriteTargets()
+                && inventory.getProductionWriteSupport()
+                == GuidedControllerSettingInventory.ProductionWriteSupport.CURRENT;
+    }
+
+    private ProposalWritePlan stagedTaskSettingsPlanForSelectedTask() {
+        if (stagedTaskSettingsPlan == null || stagedTaskSettingsTask != selectedRecipe()) {
+            return null;
+        }
+        return stagedTaskSettingsPlan;
+    }
+
+    private void clearStagedTaskSettings() {
+        stagedTaskSettingsPlan = null;
+        stagedTaskSettingsTask = null;
+    }
+
+    private void reviewTaskSettings() {
+        if (anyCaptureActive()) {
+            connection.setText("Task settings review blocked: finish the active Guided capture first.");
+            return;
+        }
+        if (!selectedTaskSettingsSupported()) {
+            connection.setText("The selected Guided task has no physically validated direct controller settings to edit.");
+            return;
+        }
+        if (workingTuneReadRequiredAfterApply) {
+            connection.setText("Task settings review blocked: Read Working Tune after the latest Apply/Restore first.");
+            return;
+        }
+        if (controllerAccess == null || projectSnapshot == null) {
+            connection.setText("Task settings review requires a connected controller and a fresh Read Working Tune baseline.");
+            return;
+        }
+        GuidedTuningRecipe task = selectedRecipe();
+        try {
+            ProposalWritePlan plan = GuidedTaskSettingsDialog.showDialog(
+                    this, controllerAccess, projectSnapshot.getConfigurationName(), task);
+            if (plan != null) {
+                stagedTaskSettingsPlan = plan;
+                stagedTaskSettingsTask = task;
+                currentProposalApplied = false;
+                applyStatus = "STAGED / REVIEWED\n" + plan.changeCount()
+                        + " validated task setting value(s) are ready for explicit Apply. No controller write has occurred yet.";
+                connection.setText("Reviewed " + task.displayName + " task settings staged: "
+                        + plan.changeCount() + " changed value(s). Use Apply Current Proposal when ready.");
+            }
+        } catch (Exception ex) {
+            connection.setText("Task settings review failed: " + compactApplyFailure(ex.getMessage()));
+        }
+        refresh();
     }
 
     private static boolean hasTpsAeTable(AeProjectSnapshot snapshot) {
@@ -671,7 +768,7 @@ public final class GuidedCapturePanel extends JPanel {
         GuidedAeMethodModule module = selectedModule();
         if (workingTuneReadRequiredAfterApply) {
             connection.setText("Guided " + module.recipe().displayName
-                    + " selected — Read Working Tune after the latest Apply/Restore before starting another capture.");
+                    + " selected — Read Working Tune after the latest Apply/Restore before starting another capture or task-settings review.");
         } else if (hasUnexportedProbeEvidenceForAnotherMethod(module)) {
             connection.setText("Guided " + module.recipe().displayName
                     + " selected — export retained " + retainedProbeName()
@@ -679,7 +776,9 @@ public final class GuidedCapturePanel extends JPanel {
         } else if (!module.recipe().implemented
                 || module.captureMode() == GuidedAeMethodModule.CaptureMode.ARCHITECTURE_ONLY) {
             connection.setText("Guided " + module.recipe().displayName
-                    + " selected — no vehicle capture path.");
+                    + " selected — no vehicle capture path"
+                    + (selectedTaskSettingsSupported()
+                    ? "; validated task settings remain available for explicit review/apply." : "."));
         } else if (module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE
                 && !selectedProbeBaselineReady(module)) {
             connection.setText("Guided " + module.recipe().displayName
@@ -691,15 +790,22 @@ public final class GuidedCapturePanel extends JPanel {
         } else if (module.captureMode() == GuidedAeMethodModule.CaptureMode.READ_ONLY_PROBE
                 && !selectedProbeActivityReady(module)) {
             connection.setText("Guided " + module.recipe().displayName + " selected — "
-                    + selectedProbeDisabledReason(module) + " Start Capture is blocked.");
+                    + selectedProbeDisabledReason(module) + " Start Capture is blocked; validated task settings may still be reviewed.");
         } else {
             connection.setText("Guided " + module.recipe().displayName
-                    + " selected — ready for setup/evidence capture.");
+                    + " selected — ready for setup/evidence capture and validated task-settings review.");
         }
     }
 
     private void startSession() {
         GuidedAeMethodModule module = selectedModule();
+        if (validationSession.unresolved()
+                && validationSession.recipe() != module.recipe()) {
+            connection.setText("Guided validation is still unresolved for "
+                    + validationSession.recipe().displayName
+                    + ". Finish that A/B validation or Restore before starting another method.");
+            return;
+        }
         if (!module.recipe().implemented
                 || module.captureMode() == GuidedAeMethodModule.CaptureMode.ARCHITECTURE_ONLY) {
             headline.setText("SETUP\n\n" + module.recipe().displayName + " is "
@@ -753,7 +859,9 @@ public final class GuidedCapturePanel extends JPanel {
                 connection.setText("MAP Estimate Table capture blocked — Read Working Tune after the previous Apply/Restore so the new table is the capture baseline.");
                 return;
             }
-            applyStatus = module.recipe().displayName
+            applyStatus = validationSession.canEvaluate(module.recipe())
+                    ? "VALIDATION B capture active. Repeat the same method-owned maneuver in only the changed target region(s); capture itself never writes. Finish/Review will produce KEEP / RESTORE / INCONCLUSIVE. No burn."
+                    : module.recipe().displayName
                     + " capture active. Capture itself never writes; a reviewed changed value may expose guarded Apply after Finish/Review. No burn.";
             probeSession.start(module, projectSnapshot,
                     ((Number) probeTargetCount.getValue()).intValue(),
@@ -824,10 +932,17 @@ public final class GuidedCapturePanel extends JPanel {
             double preferredRpm = preferredTablePointRpm();
             AeProjectSnapshot next = new AeControllerBridge(controllerAccess).readSnapshot();
             projectSnapshot = next;
+            clearStagedTaskSettings();
             workingTuneReadRequiredAfterApply = false;
             probeSession.noteWorkingTuneRead(next,
                     ((Number) mapMinimumSamples.getValue()).intValue(),
                     ((Number) mapCapKpa.getValue()).doubleValue());
+            if (validationSession.noteWorkingTuneRead(next)) {
+                probeSession.reset();
+                probeEvidenceExported = true;
+                activeRecipe = selectedRecipe();
+                applyStatus = validationSession.statusText();
+            }
             List<GuidedBlendProposal.PointChoice> points = GuidedBlendProposal.points(next);
             replaceTablePoints(points, preferredRpm);
             proposalTracker.reset();
@@ -942,8 +1057,10 @@ public final class GuidedCapturePanel extends JPanel {
         controllerAccess = null;
         applyCoordinator = null;
         projectSnapshot = null;
+        clearStagedTaskSettings();
         proposalTracker.reset();
         probeSession.reset();
+        validationSession.reset();
         probeEvidenceExported = true;
     }
 
@@ -1093,13 +1210,11 @@ public final class GuidedCapturePanel extends JPanel {
         if (!probeSession.hasEvidence() || captured == null || exportInProgress) return;
         final File parentFolder = SessionExportSupport.chooseParent(this, "Guided method evidence");
         if (parentFolder == null) return;
-        final String reportText = probeSession.reportText(AeTunerPlugin.VERSION);
-        final String samplesCsv = probeSession.csvText();
-        final String draft = probeSession.copyPasteBlock();
         final String applyManifest = lastApplyManifestJson;
+        final String validationBaselineReport = validationSession.baselineReportFor(captured.recipe());
+        final String validationBaselineCsv = validationSession.baselineCsvFor(captured.recipe());
+        final String validationReport = validationSession.reportFor(captured.recipe());
         final int sampleCount = probeSession.sampleCount();
-        final int fileCount = 2 + (draft.length() > 0 ? 1 : 0)
-                + (applyManifest.length() > 0 ? 1 : 0);
         final String methodName = captured.recipe().displayName;
 
         exportInProgress = true;
@@ -1113,6 +1228,14 @@ public final class GuidedCapturePanel extends JPanel {
                 long started = System.nanoTime();
                 SessionExportSupport.StagedFolder staged = null;
                 try {
+                    final String reportText = probeSession.reportText(AeTunerPlugin.VERSION);
+                    final String samplesCsv = probeSession.csvText();
+                    final String draft = probeSession.copyPasteBlock();
+                    final int fileCount = 2 + (draft.length() > 0 ? 1 : 0)
+                            + (applyManifest.length() > 0 ? 1 : 0)
+                            + (validationBaselineReport.length() > 0 ? 1 : 0)
+                            + (validationBaselineCsv.length() > 0 ? 1 : 0)
+                            + (validationReport.length() > 0 ? 1 : 0);
                     staged = SessionExportSupport.stageSessionFolder(parentFolder, "guided-method");
                     SessionExportSupport.writeTextAtomic(staged.file("guided-method-report.txt"), reportText);
                     SessionExportSupport.writeTextAtomic(staged.file("guided-method-samples.csv"), samplesCsv);
@@ -1122,6 +1245,18 @@ public final class GuidedCapturePanel extends JPanel {
                     if (applyManifest.length() > 0) {
                         SessionExportSupport.writeTextAtomic(
                                 staged.file("guided-method-apply-manifest.json"), applyManifest);
+                    }
+                    if (validationBaselineReport.length() > 0) {
+                        SessionExportSupport.writeTextAtomic(
+                                staged.file("guided-validation-baseline-report.txt"), validationBaselineReport);
+                    }
+                    if (validationBaselineCsv.length() > 0) {
+                        SessionExportSupport.writeTextAtomic(
+                                staged.file("guided-validation-baseline-samples.csv"), validationBaselineCsv);
+                    }
+                    if (validationReport.length() > 0) {
+                        SessionExportSupport.writeTextAtomic(
+                                staged.file("guided-validation-result.txt"), validationReport);
                     }
                     File finalFolder = staged.finish();
                     return new GuidedExportResult(finalFolder, sampleCount, fileCount,
@@ -1176,22 +1311,33 @@ public final class GuidedCapturePanel extends JPanel {
 
     private void applyCurrentProposal() {
         GuidedAeMethodModule module = selectedModule();
+        if (validationSession.unresolved()) {
+            applyStatus = "Apply blocked: resolve the current "
+                    + validationSession.recipe().displayName
+                    + " A/B validation with KEEP, RESTORE, or additional evidence first.";
+            refresh();
+            return;
+        }
         if (anyCaptureActive()) {
             applyStatus = "Apply blocked: finish or reset the active capture first.";
             refresh();
             return;
         }
 
-        ProposalWritePlan plan = module.explicitSettingWritePlan(projectSnapshot);
+        ProposalWritePlan plan = stagedTaskSettingsPlanForSelectedTask();
+        boolean applyingStagedTaskSettings = plan != null;
+        if (plan == null) {
+            plan = module.explicitSettingWritePlan(projectSnapshot);
+        }
         if (plan == null) {
             if (module.captureMode() == GuidedAeMethodModule.CaptureMode.READ_ONLY_PROBE) {
                 if (probeSession.module() != module) {
-                    applyStatus = "Apply unavailable: no direct setting change is selected and this method has no completed reviewed evidence.";
+                    applyStatus = "Apply unavailable: no staged/direct setting change is selected and this method has no completed reviewed evidence.";
                     refresh();
                     return;
                 }
                 if (probeSession.state() != GuidedCaptureState.COMPLETE) {
-                    applyStatus = "Apply blocked: evidence-derived changes require Finish and Review first. Direct setting changes do not require capture.";
+                    applyStatus = "Apply blocked: evidence-derived changes require Finish and Review first. Operator-reviewed task settings and direct setting changes do not require capture.";
                     refresh();
                     return;
                 }
@@ -1205,7 +1351,7 @@ public final class GuidedCapturePanel extends JPanel {
             } else if (module.captureMode() == GuidedAeMethodModule.CaptureMode.BLEND_DURATION) {
                 GuidedSessionSnapshot snapshot = session.snapshot();
                 if (snapshot.state != GuidedCaptureState.COMPLETE) {
-                    applyStatus = "Apply blocked: finish the capture and review the evidence first.";
+                    applyStatus = "Apply blocked: finish the capture and review the evidence first, or stage validated task settings explicitly.";
                     refresh();
                     return;
                 }
@@ -1217,7 +1363,7 @@ public final class GuidedCapturePanel extends JPanel {
                 }
             } else {
                 applyStatus = "Apply unavailable: " + module.recipe().displayName
-                        + " declares no direct or evidence-derived write plan.";
+                        + " has no staged, direct or evidence-derived write plan.";
                 refresh();
                 return;
             }
@@ -1242,12 +1388,27 @@ public final class GuidedCapturePanel extends JPanel {
             workingTuneReadRequiredAfterApply = true;
             appliedProposalSummary = appliedPlanText(plan);
             applyStatus = "APPLIED / VERIFIED\n" + applied.message;
+            if (!applyingStagedTaskSettings
+                    && module.captureMode() == GuidedAeMethodModule.CaptureMode.READ_ONLY_PROBE
+                    && probeSession.module() == module
+                    && probeSession.state() == GuidedCaptureState.COMPLETE) {
+                validationSession.armAfterVerifiedApply(module.recipe(), projectSnapshot,
+                        probeSession.evidenceSnapshot(), plan,
+                        probeSession.reportText(AeTunerPlugin.VERSION),
+                        probeSession.csvText());
+                if (validationSession.unresolved()) {
+                    applyStatus += "\n\n" + validationSession.statusText();
+                }
+            }
+            if (applyingStagedTaskSettings) clearStagedTaskSettings();
             if ("map-estimate-table".equals(plan.getRecipeId())) {
                 probeSession.markMapEstimateWorkingTuneChanged();
             }
         }
         connection.setText(applied.success
-                ? "Working-tune Apply verified — no burn performed. Read Working Tune before another Guided capture."
+                ? (validationSession.unresolved()
+                    ? "Working-tune Apply verified — validation armed. Read Working Tune, then repeat only the changed method region(s). No burn."
+                    : "Working-tune Apply verified — no burn performed. Read Working Tune before another Guided capture or task-settings edit.")
                 : "Working-tune Apply blocked/failed — " + compactApplyFailure(applied.message));
         connection.setToolTipText(applied.success ? null : applied.message);
         refresh();
@@ -1286,10 +1447,22 @@ public final class GuidedCapturePanel extends JPanel {
             if ("map-estimate-table".equals(restoring.getRecipeId())) {
                 probeSession.markMapEstimateWorkingTuneChanged();
             }
+            validationSession.markRestored(restoring);
         }
         connection.setText(restored.success
-                ? "Previous AE Tuner Apply restored and read back — no burn performed. Read Working Tune before another Guided capture."
+                ? "Previous AE Tuner Apply restored and read back — no burn performed. Read Working Tune before another Guided capture or task-settings edit."
                 : "Restore blocked/failed — current working tune was not overwritten");
+        refresh();
+    }
+
+    private void acceptValidationKeep() {
+        if (!validationSession.canAcceptKeep()) {
+            connection.setText("KEEP unavailable: the current A/B validation has not produced a KEEP verdict.");
+            return;
+        }
+        validationSession.acceptKeep();
+        applyStatus = validationSession.statusText();
+        connection.setText("Validation KEEP accepted — the applied working-tune value remains in RAM. No controller write and no burn were performed.");
         refresh();
     }
 
@@ -1319,10 +1492,14 @@ public final class GuidedCapturePanel extends JPanel {
         out.append(applyStatus)
                 .append("\nCurrent reviewed proposal already applied: ")
                 .append(currentProposalApplied ? "YES" : "NO")
+                .append("\nStaged task-settings proposal pending: ")
+                .append(stagedTaskSettingsPlanForSelectedTask() != null ? "YES" : "NO")
                 .append("\nFresh working-tune read required before capture: ")
                 .append(workingTuneReadRequiredAfterApply ? "YES" : "NO")
                 .append("\nApply/restore manifest attached to next Guided export: ")
-                .append(lastApplyManifestJson.length() > 0 ? "YES" : "NO");
+                .append(lastApplyManifestJson.length() > 0 ? "YES" : "NO")
+                .append("\n\nGUIDED A/B VALIDATION\n")
+                .append(validationSession.statusText());
         if (applyCoordinator != null && applyCoordinator.canRestorePreviousApply()) {
             out.append("\nRestore stack depth: ").append(applyCoordinator.applyDepth())
                     .append("\nNext restore: ").append(applyCoordinator.previousApplyText());
@@ -1345,13 +1522,19 @@ public final class GuidedCapturePanel extends JPanel {
         boolean selectedProbeHasEvidence = probe && probeSession.module() == module
                 && probeSession.state() != GuidedCaptureState.IDLE;
         boolean switchBlocked = hasUnexportedProbeEvidenceForAnotherMethod(module);
+        ProposalWritePlan stagedTaskPlan = stagedTaskSettingsPlanForSelectedTask();
         ProposalWritePlan explicitSettingPlan =
                 module.explicitSettingWritePlan(projectSnapshot);
         ProposalWritePlan evidenceWritePlan = probe && probeSession.module() == module
                 && probeSession.state() == GuidedCaptureState.COMPLETE
                 ? probeSession.reviewedWritePlan() : null;
-        ProposalWritePlan probeWritePlan = explicitSettingPlan != null
-                ? explicitSettingPlan : evidenceWritePlan;
+        ProposalWritePlan probeWritePlan = stagedTaskPlan != null
+                ? stagedTaskPlan
+                : (explicitSettingPlan != null ? explicitSettingPlan : evidenceWritePlan);
+        String stagedReview = stagedTaskPlan == null ? ""
+                : "\n\nSTAGED TASK SETTINGS — OPERATOR REVIEWED\n"
+                + "This plan takes precedence over method-generated/direct proposals until it is applied, replaced, re-read, reset or the task changes.\n\n"
+                + stagedTaskPlan.reviewText();
 
         routeSetupCard(module);
 
@@ -1371,20 +1554,30 @@ public final class GuidedCapturePanel extends JPanel {
             } else {
                 headline.setText("SETUP — " + module.recipe().status + "\n"
                         + module.recipe().displayName + "\n"
-                        + (explicitSettingPlan != null
+                        + (stagedTaskPlan != null
+                        ? "Operator-reviewed validated task settings are staged and ready for Apply. Capture remains optional and separate."
+                        : (explicitSettingPlan != null
                         ? "A direct working-tune setting change is ready for review. Capture is optional and only needed for evidence-based tuning."
-                        : module.captureGoal()));
+                        : module.captureGoal())));
                 setStableText(checks, checksScroll, methodBaseSetupText(module));
-                result.setText(explicitSettingPlan != null
+                result.setText(stagedTaskPlan != null
+                        ? "Validated task-settings proposal staged. No controller write has occurred; Apply Current Proposal performs the guarded transaction."
+                        : (explicitSettingPlan != null
                         ? "Direct setting proposal selected. No sample capture is required to review/apply this explicit working-tune change."
                         : "No " + module.recipe().displayName
-                            + " evidence collected for this selected method yet. Start Capture only when evidence is needed.");
+                            + " evidence collected for this selected method yet. Start Capture only when evidence is needed."));
             }
         } else {
             headline.setText("SETUP — " + module.recipe().status + "\n"
-                    + module.recipe().displayName + "\n" + module.setupGuidance());
+                    + module.recipe().displayName + "\n" + module.setupGuidance()
+                    + (selectedTaskSettingsSupported()
+                    ? "\n\nPhysically validated task settings may be edited/reviewed now without waiting for recommendation logic or a vehicle capture path." : ""));
             setStableText(checks, checksScroll, module.setupGuidance());
-            result.setText("No vehicle capture is attached to this development choice.");
+            result.setText(stagedTaskPlan != null
+                    ? "Validated task-settings proposal staged. No controller write has occurred."
+                    : "No vehicle capture is attached to this development choice."
+                    + (selectedTaskSettingsSupported()
+                    ? " Task settings remain available for explicit operator review/apply." : ""));
         }
 
         if (switchBlocked && !anyCaptureActive()) {
@@ -1395,7 +1588,7 @@ public final class GuidedCapturePanel extends JPanel {
         }
         if (workingTuneReadRequiredAfterApply && !anyCaptureActive()) {
             headline.setText(headline.getText()
-                    + "\n\nWORKING-TUNE BASELINE CHANGED\nRead Working Tune before another capture. Apply/Restore itself remains available independently of engine-running state.");
+                    + "\n\nWORKING-TUNE BASELINE CHANGED\nRead Working Tune before another capture or task-settings edit. Apply/Restore itself remains available independently of engine-running state.");
         }
 
         double configuredRpm = point == null
@@ -1411,6 +1604,7 @@ public final class GuidedCapturePanel extends JPanel {
             proposal.setText(axisGuidance + "\n\n"
                     + guidedProposal.getDisplayText()
                     + "\n\n" + writeReview
+                    + stagedReview
                     + (appliedProposalSummary.length() == 0 ? ""
                     : "\n\nVERIFIED WORKING-TUNE OPERATION\n" + appliedProposalSummary)
                     + "\n\nAPPLY / RESTORE STATUS\n" + applyStatus
@@ -1430,22 +1624,27 @@ public final class GuidedCapturePanel extends JPanel {
                     + module.recipe().displayName + " — " + module.recipe().status + "\n\n"
                     + "WORKING-TUNE CONTEXT\n" + module.currentTuneContext(projectSnapshot)
                     + "\n\n" + proposalOrigin + review
+                    + stagedReview
                     + "\n\nSAFETY\n"
-                    + "Capture never writes. Explicit setting changes may go directly from Read Working Tune -> Review Change -> guarded Apply/Restore. Evidence-derived proposals still require the method's capture/review rules. No automatic Apply and no burn."
+                    + "Capture never writes. Validated task settings and explicit setting changes may go directly from Read Working Tune -> Review Change -> guarded Apply/Restore. Evidence-derived proposals still require the method's capture/review rules. No automatic Apply and no burn."
                     + (appliedProposalSummary.length() == 0 ? ""
                     : "\n\nVERIFIED WORKING-TUNE OPERATION\n" + appliedProposalSummary)
                     + "\n\nAPPLY / RESTORE STATUS\n" + applyStatus
-                    + (probeWritePlan == null ? ""
+                    + (validationSession.hasArtifactFor(module.recipe())
+                    ? "\n\nMETHOD-OWNED A/B VALIDATION\n" + validationSession.statusText() : "")
+                    + (probeWritePlan == null || probeWritePlan == stagedTaskPlan ? ""
                     : "\n\n" + probeWritePlan.reviewText())
                     + (lastApplyManifestJson.length() == 0 ? ""
                     : "\n\nMSQ VERIFICATION\nThe next Guided method export will include guided-method-apply-manifest.json for the most recent successful Apply/Restore operation."));
         } else {
             proposal.setText("CURRENT TUNING TASK\n"
                     + module.recipe().displayName + "\nStatus: " + module.recipe().status + "\n\n"
-                    + module.setupGuidance());
+                    + module.setupGuidance()
+                    + stagedReview
+                    + "\n\nAPPLY / RESTORE STATUS\n" + applyStatus);
         }
 
-        refreshWorkflowStage(snapshot, module, probeWritePlan);
+        refreshWorkflowStage(snapshot, module, probeWritePlan, stagedTaskPlan);
         refreshLiveValues();
         pause.setText(snapshot.state == GuidedCaptureState.PAUSED ? "Resume" : "Pause");
         boolean captureActive = anyCaptureActive();
@@ -1466,15 +1665,29 @@ public final class GuidedCapturePanel extends JPanel {
         mapMinimumSamples.setEnabled(setupEnabled && module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE);
         mapCapKpa.setEnabled(setupEnabled && module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE);
         readProject.setEnabled(setupEnabled && controllerAccess != null);
+        reviewTaskSettings.setText(stagedTaskPlan == null
+                ? "Edit/Review Task Settings" : "Edit/Review Task Settings (Staged)");
+        reviewTaskSettings.setEnabled(setupEnabled
+                && selectedTaskSettingsSupported()
+                && projectSnapshot != null
+                && applyCoordinator != null
+                && !workingTuneReadRequiredAfterApply);
 
         boolean sameProbeComplete = probe && probeSession.module() == module
                 && probeSession.state() == GuidedCaptureState.COMPLETE;
-        start.setText(sameProbeComplete ? "Continue Capture" : "Start Capture");
+        boolean foundationSetComplete = sameProbeComplete
+                && module.recipe() == GuidedTuningRecipe.ENGAGEMENT_DETECTION;
+        start.setText(validationSession.canContinueCapture(module.recipe())
+                ? (sameProbeComplete ? "Continue Validation Capture" : "Start Validation Capture")
+                : (foundationSetComplete ? "Start New Capture Set"
+                : (sameProbeComplete ? "Continue Capture" : "Start Capture")));
         boolean methodReady = module.recipe().implemented
                 && !workingTuneReadRequiredAfterApply
                 && ((probe && selectedProbeReady(module))
                 || (blend && point != null));
-        start.setEnabled(setupEnabled && methodReady && !switchBlocked);
+        start.setEnabled(setupEnabled && methodReady && !switchBlocked
+                && (!validationSession.unresolved()
+                    || validationSession.canContinueCapture(module.recipe())));
 
         boolean selectedProbeEvidence = probe && probeSession.module() == module
                 && probeSession.hasEvidence();
@@ -1489,13 +1702,19 @@ public final class GuidedCapturePanel extends JPanel {
         copyReviewedDraft.setEnabled(probe && probeSession.module() == module
                 && probeSession.copyPasteBlock().length() > 0);
         applyProposal.setText(currentProposalApplied ? "Applied / Verified" : "Apply Current Proposal");
+        acceptValidationKeep.setEnabled(setupEnabled && validationSession.canAcceptKeep()
+                && validationSession.recipe() == module.recipe());
+        boolean stagedApplyReady = stagedTaskPlan != null;
         boolean probeApplyReady = probeWritePlan != null;
         applyProposal.setEnabled(setupEnabled
-                && ((blend
-                    && snapshot.state == GuidedCaptureState.COMPLETE
-                    && guidedProposal.hasWritePlan()) || probeApplyReady)
+                && (stagedApplyReady
+                    || (blend
+                        && snapshot.state == GuidedCaptureState.COMPLETE
+                        && guidedProposal.hasWritePlan())
+                    || (probe && probeApplyReady))
                 && applyCoordinator != null
-                && !currentProposalApplied);
+                && !currentProposalApplied
+                && !validationSession.unresolved());
         restoreProposal.setEnabled(setupEnabled && applyCoordinator != null
                 && applyCoordinator.canRestorePreviousApply());
 
@@ -1545,7 +1764,7 @@ public final class GuidedCapturePanel extends JPanel {
                 .append(") — used to separate overlapping AE effects\n");
         appendRoleSummary(out, context);
         out.append("\nREVIEW OUTPUTS\n").append(module.reviewOutputs())
-                .append("\n\nSafety: capture never writes. A reviewed changed value may use explicit guarded Apply/readback/Restore; no automatic Apply and no burn.");
+                .append("\n\nSafety: capture never writes. Physically validated task settings may be staged together for explicit guarded Apply/readback/Restore; evidence-derived recommendations remain separate. No automatic Apply and no burn.");
         return out.toString();
     }
 
@@ -1563,7 +1782,14 @@ public final class GuidedCapturePanel extends JPanel {
 
     private void refreshWorkflowStage(GuidedSessionSnapshot snapshot,
                                       GuidedAeMethodModule module,
-                                      ProposalWritePlan probeWritePlan) {
+                                      ProposalWritePlan probeWritePlan,
+                                      ProposalWritePlan stagedTaskPlan) {
+        if (stagedTaskPlan != null && !anyCaptureActive()) {
+            workflowStage.setText(currentProposalApplied
+                    ? "1 TASK SETTINGS ✓   2 REVIEW ✓   3 APPLY / VERIFY ✓"
+                    : "1 TASK SETTINGS ✓   2 REVIEW ✓   3 APPLY / VERIFY ●");
+            return;
+        }
         ProposalWritePlan direct = module.explicitSettingWritePlan(projectSnapshot);
         if (direct != null && !anyCaptureActive()) {
             workflowStage.setText(currentProposalApplied
@@ -1574,7 +1800,9 @@ public final class GuidedCapturePanel extends JPanel {
 
         if (!module.recipe().implemented
                 || module.captureMode() == GuidedAeMethodModule.CaptureMode.ARCHITECTURE_ONLY) {
-            workflowStage.setText("REVIEW / SIMPLIFY — no mandatory capture/apply sequence");
+            workflowStage.setText(selectedTaskSettingsSupported()
+                    ? "TASK SETTINGS AVAILABLE — recommendation/capture maturity is separate from Apply/Restore support"
+                    : "REVIEW / SIMPLIFY — no mandatory capture/apply sequence");
             return;
         }
 
@@ -1700,6 +1928,14 @@ public final class GuidedCapturePanel extends JPanel {
     }
 
     void startSelectedTaskForTest() { startSession(); }
+    void resetGuidedSessionForTest() { resetGuidedSession(); }
+    void requireWorkingTuneReadAfterApplyForTest() {
+        workingTuneReadRequiredAfterApply = true;
+        currentProposalApplied = true;
+        lastApplyManifestJson = "{\"test\":\"post-apply-baseline\"}";
+        appliedProposalSummary = "TEST VERIFIED APPLY";
+        refresh();
+    }
 
     void finishSelectedTaskForTest() {
         if (probeCaptureActive()) probeSession.finish();

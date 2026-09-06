@@ -14,11 +14,10 @@ import java.util.Map;
  * reviewed ProposalWritePlan. Recommendation/evidence logic decides whether a
  * changed value exists; there is no separate read-only product-maturity gate.
  *
- * The first real use of a new controller setting/representation gets one quick
- * TunerStudio working-tune Apply -> readback -> Restore confirmation. That test
- * may be performed engine-off; it validates the setting mapping/write contract,
- * not combustion behavior. Once confirmed, normal guarded Apply remains
- * available. Burn is outside AE Tuner's current write contract.
+ * This catalog intentionally includes planned Guided write surfaces. Exact INI
+ * representation metadata is part of the same canonical layer through
+ * AeControllerDefinitionCatalog; the temporary physical-validation tooling must
+ * never maintain a parallel controller-name or representation map.
  */
 public final class AeTuningParameterCatalog {
     public enum Subsystem {
@@ -26,6 +25,7 @@ public final class AeTuningParameterCatalog {
         TPS_AE,
         MAP_PREDICT,
         WALL_WETTING,
+        DECEL_TIPOUT,
         INSTANT_FUEL
     }
 
@@ -38,10 +38,6 @@ public final class AeTuningParameterCatalog {
         TABLE
     }
 
-    /**
-     * Dependency order for evidence. A change at an earlier tier can change the
-     * meaning or population of evidence collected for later tiers.
-     */
     public enum DependencyTier {
         DETECTOR_MODEL,
         DETECTOR_TIMING,
@@ -80,6 +76,11 @@ public final class AeTuningParameterCatalog {
         public DependencyTier getDependencyTier() { return dependencyTier; }
         public boolean isEvidenceBreaking() { return evidenceBreaking; }
 
+        /** Exact frozen-INI representation for this canonical setting. */
+        public AeControllerDefinitionCatalog.Definition getControllerDefinition() {
+            return AeControllerDefinitionCatalog.find(controllerName);
+        }
+
         public boolean isUpstreamOf(Parameter other) {
             return other != null
                     && dependencyTier.ordinal() < other.dependencyTier.ordinal();
@@ -96,7 +97,7 @@ public final class AeTuningParameterCatalog {
     static {
         List<Parameter> all = new ArrayList<Parameter>();
 
-        // Engagement / detection: deliberately upstream of all fuel recipes.
+        // Engagement / detection.
         add(all, AeParameterNames.TPS_AE_DETECT_MODE, "Engagement model",
                 Subsystem.ENGAGEMENT_DETECTION, Shape.ENUM, "",
                 DependencyTier.DETECTOR_MODEL, true);
@@ -112,6 +113,14 @@ public final class AeTuningParameterCatalog {
         add(all, AeParameterNames.DELTA_TPS_AVERAGE_ALPHA,
                 "Delta TPS Average Smoothing Factor",
                 Subsystem.ENGAGEMENT_DETECTION, Shape.SCALAR, "",
+                DependencyTier.DETECTOR_THRESHOLD, true);
+        add(all, AeParameterNames.DELTA_TPS_AVERAGE_CURVE_RPM_BINS,
+                "Dynamic threshold multiplier — RPM bins",
+                Subsystem.ENGAGEMENT_DETECTION, Shape.CURVE_AXIS, "RPM",
+                DependencyTier.DETECTOR_THRESHOLD, true);
+        add(all, AeParameterNames.DELTA_TPS_AVERAGE_CURVE_MULTIPLIER,
+                "Dynamic threshold multiplier",
+                Subsystem.ENGAGEMENT_DETECTION, Shape.CURVE_VALUES, "mult",
                 DependencyTier.DETECTOR_THRESHOLD, true);
         add(all, AeParameterNames.TPS_AE_USE_DYNAMIC_THRESHOLD,
                 "Use calculated threshold from averaged delta TPS",
@@ -147,6 +156,36 @@ public final class AeTuningParameterCatalog {
                 "TPS AE: Fuel multiplier by engine cycle",
                 Subsystem.TPS_AE, Shape.TABLE, "%",
                 DependencyTier.TRANSIENT_RESPONSE, false);
+
+        // TPS AE compensation/completion.
+        add(all, AeParameterNames.TPS_AE_RPM_CORRECTION_BINS,
+                "TPS AE RPM correction — RPM bins",
+                Subsystem.TPS_AE, Shape.CURVE_AXIS, "RPM",
+                DependencyTier.FINE_CORRECTION, false);
+        add(all, AeParameterNames.TPS_AE_RPM_CORRECTION_VALUES,
+                "TPS AE RPM correction",
+                Subsystem.TPS_AE, Shape.CURVE_VALUES, "multiplier",
+                DependencyTier.FINE_CORRECTION, false);
+        add(all, AeParameterNames.TPS_AE_SCALE_TPS_BINS,
+                "TPS vs CLT AE scale — TPS bins",
+                Subsystem.TPS_AE, Shape.CURVE_AXIS, "TPS",
+                DependencyTier.FINE_CORRECTION, false);
+        add(all, AeParameterNames.TPS_AE_SCALE_CLT_BINS,
+                "TPS vs CLT AE scale — CLT bins",
+                Subsystem.TPS_AE, Shape.CURVE_AXIS, "CLT",
+                DependencyTier.FINE_CORRECTION, false);
+        add(all, AeParameterNames.TPS_AE_SCALE_TABLE,
+                "TPS vs CLT AE scale",
+                Subsystem.TPS_AE, Shape.TABLE, "mult",
+                DependencyTier.FINE_CORRECTION, false);
+        add(all, AeParameterNames.AE_CLT_CORR_BINS,
+                "AE vs CLT — CLT bins",
+                Subsystem.TPS_AE, Shape.CURVE_AXIS, "C",
+                DependencyTier.FINE_CORRECTION, false);
+        add(all, AeParameterNames.AE_CLT_CORR_VALUES,
+                "AE vs CLT correction",
+                Subsystem.TPS_AE, Shape.CURVE_VALUES, "mult",
+                DependencyTier.FINE_CORRECTION, false);
         add(all, AeParameterNames.TPS_AE_BURN_SKIP_INITIAL,
                 "TPS AE Burn Skip count",
                 Subsystem.TPS_AE, Shape.SCALAR, "count",
@@ -171,7 +210,7 @@ public final class AeTuningParameterCatalog {
                 DependencyTier.TRANSIENT_RESPONSE, false);
         add(all, AeParameterNames.MAP_ESTIMATE_TPS_BINS,
                 "MAP Estimate — TPS bins",
-                Subsystem.MAP_PREDICT, Shape.CURVE_AXIS, "%",
+                Subsystem.MAP_PREDICT, Shape.CURVE_AXIS, "% TPS",
                 DependencyTier.TRANSIENT_RESPONSE, false);
         add(all, AeParameterNames.MAP_ESTIMATE_TABLE,
                 "MAP estimate table",
@@ -186,7 +225,7 @@ public final class AeTuningParameterCatalog {
                 Subsystem.MAP_PREDICT, Shape.CURVE_VALUES, "s",
                 DependencyTier.TRANSIENT_RESPONSE, false);
 
-        // Wall Wetting.
+        // Wall Wetting, including advanced CLT/RPM/MAP model.
         add(all, AeParameterNames.WALL_WETTING_AE_ENABLED,
                 "Enable wall wetting Acceleration Enrichment",
                 Subsystem.WALL_WETTING, Shape.BOOLEAN, "",
@@ -197,22 +236,92 @@ public final class AeTuningParameterCatalog {
                 DependencyTier.METHOD_ACTIVATION, true);
         add(all, AeParameterNames.WALL_TAU,
                 "Evaporation time constant / tau",
-                Subsystem.WALL_WETTING, Shape.SCALAR, "",
+                Subsystem.WALL_WETTING, Shape.SCALAR, "Seconds",
                 DependencyTier.TRANSIENT_RESPONSE, false);
         add(all, AeParameterNames.WALL_BETA,
                 "Added to wall coefficient / beta",
-                Subsystem.WALL_WETTING, Shape.SCALAR, "",
+                Subsystem.WALL_WETTING, Shape.SCALAR, "Fraction",
                 DependencyTier.TRANSIENT_RESPONSE, false);
+        add(all, AeParameterNames.WALL_CLT_BINS,
+                "Advanced Wall Wetting — CLT bins",
+                Subsystem.WALL_WETTING, Shape.CURVE_AXIS, "deg C",
+                DependencyTier.FINE_CORRECTION, false);
+        add(all, AeParameterNames.WALL_TAU_CLT_VALUES,
+                "Advanced Wall Wetting — tau vs CLT",
+                Subsystem.WALL_WETTING, Shape.CURVE_VALUES, "",
+                DependencyTier.FINE_CORRECTION, false);
+        add(all, AeParameterNames.WALL_BETA_CLT_VALUES,
+                "Advanced Wall Wetting — beta vs CLT",
+                Subsystem.WALL_WETTING, Shape.CURVE_VALUES, "",
+                DependencyTier.FINE_CORRECTION, false);
+        add(all, AeParameterNames.WALL_RPM_BINS,
+                "Advanced Wall Wetting — RPM bins",
+                Subsystem.WALL_WETTING, Shape.CURVE_AXIS, "RPM",
+                DependencyTier.FINE_CORRECTION, false);
+        add(all, AeParameterNames.WALL_MAP_BINS,
+                "Advanced Wall Wetting — MAP bins",
+                Subsystem.WALL_WETTING, Shape.CURVE_AXIS, "kPa",
+                DependencyTier.FINE_CORRECTION, false);
         add(all, AeParameterNames.WALL_TAU_TABLE,
-                "Evap from wall table",
+                "Evap from wall RPM/MAP table",
                 Subsystem.WALL_WETTING, Shape.TABLE, "",
-                DependencyTier.TRANSIENT_RESPONSE, false);
+                DependencyTier.FINE_CORRECTION, false);
         add(all, AeParameterNames.WALL_BETA_TABLE,
-                "Stick to wall table",
+                "Stick to wall RPM/MAP table",
                 Subsystem.WALL_WETTING, Shape.TABLE, "",
+                DependencyTier.FINE_CORRECTION, false);
+
+        // Decel / tip-out.
+        add(all, AeParameterNames.TPS_DECEL_ENLEANMENT_ENABLED,
+                "Enable TPS deceleration enleanment",
+                Subsystem.DECEL_TIPOUT, Shape.BOOLEAN, "",
+                DependencyTier.METHOD_ACTIVATION, true);
+        add(all, AeParameterNames.TPS_DECEL_THRESHOLD_RPM_BINS,
+                "TPS Decel threshold — RPM bins",
+                Subsystem.DECEL_TIPOUT, Shape.CURVE_AXIS, "RPM",
+                DependencyTier.DETECTOR_THRESHOLD, true);
+        add(all, AeParameterNames.TPS_DECEL_THRESHOLD_VALUES,
+                "TPS Decel threshold",
+                Subsystem.DECEL_TIPOUT, Shape.CURVE_VALUES, "delta TPS",
+                DependencyTier.DETECTOR_THRESHOLD, true);
+        add(all, AeParameterNames.TPS_DECEL_HOLD_CYCLES,
+                "TPS Decel hold cycles",
+                Subsystem.DECEL_TIPOUT, Shape.SCALAR, "cycles",
+                DependencyTier.DETECTOR_TIMING, true);
+        add(all, AeParameterNames.TPS_DECEL_CYCLE_CYCLE_BINS,
+                "TPS Decel fuel — engine cycle bins",
+                Subsystem.DECEL_TIPOUT, Shape.CURVE_AXIS, "cycle",
+                DependencyTier.TRANSIENT_RESPONSE, false);
+        add(all, AeParameterNames.TPS_DECEL_CYCLE_TPS_TO_BINS,
+                "TPS Decel fuel — ending TPS bins",
+                Subsystem.DECEL_TIPOUT, Shape.CURVE_AXIS, "%",
+                DependencyTier.TRANSIENT_RESPONSE, false);
+        add(all, AeParameterNames.TPS_DECEL_CYCLE_VALUES,
+                "TPS Decel fuel multiplier",
+                Subsystem.DECEL_TIPOUT, Shape.TABLE, "mult",
+                DependencyTier.TRANSIENT_RESPONSE, false);
+        add(all, AeParameterNames.TPS_DECEL_CLT_BINS,
+                "TPS Decel CLT authority — CLT bins",
+                Subsystem.DECEL_TIPOUT, Shape.CURVE_AXIS, "C",
+                DependencyTier.FINE_CORRECTION, false);
+        add(all, AeParameterNames.TPS_DECEL_CLT_MULT,
+                "TPS Decel CLT authority",
+                Subsystem.DECEL_TIPOUT, Shape.CURVE_VALUES, "mult",
+                DependencyTier.FINE_CORRECTION, false);
+        add(all, AeParameterNames.USE_MAP_ESTIMATE_DURING_DECEL,
+                "Use MAP estimate during decel",
+                Subsystem.DECEL_TIPOUT, Shape.BOOLEAN, "",
+                DependencyTier.METHOD_ACTIVATION, true);
+        add(all, AeParameterNames.DECEL_MAP_BLEND_DURATION_BINS,
+                "Decel MAP Blend Duration — RPM bins",
+                Subsystem.DECEL_TIPOUT, Shape.CURVE_AXIS, "RPM",
+                DependencyTier.TRANSIENT_RESPONSE, false);
+        add(all, AeParameterNames.DECEL_MAP_BLEND_DURATION_VALUES,
+                "Decel MAP Blend Duration",
+                Subsystem.DECEL_TIPOUT, Shape.CURVE_VALUES, "s",
                 DependencyTier.TRANSIENT_RESPONSE, false);
 
-        // Instant Fuel.
+        // Instant Fuel setup plus every condition curve.
         add(all, AeParameterNames.TPS_ACCEL_EXTRA_SHOT,
                 "Instant Fuel Pulse",
                 Subsystem.INSTANT_FUEL, Shape.BOOLEAN, "",
@@ -225,6 +334,21 @@ public final class AeTuningParameterCatalog {
                 "Instant Fuel Pulse Inhibit Cycles",
                 Subsystem.INSTANT_FUEL, Shape.SCALAR, "cycle",
                 DependencyTier.FINE_CORRECTION, false);
+        addCurve(all, AeParameterNames.TPS_AE_INSTANT_DELTA_TPS_BINS,
+                AeParameterNames.TPS_AE_INSTANT_DELTA_TPS_MULTIPLIER,
+                "Instant Fuel by throttle change", "%", Subsystem.INSTANT_FUEL);
+        addCurve(all, AeParameterNames.TPS_AE_INSTANT_RPM_BINS,
+                AeParameterNames.TPS_AE_INSTANT_RPM_MULTIPLIER,
+                "Instant Fuel by RPM", "RPM", Subsystem.INSTANT_FUEL);
+        addCurve(all, AeParameterNames.TPS_AE_INSTANT_TPS_BINS,
+                AeParameterNames.TPS_AE_INSTANT_TPS_MULTIPLIER,
+                "Instant Fuel by TPS", "%TPS", Subsystem.INSTANT_FUEL);
+        addCurve(all, AeParameterNames.TPS_AE_INSTANT_MAP_BINS,
+                AeParameterNames.TPS_AE_INSTANT_MAP_MULTIPLIER,
+                "Instant Fuel by MAP", "kPa", Subsystem.INSTANT_FUEL);
+        addCurve(all, AeParameterNames.TPS_AE_INSTANT_CLT_BINS,
+                AeParameterNames.TPS_AE_INSTANT_CLT_MULTIPLIER,
+                "Instant Fuel by CLT", "C", Subsystem.INSTANT_FUEL);
 
         Map<String, Parameter> byName = new LinkedHashMap<String, Parameter>();
         for (Parameter parameter : all) {
@@ -232,6 +356,11 @@ public final class AeTuningParameterCatalog {
             if (previous != null) {
                 throw new IllegalStateException(
                         "Duplicate AE parameter catalog entry: " + parameter.controllerName);
+            }
+            if (parameter.getControllerDefinition() == null) {
+                throw new IllegalStateException(
+                        "Canonical AE parameter lacks controller definition: "
+                                + parameter.controllerName);
             }
         }
         ALL = Collections.unmodifiableList(all);
@@ -247,9 +376,16 @@ public final class AeTuningParameterCatalog {
                 unit, tier, evidenceBreaking));
     }
 
-    public static List<Parameter> all() {
-        return ALL;
+    private static void addCurve(List<Parameter> target, String axisName,
+                                 String valueName, String displayName,
+                                 String axisUnit, Subsystem subsystem) {
+        add(target, axisName, displayName + " — bins", subsystem,
+                Shape.CURVE_AXIS, axisUnit, DependencyTier.FINE_CORRECTION, false);
+        add(target, valueName, displayName + " — multiplier", subsystem,
+                Shape.CURVE_VALUES, "mult", DependencyTier.FINE_CORRECTION, false);
     }
+
+    public static List<Parameter> all() { return ALL; }
 
     public static Parameter find(String controllerName) {
         if (controllerName == null) return null;
@@ -265,10 +401,6 @@ public final class AeTuningParameterCatalog {
         return Collections.unmodifiableList(result);
     }
 
-    /**
-     * True when changing {@code changed} can invalidate evidence gathered for
-     * {@code dependent} because the changed setting is earlier in the AE chain.
-     */
     public static boolean invalidatesEvidence(Parameter changed, Parameter dependent) {
         if (changed == null || dependent == null || !changed.evidenceBreaking) return false;
         return changed == dependent || changed.isUpstreamOf(dependent);

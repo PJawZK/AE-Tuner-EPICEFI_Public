@@ -84,6 +84,7 @@ public enum ChannelRole {
     TPS_AE_CYCLE_MULT("tpsAeCycleMult", "tpsAeCycleMult"),
     TPS_AE_CYCLE_CNT("Engine cycles AE duration", "Engine cycles AE duration", "tpsAeCycleCnt"),
     AE_ABOVE_THRESHOLD("Fuel: TPS AE Active", "Fuel: TPS AE Active", "isAboveAccelThreshold"),
+    TPS_DECEL_ACTIVE("Fuel: TPS Decel Active", "Fuel: TPS Decel Active", "isBelowDecelThreshold"),
     AE_EVENT_JUST_OCCURRED("AE event just occurred", "AE event just occurred", "m_accelEventJustOccurred"),
     AE_EXTRA_SHOT("Fuel: TPSAE ExtraShot", "Fuel: TPSAE ExtraShot", "extraShot"),
     INSTANT_PULSE_PW("aeInstantPulsePw", "aeInstantPulsePw"),

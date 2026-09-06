@@ -14,8 +14,13 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Builds a conservative, copy/paste-only TPS AE table draft from repeated
- * event guidance. It deliberately does not write anything to the ECU.
+ * Builds a conservative TPS AE table draft from repeated event guidance.
+ *
+ * The evaluator itself never writes the ECU. When the bounded draft contains
+ * changed cells it also exposes one explicit multi-cell ProposalWritePlan over
+ * those exact cells. Execution remains solely in ProposalApplyCoordinator and
+ * therefore preserves stale checks, readback verification, rollback, Restore
+ * Previous Apply and the no-burn boundary.
  */
 public final class AeTableSuggestion {
     private static final DecimalFormat F2 = new DecimalFormat("0.00");
@@ -24,12 +29,16 @@ public final class AeTableSuggestion {
     private final String displayText;
     private final String copyPasteBlock;
     private final int changedCells;
+    private final ProposalWritePlan writePlan;
 
-    private AeTableSuggestion(boolean available, String displayText, String copyPasteBlock, int changedCells) {
+    private AeTableSuggestion(boolean available, String displayText,
+                              String copyPasteBlock, int changedCells,
+                              ProposalWritePlan writePlan) {
         this.available = available;
         this.displayText = displayText;
         this.copyPasteBlock = copyPasteBlock;
         this.changedCells = changedCells;
+        this.writePlan = writePlan;
     }
 
     public static AeTableSuggestion build(AeProjectSnapshot snapshot, List<TransientEvent> events) {
@@ -51,6 +60,12 @@ public final class AeTableSuggestion {
             if (current[row] == null || current[row].length < cols) {
                 return unavailable("TPS AE table dimensions did not match the cycle/TPS-to bins. Re-read project data and try again.");
             }
+        }
+
+        AeControllerDefinitionCatalog.Definition definition =
+                AeControllerDefinitionCatalog.find(AeParameterNames.TPS_AE_CYCLE_VALUES);
+        if (definition == null || definition.getKind() != AeControllerDefinitionCatalog.Kind.ARRAY) {
+            return unavailable("TPS AE table lacks the frozen canonical controller representation.");
         }
 
         double[][] factorSum = new double[rows][cols];
@@ -148,30 +163,29 @@ public final class AeTableSuggestion {
         for (int row = 0; row < rows; row++) {
             for (int col = 0; col < cols; col++) {
                 if (tpsToBins[row] <= 0.001) {
-                    suggested[row][col] = 0.0;
+                    suggested[row][col] = controllerValue(definition, 0.0);
                     continue;
                 }
-                // Require direct evidence in the row being changed. Neighbour
-                // spreading can shape a covered row, but cannot create coverage.
                 if (effectiveCoverage[row] < 3.0 || weightSum[row][col] <= 0.0) {
                     continue;
                 }
                 double factor = factorSum[row][col] / weightSum[row][col];
-                // Keep the tool conservative: one generated draft should not
-                // add more than 10% or remove more than 70% from any touched cell.
                 factor = Math.max(0.30, Math.min(1.10, factor));
                 double oldValue = current[row][col];
-                double newValue = round2(Math.max(0.0, oldValue * factor));
+                double newValue = controllerValue(definition,
+                        Math.max(0.0, oldValue * factor));
                 suggested[row][col] = newValue;
-                if (Math.abs(newValue - oldValue) >= 0.005) {
+                if (changed(oldValue, newValue)) {
                     changed++;
                 }
             }
         }
 
+        ProposalWritePlan writePlan = buildWritePlan(snapshot, tpsToBins, cycleBins,
+                current, suggested, rows, cols, definition, changed);
         String copyPaste = buildTunerStudioPasteBlock(tpsToBins, suggested, rows, cols);
         StringBuilder text = new StringBuilder();
-        text.append("Suggested TPS AE table draft copied to clipboard. READ-ONLY: plugin did not write to ECU.\n");
+        text.append("Suggested TPS AE table draft is ready for Review. Copy/Export remains available; changed cells may also be applied together through the guarded working-tune Apply/Restore path. No burn.\n");
         text.append("Project/session expectation: ").append(snapshot.expectedSessionModeText()).append(".\n");
         text.append("Basis: ").append(provedEvents).append(" usable TPS AE fuel-proved event(s), effective evidence ")
                 .append(F2.format(usableEvidenceWeight))
@@ -203,23 +217,83 @@ public final class AeTableSuggestion {
         appendDiff(text, tpsToBins, cycleBins, current, suggested, rows, cols);
         text.append("Paste block order: ").append(pasteOrderDescription(tpsToBins)).append(". Columns remain Engine Cycle order.\n\n");
         text.append(copyPaste);
-        return new AeTableSuggestion(true, text.toString(), copyPaste, changed);
+        return new AeTableSuggestion(true, text.toString(), copyPaste, changed, writePlan);
     }
 
-    public boolean isAvailable() {
-        return available;
+    public boolean isAvailable() { return available; }
+    public String getDisplayText() { return displayText; }
+    public String getCopyPasteBlock() { return copyPasteBlock; }
+
+    /** Exact reviewed multi-cell plan, or null when the bounded draft changes nothing. */
+    public ProposalWritePlan getWritePlan() { return writePlan; }
+
+    int getChangedCells() { return changedCells; }
+
+    private static ProposalWritePlan buildWritePlan(
+            AeProjectSnapshot snapshot,
+            double[] tpsToBins,
+            double[] cycleBins,
+            double[][] current,
+            double[][] suggested,
+            int rows,
+            int cols,
+            AeControllerDefinitionCatalog.Definition definition,
+            int changedCells) {
+        if (changedCells <= 0) return null;
+        List<ProposalWritePlan.Change> changes = new ArrayList<ProposalWritePlan.Change>();
+        String unit = definition.getUnit();
+        for (int row = 0; row < rows; row++) {
+            for (int col = 0; col < cols; col++) {
+                double before = current[row][col];
+                double after = suggested[row][col];
+                if (!changed(before, after)) continue;
+                int flatIndex = row * cols + col;
+                changes.add(ProposalWritePlan.Change.arrayCell(
+                        AeParameterNames.TPS_AE_CYCLE_VALUES,
+                        flatIndex,
+                        before,
+                        after,
+                        "TPS-to " + F2.format(tpsToBins[row])
+                                + " / cycle " + F2.format(cycleBins[col]),
+                        unit));
+            }
+        }
+        if (changes.isEmpty()) return null;
+        return new ProposalWritePlan(
+                "tps-ae-table",
+                "TPS AE table draft",
+                snapshot.getConfigurationName(),
+                "Evidence-derived bounded TPS AE table update; "
+                        + changes.size() + " changed cell(s) reviewed together.",
+                changes);
     }
 
-    public String getDisplayText() {
-        return displayText;
+    private static boolean changed(double before, double after) {
+        return Math.abs(after - before) >= 0.005;
     }
 
-    public String getCopyPasteBlock() {
-        return copyPasteBlock;
-    }
-
-    int getChangedCells() {
-        return changedCells;
+    private static double controllerValue(
+            AeControllerDefinitionCatalog.Definition definition,
+            double requested) {
+        double bounded = Math.max(definition.getMinimum(),
+                Math.min(definition.getMaximum(), requested));
+        switch (definition.getValueType()) {
+            case U08:
+            case S08:
+            case U16:
+            case S16:
+            case U32:
+                double scale = definition.getScale();
+                if (!(scale > 0.0) || !Double.isFinite(scale)) {
+                    throw new IllegalStateException(
+                            "TPS AE table has invalid controller scale " + scale);
+                }
+                return Math.rint(bounded / scale) * scale;
+            default:
+                int decimals = Math.max(0, definition.getDecimals());
+                double factor = Math.pow(10.0, decimals);
+                return Math.rint(bounded * factor) / factor;
+        }
     }
 
     private static String confidenceLabel(double count) {
@@ -242,9 +316,7 @@ public final class AeTableSuggestion {
             for (int col = 0; col < cols; col++) {
                 double oldValue = current[row][col];
                 double newValue = suggested[row][col];
-                if (Math.abs(newValue - oldValue) < 0.005) {
-                    continue;
-                }
+                if (!changed(oldValue, newValue)) continue;
                 if (rowDiff.length() > 0) rowDiff.append(", ");
                 rowDiff.append("cycle ").append(F2.format(cycleBins[col]))
                         .append(" ").append(F2.format(oldValue))
@@ -262,7 +334,9 @@ public final class AeTableSuggestion {
     }
 
     private static AeTableSuggestion unavailable(String reason) {
-        return new AeTableSuggestion(false, "Suggested TPS AE table draft unavailable: " + reason, "", 0);
+        return new AeTableSuggestion(false,
+                "Suggested TPS AE table draft unavailable: " + reason,
+                "", 0, null);
     }
 
     private static String lower(String value) {
@@ -270,37 +344,23 @@ public final class AeTableSuggestion {
     }
 
     private static int classifyGuidance(String guidance) {
-        if (guidance.indexOf("early lean with later rich") >= 0) {
-            return 1; // amount/rate split: keep early, shorten late
-        }
-        if (guidance.indexOf("hangs rich late") >= 0) {
-            return 2; // rate/decay only
-        }
-        if (guidance.indexOf("add a little early ae fuel") >= 0) {
-            return 3; // amount only, early cycles
-        }
-        if (guidance.indexOf("event remains lean overall") >= 0) {
-            return 4; // modest amount increase through early/mid
-        }
+        if (guidance.indexOf("early lean with later rich") >= 0) return 1;
+        if (guidance.indexOf("hangs rich late") >= 0) return 2;
+        if (guidance.indexOf("add a little early ae fuel") >= 0) return 3;
+        if (guidance.indexOf("event remains lean overall") >= 0) return 4;
         return 0;
     }
 
     private static double eventTpsTo(TransientEvent event) {
         double value = event.getMaxTpsAeTo();
-        if (Double.isFinite(value) && value > 0.0) {
-            return value;
-        }
+        if (Double.isFinite(value) && value > 0.0) return value;
         value = event.getMaxTps();
-        if (Double.isFinite(value) && value > 0.0) {
-            return value;
-        }
+        if (Double.isFinite(value) && value > 0.0) return value;
         return event.getTpsRise();
     }
 
     private static int nearestRow(double[] bins, double value) {
-        if (!Double.isFinite(value) || bins.length == 0) {
-            return -1;
-        }
+        if (!Double.isFinite(value) || bins.length == 0) return -1;
         int best = 0;
         double bestDistance = Math.abs(bins[0] - value);
         for (int i = 1; i < bins.length; i++) {
@@ -327,26 +387,26 @@ public final class AeTableSuggestion {
     }
 
     private static double factorForCycle(double cycle, int kind) {
-        if (kind == 1) { // early lean with later rich
+        if (kind == 1) {
             if (cycle <= 4.0) return 1.00;
             if (cycle <= 6.0) return 0.85;
             if (cycle <= 10.0) return 0.55;
             if (cycle <= 12.0) return 0.20;
             return 0.00;
         }
-        if (kind == 2) { // late rich/rate only
+        if (kind == 2) {
             if (cycle <= 4.0) return 1.00;
             if (cycle <= 6.0) return 0.90;
             if (cycle <= 10.0) return 0.60;
             if (cycle <= 12.0) return 0.25;
             return 0.00;
         }
-        if (kind == 3) { // early amount
+        if (kind == 3) {
             if (cycle <= 4.0) return 1.08;
             if (cycle <= 6.0) return 1.04;
             return 1.00;
         }
-        if (kind == 4) { // overall lean, cautiously add earlier fuel
+        if (kind == 4) {
             if (cycle <= 4.0) return 1.06;
             if (cycle <= 6.0) return 1.03;
             return 1.00;
@@ -364,24 +424,19 @@ public final class AeTableSuggestion {
         return copy;
     }
 
-    private static double round2(double value) {
-        return Math.round(value * 100.0) / 100.0;
-    }
-
-    private static String buildTunerStudioPasteBlock(double[] tpsToBins, double[][] table, int rows, int cols) {
+    private static String buildTunerStudioPasteBlock(double[] tpsToBins,
+                                                     double[][] table,
+                                                     int rows,
+                                                     int cols) {
         List<Integer> rowOrder = displayRowOrder(tpsToBins, rows);
         StringBuilder out = new StringBuilder();
         for (int i = 0; i < rowOrder.size(); i++) {
             int row = rowOrder.get(i);
             for (int col = 0; col < cols; col++) {
-                if (col > 0) {
-                    out.append('\t');
-                }
+                if (col > 0) out.append('\t');
                 out.append(F2.format(table[row][col]));
             }
-            if (i + 1 < rowOrder.size()) {
-                out.append('\n');
-            }
+            if (i + 1 < rowOrder.size()) out.append('\n');
         }
         return out.toString();
     }
@@ -396,13 +451,9 @@ public final class AeTableSuggestion {
     private static List<Integer> displayRowOrder(double[] tpsToBins, int rows) {
         List<Integer> order = new ArrayList<Integer>();
         if (tpsToBins.length >= 2 && tpsToBins[0] < tpsToBins[tpsToBins.length - 1]) {
-            for (int row = rows - 1; row >= 0; row--) {
-                order.add(Integer.valueOf(row));
-            }
+            for (int row = rows - 1; row >= 0; row--) order.add(Integer.valueOf(row));
         } else {
-            for (int row = 0; row < rows; row++) {
-                order.add(Integer.valueOf(row));
-            }
+            for (int row = 0; row < rows; row++) order.add(Integer.valueOf(row));
         }
         return order;
     }

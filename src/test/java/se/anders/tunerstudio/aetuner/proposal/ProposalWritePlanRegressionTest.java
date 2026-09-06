@@ -1,5 +1,8 @@
 package se.anders.tunerstudio.aetuner.proposal;
 
+import se.anders.tunerstudio.aetuner.host.AeParameterNames;
+import se.anders.tunerstudio.aetuner.model.AeProjectSnapshot;
+
 import java.util.Arrays;
 
 public final class ProposalWritePlanRegressionTest {
@@ -12,6 +15,7 @@ public final class ProposalWritePlanRegressionTest {
         duplicateArrayCellIsRejected();
         mixedKindsForOneParameterAreRejected();
         exactNoOpChangeIsRejected();
+        foundationTimingPairDeclaresOnlyRequiredSettings();
         System.out.println("ProposalWritePlanRegressionTest passed");
     }
 
@@ -156,6 +160,56 @@ public final class ProposalWritePlanRegressionTest {
         }
         require(rejected,
                 "proposal write plans must not contain exact no-op targets");
+    }
+
+    private static void foundationTimingPairDeclaresOnlyRequiredSettings() {
+        AeProjectSnapshot snapshot = foundationSnapshot(25.0, 0.050);
+
+        ProposalWritePlan deltaOnly = EngagementDetectionSettingProposal.timingPair(
+                snapshot, 30.0, 0.050);
+        require(deltaOnly != null && deltaOnly.changeCount() == 1,
+                "Delta-only passive result must produce exactly one target");
+        require(AeParameterNames.TPS_AE_DELTA_WINDOW_MS.equals(
+                        deltaOnly.getChanges().get(0).parameterName),
+                "Delta-only result targeted the wrong setting");
+
+        ProposalWritePlan pair = EngagementDetectionSettingProposal.timingPair(
+                snapshot, 30.0, 0.060);
+        require(pair != null && pair.changeCount() == 2,
+                "Delta + Sample Length result must produce one coherent two-setting plan");
+        require(AeParameterNames.TPS_AE_DELTA_WINDOW_MS.equals(
+                        pair.getChanges().get(0).parameterName)
+                        && AeParameterNames.TPS_ACCEL_LOOKBACK.equals(
+                        pair.getChanges().get(1).parameterName),
+                "timing-pair proposal must preserve Delta Window -> Sample Length dependency order");
+        require(pair.reviewText().contains("1/2 Delta Window")
+                        && pair.reviewText().contains("2/2 Sample Length"),
+                "timing-pair review must expose the automatic setting handoff");
+
+        ProposalWritePlan sampleOnly = EngagementDetectionSettingProposal.timingPair(
+                snapshot, 25.0, 0.060);
+        require(sampleOnly != null && sampleOnly.changeCount() == 1,
+                "unchanged Delta Window with insufficient history must still propose Sample Length");
+        require(AeParameterNames.TPS_ACCEL_LOOKBACK.equals(
+                        sampleOnly.getChanges().get(0).parameterName),
+                "Sample-Length-only result targeted the wrong setting");
+
+        require(EngagementDetectionSettingProposal.timingPair(
+                        snapshot, 25.0, 0.050) == null,
+                "unchanged timing pair must not manufacture a write plan");
+    }
+
+    private static AeProjectSnapshot foundationSnapshot(double deltaMs, double sampleSeconds) {
+        return new AeProjectSnapshot(
+                "foundation-timing-pair",
+                new double[]{2.0}, new double[]{20.0}, new double[][]{{1.0}},
+                new double[]{1000.0}, new double[]{1.5},
+                1.0, 0.0, new double[0], new double[0],
+                false, false, "none", false, false, false, false,
+                new double[0][0], new double[0][0],
+                new double[0], new double[0], new double[0][0],
+                new double[0], new double[0],
+                "Dual stride, newest", deltaMs, sampleSeconds, true, 0.10);
     }
 
     private static void requireClose(double expected, double actual, String message) {

@@ -16,25 +16,31 @@ This document records the intended Guided Tuning shape derived from the current 
 - VE and ignition are outside AE Tuner tuning authority.
 - Current EpicEFI transient ignition retard may alter transient evidence; Guided may warn/report it as a confounder but must not edit it.
 - Planned task entries are UX/product scaffolds only. They have no fake capture path, tuning recommendation or ProposalWritePlan until their own implementation is validated.
-- No automatic Apply and no Burn.
+- No automatic final Apply and no Burn.
 
 ## Area and task map
 
 ### AE Foundation
 
-1. **TPS Movement / Timing** — active Dev20 route
+1. **TPS Movement / Timing** — active controlled two-stage route
    - normal tuning question: `TPS movement -> Fuel: TPS AE change -> AccelThreshold`
-   - Dual Stride / Newest: read-only controller context
-   - Delta Window (`tpsAeDeltaWindowMs`): current guarded timing A/B setting
-   - Sample Length (`tpsAccelLookback`): read-only context
+   - Dual Stride / Newest: accepted read-only controller context
+   - **Stage 1 — Sample Length** (`tpsAccelLookback`): automatic controlled sweep; current 50 ms baseline starts with 50/60/70 ms
+   - **Stage 2 — Delta Window** (`tpsAeDeltaWindowMs`): automatic controlled sweep against the temporarily selected Sample Length
+   - each timing candidate requires guarded setting readback **and** matching live ECU window/sample/stride qualification before maneuvers count
+   - clamped/effectively duplicate timing candidates are not scored as distinct states
+   - current default road-test region: ~1800 RPM ±200, +10 TPS, ideal target ±2 TPS, 5 comparable maneuvers/value
+   - Sample Length -> Delta Window transition is automatic with a distinct cue; completion restores original timing and asks for a new RPM Starting Point
+   - at least two distinct RPM regions must agree before a timing-pair recommendation is eligible; explicit vehicle acceptance is still required
    - Fast Callback (`tpsAeFastCallback`): read-only prerequisite/information; approximately 200 Hz intended
    - alternate detector models and Engagement Model editing are not exposed in normal Guided UX
-2. **Threshold / Sensitivity** — planned
+2. **Threshold / Sensitivity** — active evidence/recommendation route with guarded maturity boundary
    - `deltaTpsAverageAlpha`
    - `tpsAeUseDynamicThreshold`
    - `tpsAeDynamicTresholdAverageStaticCurve`
    - RPM threshold bins/values
    - dynamic-threshold multiplier curve
+   - static-threshold recommendation may be produced only when evidence supports it; dynamic-threshold combinations remain guarded until exact semantics are verified
 3. **Engagement Validation** — planned dedicated coach
    - opening/hold
    - reversal sign
@@ -141,7 +147,7 @@ Every non-specialized task should expose the same predictable sections:
 7. **What good evidence looks like** — positive completion criteria.
 8. **When AE Tuner should withhold** — explicit uncertainty/quality gates.
 9. **Next** — local dependency or which area to choose next.
-10. **Product boundary** — no automatic Apply/Burn; VE/ignition observational only.
+10. **Product boundary** — no automatic final Apply/Burn; VE/ignition observational only.
 
 Dedicated visual coaches may replace the text scaffold where a task benefits from stronger visualization (MAP Estimate heat map is the current example). The shared information structure should remain recognizable even when the presentation becomes graphical.
 

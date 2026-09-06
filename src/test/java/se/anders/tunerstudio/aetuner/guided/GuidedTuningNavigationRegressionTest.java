@@ -25,6 +25,8 @@ public final class GuidedTuningNavigationRegressionTest {
                     "Foundation must expose TPS movement/timing, threshold/sensitivity and validation tasks");
             require(panel.selectedTuningTaskForTest().contains("1. TPS Movement / Timing"),
                     "TPS Movement / Timing must be the first AE tuning task");
+            require(GuidedTuningRecipe.FOUNDATION_THRESHOLD.implemented,
+                    "Threshold / Sensitivity must expose its real read-only evidence route");
         } finally {
             panel.disposePanel();
         }
@@ -112,6 +114,14 @@ public final class GuidedTuningNavigationRegressionTest {
             require(GuidedFocusHub.snapshot().captureState == GuidedCaptureState.IDLE,
                     "initial focus unexpectedly required/started capture");
 
+            panel.selectTuningTaskForTest(GuidedTuningRecipe.FOUNDATION_THRESHOLD);
+            require(GuidedFocusHub.snapshot().recipe == GuidedTuningRecipe.FOUNDATION_THRESHOLD,
+                    "Guided Focus did not change immediately when Threshold / Sensitivity was selected");
+            require(panel.startCaptureEnabledForTest(),
+                    "Threshold / Sensitivity real evidence route cannot start");
+            require(GuidedFocusHub.snapshot().captureState == GuidedCaptureState.IDLE,
+                    "selecting Threshold / Sensitivity incorrectly started a capture");
+
             panel.selectTuningTaskForTest(GuidedTuningRecipe.BLEND_DURATION);
             require(GuidedFocusHub.snapshot().recipe == GuidedTuningRecipe.BLEND_DURATION,
                     "Guided Focus did not change immediately when Blend Duration was selected");
@@ -131,7 +141,6 @@ public final class GuidedTuningNavigationRegressionTest {
 
     private static void plannedTasksAreExplicitlyNonFunctionalScaffolds() {
         GuidedTuningRecipe[] planned = new GuidedTuningRecipe[]{
-                GuidedTuningRecipe.FOUNDATION_THRESHOLD,
                 GuidedTuningRecipe.FOUNDATION_VALIDATION,
                 GuidedTuningRecipe.TPS_AE_COMPENSATION,
                 GuidedTuningRecipe.TPS_AE_COMPLETION,

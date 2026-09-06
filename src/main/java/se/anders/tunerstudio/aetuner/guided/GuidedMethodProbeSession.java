@@ -16,24 +16,16 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * Shared evidence-capture shell for Guided AE methods.
- *
- * Capture itself never mutates the working tune. After Finish/Review, any method
- * may expose an immutable ProposalWritePlan through its module contract. The
- * caller may then pass that plan to the common ProposalApplyCoordinator for
- * stale-check, exact write, readback and Restore. A null plan means the current
- * evidence/tuning logic does not call for a change; it is not a separate
- * read-only product state. Burn remains outside this path entirely.
- */
+/** Shared evidence-capture shell for Guided AE methods. */
 final class GuidedMethodProbeSession {
-    private static final int MAX_SAMPLES = 6000;
+    private static final int DEFAULT_MAX_SAMPLES = 6000;
+    private static final int FOUNDATION_THRESHOLD_MAX_SAMPLES = 24000;
     private static final double ACTIVITY_QUIET_SECONDS = 0.20;
-    private static final double ENGAGEMENT_CLEAR_SECONDS = 0.15;
 
     private GuidedAeMethodModule module;
     private GuidedCaptureState state = GuidedCaptureState.IDLE;
-    private final List<LiveSample> samples = new ArrayList<LiveSample>();
+    private final List<LiveSample> samples =
+            new BoundedLiveSampleList(FOUNDATION_THRESHOLD_MAX_SAMPLES);
     private final EnumMap<ChannelRole, Integer> finiteCounts =
             new EnumMap<ChannelRole, Integer>(ChannelRole.class);
     private final MapEstimateCollector mapEstimateCollector = new MapEstimateCollector();
@@ -55,9 +47,6 @@ final class GuidedMethodProbeSession {
     private double lastActivitySeconds = Double.NaN;
     private double firstSeconds = Double.NaN;
     private double lastSeconds = Double.NaN;
-    private boolean engagementReadyAnnounced;
-    private boolean engagementDetectorLatched;
-    private double engagementLastActiveSeconds = Double.NaN;
 
     GuidedMethodProbeSession() {
         GuidedFocusHub.setMapEstimateConfigurationListener(
@@ -118,9 +107,7 @@ final class GuidedMethodProbeSession {
         publishMapEstimateFocus(null);
     }
 
-    synchronized boolean mapEstimateWorkingTuneReadRequired() {
-        return mapEstimateWorkingTuneReadRequired;
-    }
+    synchronized boolean mapEstimateWorkingTuneReadRequired() { return mapEstimateWorkingTuneReadRequired; }
 
     synchronized void noteWorkingTuneRead(AeProjectSnapshot snapshot,
                                           int minimumSamples,
@@ -131,13 +118,9 @@ final class GuidedMethodProbeSession {
         }
     }
 
-    synchronized void markMapEstimateWorkingTuneChanged() {
-        mapEstimateWorkingTuneReadRequired = true;
-    }
+    synchronized void markMapEstimateWorkingTuneChanged() { mapEstimateWorkingTuneReadRequired = true; }
 
-    synchronized void start(GuidedAeMethodModule selected) {
-        start(selected, null, 5, 20, 115.0);
-    }
+    synchronized void start(GuidedAeMethodModule selected) { start(selected, null, 5, 20, 115.0); }
 
     synchronized void start(GuidedAeMethodModule selected,
                             AeProjectSnapshot snapshot,
@@ -150,12 +133,16 @@ final class GuidedMethodProbeSession {
         }
         boolean append = module == selected && state == GuidedCaptureState.COMPLETE
                 && !samples.isEmpty();
-        if (!append) reset();
+        if (!append && !reset()) return;
         module = selected;
         projectSnapshot = snapshot;
         targetActivityEvents = Math.max(1, targetEvents);
         mapMinimumSamples = Math.max(3, minimumMapSamples);
         mapCapKpa = Math.max(90.0, Math.min(180.0, mapCap));
+        if (selected.recipe() == GuidedTuningRecipe.ENGAGEMENT_DETECTION) {
+            if (!append) EngagementPassiveCapture.reset();
+            EngagementPassiveCapture.configureTarget(targetActivityEvents);
+        }
         if (selected.recipe() == GuidedTuningRecipe.MAP_ESTIMATE) {
             if (mapEstimateWorkingTuneReadRequired) {
                 state = GuidedCaptureState.IDLE;
@@ -173,9 +160,6 @@ final class GuidedMethodProbeSession {
         }
         activityLatched = false;
         lastActivitySeconds = Double.NaN;
-        engagementReadyAnnounced = false;
-        engagementDetectorLatched = false;
-        engagementLastActiveSeconds = Double.NaN;
         state = GuidedCaptureState.CAPTURING;
         workflowEvents.onGuidedWorkflowEvent(GuidedWorkflowEvent.SESSION_STARTED,
                 selected.recipe().displayName + " capture started", System.nanoTime());
@@ -186,7 +170,8 @@ final class GuidedMethodProbeSession {
         if (state != GuidedCaptureState.CAPTURING || sample == null || module == null) return;
         if (!Double.isFinite(firstSeconds)) firstSeconds = sample.getSeconds();
         lastSeconds = sample.getSeconds();
-        if (samples.size() >= MAX_SAMPLES) {
+        int retentionLimit = retentionLimit();
+        if (samples.size() >= retentionLimit) {
             samples.remove(0);
             droppedSamples++;
         }
@@ -195,6 +180,9 @@ final class GuidedMethodProbeSession {
         boolean requiredComplete = allFinite(sample, module.requiredRoles());
         if (requiredComplete) completeRequiredSamples++;
 
+        EngagementPassiveCapture.Snapshot passiveBefore =
+                module.recipe() == GuidedTuningRecipe.ENGAGEMENT_DETECTION
+                ? EngagementPassiveCapture.snapshot() : null;
         boolean active = module.activityObserved(sample);
         if (active) {
             activitySamples++;
@@ -207,6 +195,23 @@ final class GuidedMethodProbeSession {
         } else if (activityLatched && Double.isFinite(lastActivitySeconds)
                 && sample.getSeconds() - lastActivitySeconds >= ACTIVITY_QUIET_SECONDS) {
             activityLatched = false;
+        }
+
+        if (module.recipe() == GuidedTuningRecipe.ENGAGEMENT_DETECTION) {
+            EngagementPassiveCapture.Snapshot passive = EngagementPassiveCapture.snapshot();
+            activityEvents = passive.comparableEvents;
+            if (passiveBefore != null && passiveBefore.settling
+                    && passive.readyForMovement()) {
+                workflowEvents.onGuidedWorkflowEvent(GuidedWorkflowEvent.READY_ENTERED,
+                        "Foundation 1 re-anchored — ready for the next pedal movement",
+                        System.nanoTime());
+            }
+            if (active) {
+                workflowEvents.onGuidedWorkflowEvent(GuidedWorkflowEvent.EVENT_ACCEPTED,
+                        "Comparable passive TPS movement stored — "
+                                + passive.comparableEvents + "/" + passive.targetComparable,
+                        System.nanoTime());
+            }
         }
 
         for (ChannelRole role : module.probeRoles()) {
@@ -231,18 +236,14 @@ final class GuidedMethodProbeSession {
             }
         } else if (module.recipe() == GuidedTuningRecipe.TPS_AE) {
             tpsAeEvents.accept(sample);
-        } else if (module.recipe() == GuidedTuningRecipe.ENGAGEMENT_DETECTION) {
-            updateEngagementCueState(sample, requiredComplete);
         }
         publishFocusState(sample);
     }
 
-    synchronized void togglePause() {
+    synchronized boolean togglePause() {
         boolean pausing = state == GuidedCaptureState.CAPTURING;
         if (module != null && module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE
-                && mapEstimateGuided.configured()) {
-            mapEstimateGuided.togglePause();
-        }
+                && mapEstimateGuided.configured()) mapEstimateGuided.togglePause();
         if (pausing) {
             state = GuidedCaptureState.PAUSED;
             workflowEvents.onGuidedWorkflowEvent(GuidedWorkflowEvent.PAUSED,
@@ -252,9 +253,10 @@ final class GuidedMethodProbeSession {
             state = GuidedCaptureState.CAPTURING;
         }
         publishFocusState(null);
+        return true;
     }
 
-    synchronized void finish() {
+    synchronized boolean finish() {
         if (state == GuidedCaptureState.CAPTURING || state == GuidedCaptureState.PAUSED) {
             if (module != null && module.recipe() == GuidedTuningRecipe.TPS_AE) {
                 tpsAeEvents.finish();
@@ -264,15 +266,16 @@ final class GuidedMethodProbeSession {
             }
             state = GuidedCaptureState.COMPLETE;
             activityLatched = false;
-            engagementDetectorLatched = false;
             workflowEvents.onGuidedWorkflowEvent(GuidedWorkflowEvent.SERIES_COMPLETE,
                     module == null ? "Guided method capture complete" : module.recipe().displayName + " review ready",
                     System.nanoTime());
             publishFocusState(null);
         }
+        return true;
     }
 
-    synchronized void reset() {
+    synchronized boolean reset() {
+        EngagementPassiveCapture.reset();
         module = null;
         projectSnapshot = null;
         state = GuidedCaptureState.IDLE;
@@ -292,41 +295,53 @@ final class GuidedMethodProbeSession {
         lastActivitySeconds = Double.NaN;
         firstSeconds = Double.NaN;
         lastSeconds = Double.NaN;
-        engagementReadyAnnounced = false;
-        engagementDetectorLatched = false;
-        engagementLastActiveSeconds = Double.NaN;
         GuidedFocusHub.clear();
+        return true;
+    }
+
+    synchronized boolean closeForLifecycle() {
+        if (state == GuidedCaptureState.CAPTURING || state == GuidedCaptureState.PAUSED) {
+            if (module != null && module.recipe() == GuidedTuningRecipe.TPS_AE) tpsAeEvents.finish();
+            else if (module != null && module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE
+                    && mapEstimateGuided.configured()) mapEstimateGuided.finish();
+            state = GuidedCaptureState.COMPLETE;
+            activityLatched = false;
+        }
+        return true;
+    }
+
+    private int retentionLimit() {
+        return module != null && module.recipe() == GuidedTuningRecipe.FOUNDATION_THRESHOLD
+                ? FOUNDATION_THRESHOLD_MAX_SAMPLES : DEFAULT_MAX_SAMPLES;
     }
 
     synchronized int sampleCount() { return samples.size(); }
     synchronized int observedSampleCount() { return samples.size() + droppedSamples; }
     synchronized int activitySampleCount() { return activitySamples; }
-    synchronized int activityEventCount() { return activityEvents; }
+    synchronized int activityEventCount() {
+        return module != null && module.recipe() == GuidedTuningRecipe.ENGAGEMENT_DETECTION
+                ? EngagementPassiveCapture.snapshot().comparableEvents : activityEvents;
+    }
     synchronized int completeRequiredSampleCount() { return completeRequiredSamples; }
     synchronized int tpsAeTableEventCount() { return tpsAeEvents.eventCount(); }
     synchronized int tpsAeFuelProvedEventCount() { return tpsAeEvents.fuelProvedEventCount(); }
     synchronized boolean hasEvidence() { return !samples.isEmpty(); }
+    synchronized List<LiveSample> evidenceSnapshot() {
+        return Collections.unmodifiableList(new ArrayList<LiveSample>(samples));
+    }
     synchronized GuidedCaptureState state() { return state; }
     synchronized GuidedAeMethodModule module() { return module; }
-    synchronized MapEstimateEvidenceBasis mapEstimatePendingEvidenceBasisForTest() {
-        return mapEstimateGuided.pendingEvidenceBasis();
-    }
-    synchronized MapEstimateProposalLimitPolicy mapEstimatePendingProposalLimitForTest() {
-        return mapEstimateGuided.pendingProposalLimitPolicy();
-    }
-    synchronized long mapEstimateCollectorAcceptedForTest() {
-        return mapEstimateCollector.getAcceptedSamples();
-    }
+    synchronized MapEstimateEvidenceBasis mapEstimatePendingEvidenceBasisForTest() { return mapEstimateGuided.pendingEvidenceBasis(); }
+    synchronized MapEstimateProposalLimitPolicy mapEstimatePendingProposalLimitForTest() { return mapEstimateGuided.pendingProposalLimitPolicy(); }
+    synchronized long mapEstimateCollectorAcceptedForTest() { return mapEstimateCollector.getAcceptedSamples(); }
 
     synchronized MapEstimateFocusSnapshot mapEstimateFocusSnapshot(LiveSample latest) {
-        if (projectSnapshot == null) {
-            return MapEstimateFocusSnapshot.empty(mapMinimumSamples);
-        }
+        if (projectSnapshot == null) return MapEstimateFocusSnapshot.empty(mapMinimumSamples);
         if (module == null || module.recipe() != GuidedTuningRecipe.MAP_ESTIMATE) {
             return MapEstimateFocusSnapshot.setup(projectSnapshot, mapMinimumSamples, latest);
         }
-        return MapEstimateFocusSnapshot.fromCollector(
-                projectSnapshot, mapEstimateCollector, mapMinimumSamples, latest);
+        return MapEstimateFocusSnapshot.fromCollector(projectSnapshot, mapEstimateCollector,
+                mapMinimumSamples, latest);
     }
 
     private void publishFocusState(LiveSample latest) {
@@ -334,9 +349,10 @@ final class GuidedMethodProbeSession {
         if (module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE) {
             publishMapEstimateFocus(latest);
         } else if (module.recipe() == GuidedTuningRecipe.ENGAGEMENT_DETECTION) {
+            EngagementPassiveCapture.Snapshot passive = EngagementPassiveCapture.snapshot();
             GuidedFocusHub.publishEngagement(state,
                     EngagementFocusModel.build(projectSnapshot, latest, state,
-                            activityEvents, targetActivityEvents,
+                            passive.comparableEvents, passive.targetComparable,
                             observedSampleCount(), completeRequiredSamples),
                     module.captureGoal() + "\n\n" + module.operatorInputs(projectSnapshot));
         } else {
@@ -359,40 +375,6 @@ final class GuidedMethodProbeSession {
                 + "Evidence basis and proposal limit are independent experiment controls and lock when capture starts.");
     }
 
-    private void updateEngagementCueState(LiveSample sample, boolean requiredComplete) {
-        if (!requiredComplete || projectSnapshot == null || sample == null) return;
-        double selected = EngagementFocusModel.selectedDetectorOutput(projectSnapshot, sample);
-        double threshold = sample.get(ChannelRole.ACCEL_THRESHOLD);
-        if (!Double.isFinite(selected) || !Double.isFinite(threshold)) return;
-
-        if (!engagementReadyAnnounced && selected <= threshold) {
-            engagementReadyAnnounced = true;
-            workflowEvents.onGuidedWorkflowEvent(GuidedWorkflowEvent.READY_ENTERED,
-                    "Detector diagnostics ready; selected detector is below AccelThreshold",
-                    System.nanoTime());
-        }
-
-        if (selected > threshold) {
-            if (!engagementDetectorLatched) {
-                workflowEvents.onGuidedWorkflowEvent(GuidedWorkflowEvent.TARGET_ACQUIRED,
-                        "Selected detector crossed AccelThreshold",
-                        System.nanoTime());
-            }
-            engagementDetectorLatched = true;
-            engagementLastActiveSeconds = sample.getSeconds();
-            return;
-        }
-
-        if (engagementDetectorLatched
-                && Double.isFinite(engagementLastActiveSeconds)
-                && sample.getSeconds() - engagementLastActiveSeconds >= ENGAGEMENT_CLEAR_SECONDS) {
-            engagementDetectorLatched = false;
-            workflowEvents.onGuidedWorkflowEvent(GuidedWorkflowEvent.RETURN_TO_BASELINE,
-                    "Selected detector cleared below AccelThreshold after the event",
-                    System.nanoTime());
-        }
-    }
-
     synchronized GuidedSessionSnapshot snapshot() {
         if (module == null) {
             return new GuidedSessionSnapshot(GuidedCaptureState.IDLE,
@@ -412,8 +394,42 @@ final class GuidedMethodProbeSession {
             headline = "CAPTURE — " + module.recipe().displayName;
             instruction = module.captureGoal();
         }
+        String snapshotResult = state == GuidedCaptureState.COMPLETE
+                ? resultText() : liveResultText();
         return new GuidedSessionSnapshot(state, headline, instruction,
-                coverageText(), resultText(), activityEvents, "");
+                coverageText(), snapshotResult, activityEventCount(), "");
+    }
+
+    private String liveResultText() {
+        if (module == null) return "No method capture active.";
+        double duration = Double.isFinite(firstSeconds) && Double.isFinite(lastSeconds)
+                ? Math.max(0.0, lastSeconds - firstSeconds) : 0.0;
+        StringBuilder out = new StringBuilder();
+        int observedSamples = observedSampleCount();
+        out.append(module.recipe().displayName).append(" live evidence\n")
+                .append("Observed coherent samples: ").append(observedSamples).append('\n')
+                .append("Retained coherent samples: ").append(samples.size()).append('\n')
+                .append("Required-complete observed samples: ").append(completeRequiredSamples)
+                .append('/').append(observedSamples).append('\n');
+        if (module.recipe() == GuidedTuningRecipe.ENGAGEMENT_DETECTION) {
+            EngagementPassiveCapture.Snapshot passive = EngagementPassiveCapture.snapshot();
+            out.append("Comparable pedal movements: ").append(passive.comparableEvents)
+                    .append('/').append(passive.targetComparable).append('\n')
+                    .append("Stored natural movements: ").append(passive.storedEvents).append('\n')
+                    .append("Last movement: ").append(passive.lastEvent).append('\n');
+        } else if (module.recipe() != GuidedTuningRecipe.MAP_ESTIMATE) {
+            out.append("Method activity: ").append(activityEvents).append(" event(s), ")
+                    .append(activitySamples).append(" active observed sample(s)\n");
+        }
+        if (module.recipe() == GuidedTuningRecipe.TPS_AE) {
+            out.append("TPS AE table-analysis windows: ").append(tpsAeEvents.eventCount())
+                    .append(" completed / ").append(tpsAeEvents.fuelProvedEventCount())
+                    .append(" fuel-proved\n");
+        }
+        out.append("Observed duration: ").append(f3(duration)).append(" s\n")
+                .append("Status: ").append(state.name()).append('\n')
+                .append("Detailed retained-window metrics are calculated for Review/export, not on the live sample path.");
+        return out.toString();
     }
 
     synchronized String coverageText() {
@@ -428,6 +444,11 @@ final class GuidedMethodProbeSession {
                 .append(completeRequiredSamples).append('/').append(observedSamples).append('\n');
         if (module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE) {
             out.append("Stable-cell accumulation does not use transient activity-event counting.\n");
+        } else if (module.recipe() == GuidedTuningRecipe.ENGAGEMENT_DETECTION) {
+            EngagementPassiveCapture.Snapshot passive = EngagementPassiveCapture.snapshot();
+            out.append("Comparable passive movements: ").append(passive.comparableEvents)
+                    .append('/').append(passive.targetComparable)
+                    .append(" | stored movements: ").append(passive.storedEvents).append('\n');
         } else {
             out.append("Distinct method-activity events: ").append(activityEvents)
                     .append('/').append(targetActivityEvents)
@@ -438,14 +459,14 @@ final class GuidedMethodProbeSession {
             out.append(mapEstimateCollector.statusText(mapMinimumSamples)).append('\n');
         } else if (module.recipe() == GuidedTuningRecipe.TPS_AE) {
             out.append("Completed TPS AE table-analysis windows: ")
-                    .append(tpsAeEvents.eventCount())
-                    .append(" | fuel-proved: ").append(tpsAeEvents.fuelProvedEventCount()).append('\n');
+                    .append(tpsAeEvents.eventCount()).append(" | fuel-proved: ")
+                    .append(tpsAeEvents.fuelProvedEventCount()).append('\n');
         }
         out.append("\nREQUIRED CHANNELS\n");
         appendCoverage(out, module.requiredRoles(), true);
         out.append("\nCONTEXT / ATTRIBUTION CHANNELS\n");
         appendCoverage(out, module.contextRoles(), false);
-        out.append("\nCapture never writes ECU parameters. After Finish/Review, an explicit reviewed proposal may use guarded Apply/readback/Restore. No automatic Apply and no burn.");
+        out.append("\nGuided capture observes only. The selected method owns its own evidence/recommendation boundary. Capture never writes; final Apply remains explicit and there is no burn.");
         return out.toString();
     }
 
@@ -460,7 +481,11 @@ final class GuidedMethodProbeSession {
                 .append("Retained coherent samples: ").append(samples.size()).append('\n')
                 .append("Required-complete observed samples: ").append(completeRequiredSamples)
                 .append('/').append(observedSamples).append('\n');
-        if (module.recipe() != GuidedTuningRecipe.MAP_ESTIMATE) {
+        if (module.recipe() == GuidedTuningRecipe.ENGAGEMENT_DETECTION) {
+            EngagementPassiveCapture.Snapshot passive = EngagementPassiveCapture.snapshot();
+            out.append("Comparable pedal movements: ").append(passive.comparableEvents)
+                    .append('/').append(passive.targetComparable).append('\n');
+        } else if (module.recipe() != GuidedTuningRecipe.MAP_ESTIMATE) {
             out.append("Method activity: ").append(activityEvents).append(" event(s), ")
                     .append(activitySamples).append(" active observed sample(s)\n");
         }
@@ -478,25 +503,19 @@ final class GuidedMethodProbeSession {
     synchronized String reviewText() {
         if (module == null) return "No method capture active.";
         if (module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE) {
-            return mapEstimateGuided.configured()
-                    ? mapEstimateGuided.reviewText()
+            return mapEstimateGuided.configured() ? mapEstimateGuided.reviewText()
                     : "MAP Estimate Table is not configured; Read Working Tune first.";
         }
-
         ProposalWritePlan plan = reviewedWritePlan();
         String proposalState = plan == null
                 ? "No supported setting/value change is currently proposed. No automatic Apply and no burn."
-                : plan.reviewText()
-                    + "\n\nGuarded working-tune Apply/readback/Restore is available for this reviewed plan. No burn.";
-
+                : plan.reviewText() + "\n\nGuarded working-tune Apply/readback/Restore is available for this reviewed plan. No burn.";
         if (module.recipe() == GuidedTuningRecipe.TPS_AE) {
-            AeTableSuggestion suggestion = AeTableSuggestion.build(
-                    projectSnapshot, tpsAeEvents.eventsSnapshot());
-            return "TPS AE TABLE REVIEW\n"
-                    + suggestion.getDisplayText()
+            AeTableSuggestion suggestion = AeTableSuggestion.build(projectSnapshot, tpsAeEvents.eventsSnapshot());
+            return "TPS AE TABLE REVIEW\n" + suggestion.getDisplayText()
                     + "\n\nCURRENT CAPTURE METRICS\n" + methodMetricsText()
                     + (suggestion.isAvailable()
-                    ? "\n\nPaste-ready TPS AE draft is available through Copy Reviewed Draft and the Guided export."
+                    ? "\n\nPaste-ready TPS AE draft is available through Copy Reviewed Draft and the Guided export; changed cells are also eligible for one explicit guarded multi-cell Apply/Restore plan."
                     : "\n\nNo paste-ready TPS AE draft yet; continue repeated fuel-proved events in the same TPS-to rows.")
                     + "\n\n" + proposalState;
         }
@@ -508,12 +527,10 @@ final class GuidedMethodProbeSession {
     synchronized String copyPasteBlock() {
         if (module == null) return "";
         if (module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE) {
-            return mapEstimateGuided.configured()
-                    ? mapEstimateGuided.reviewedCopyPasteBlock() : "";
+            return mapEstimateGuided.configured() ? mapEstimateGuided.reviewedCopyPasteBlock() : "";
         }
         if (module.recipe() == GuidedTuningRecipe.TPS_AE) {
-            AeTableSuggestion suggestion = AeTableSuggestion.build(
-                    projectSnapshot, tpsAeEvents.eventsSnapshot());
+            AeTableSuggestion suggestion = AeTableSuggestion.build(projectSnapshot, tpsAeEvents.eventsSnapshot());
             return suggestion.isAvailable() ? suggestion.getCopyPasteBlock() : "";
         }
         return "";
@@ -522,8 +539,11 @@ final class GuidedMethodProbeSession {
     synchronized ProposalWritePlan reviewedWritePlan() {
         if (module == null || state != GuidedCaptureState.COMPLETE) return null;
         if (module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE) {
-            return mapEstimateGuided.configured()
-                    ? mapEstimateGuided.reviewedWritePlan() : null;
+            return mapEstimateGuided.configured() ? mapEstimateGuided.reviewedWritePlan() : null;
+        }
+        if (module.recipe() == GuidedTuningRecipe.TPS_AE) {
+            return AeTableSuggestion.build(projectSnapshot,
+                    tpsAeEvents.eventsSnapshot()).getWritePlan();
         }
         return module.reviewedWritePlan(projectSnapshot,
                 Collections.unmodifiableList(new ArrayList<LiveSample>(samples)));
@@ -534,32 +554,39 @@ final class GuidedMethodProbeSession {
         out.append("AE Tuner Guided method report\n")
                 .append("Plugin version: ").append(pluginVersion).append('\n')
                 .append("Method: ").append(module == null ? "none" : module.recipe().displayName).append('\n')
-                .append("Capture boundary: capture itself never writes. After Finish/Review, any explicit ProposalWritePlan may use the common guarded Apply/readback/Restore gateway. No automatic Apply and no burn.\n\n");
+                .append("Capture boundary: Guided capture observes only. The selected method owns its own evidence/recommendation boundary. Capture never writes; final Apply remains explicit and there is no burn.\n\n");
         if (module != null) {
             out.append("OPERATOR INPUTS\n").append(module.operatorInputs(projectSnapshot)).append("\n\n")
                     .append("ACCUMULATION PLAN\n").append(module.accumulationPlan()).append("\n\n")
                     .append("CURRENT TUNE CONTEXT\n").append(module.currentTuneContext(projectSnapshot)).append("\n\n");
         }
-        out.append(coverageText()).append("\n\n")
-                .append(resultText()).append("\n\n")
-                .append(reviewText()).append('\n');
-        String draft = copyPasteBlock();
-        if (draft.length() > 0) {
-            out.append("\nPASTE-READY DRAFT\n=================\n").append(draft).append('\n');
+        out.append(coverageText()).append("\n\n");
+        if (state != GuidedCaptureState.COMPLETE) {
+            out.append(liveResultText()).append("\n\n")
+                    .append("REVIEW STATUS\nFull retained-window metrics and reviewed proposal output are generated after Finish/Review.\n");
+            return out.toString();
         }
+        out.append(resultText()).append("\n\n").append(reviewText()).append('\n');
+        String draft = copyPasteBlock();
+        if (draft.length() > 0) out.append("\nPASTE-READY DRAFT\n=================\n").append(draft).append('\n');
         return out.toString();
     }
 
-    synchronized String csvText() {
+    String csvText() {
+        final ChannelRole[] roles;
+        final List<LiveSample> retained;
+        synchronized (this) {
+            roles = module == null ? new ChannelRole[0] : module.probeRoles();
+            retained = new ArrayList<LiveSample>(samples);
+        }
         StringBuilder out = new StringBuilder();
         out.append("sample_index,dt_s");
-        ChannelRole[] roles = module == null ? new ChannelRole[0] : module.probeRoles();
         for (ChannelRole role : roles) out.append(',').append(csv(role.getLabel()));
         out.append('\n');
-        if (samples.isEmpty()) return out.toString();
-        double base = samples.get(0).getSeconds();
-        for (int i = 0; i < samples.size(); i++) {
-            LiveSample sample = samples.get(i);
+        if (retained.isEmpty()) return out.toString();
+        double base = retained.get(0).getSeconds();
+        for (int i = 0; i < retained.size(); i++) {
+            LiveSample sample = retained.get(i);
             out.append(i).append(',').append(f6(sample.getSeconds() - base));
             for (ChannelRole role : roles) {
                 double value = sample.get(role);
@@ -572,10 +599,7 @@ final class GuidedMethodProbeSession {
     }
 
     private void appendCoverage(StringBuilder out, ChannelRole[] roles, boolean required) {
-        if (roles == null || roles.length == 0) {
-            out.append("  - none\n");
-            return;
-        }
+        if (roles == null || roles.length == 0) { out.append("  - none\n"); return; }
         for (ChannelRole role : roles) {
             Integer count = finiteCounts.get(role);
             int finite = count == null ? 0 : count.intValue();
@@ -594,7 +618,8 @@ final class GuidedMethodProbeSession {
         GuidedTuningRecipe recipe = module.recipe();
         StringBuilder out = new StringBuilder();
         if (recipe != GuidedTuningRecipe.MAP_ESTIMATE) {
-            out.append("Retained-window metrics (up to 6000 coherent samples):\n");
+            out.append("Retained-window metrics (up to ")
+                    .append(retentionLimit()).append(" coherent samples):\n");
         }
         if (recipe == GuidedTuningRecipe.MAP_PREDICT) {
             out.append("Prediction-active samples retained: ").append(boolCount(ChannelRole.MAP_PRED_ACTIVE)).append('\n')
@@ -607,43 +632,20 @@ final class GuidedMethodProbeSession {
                     .append("mapPredEventOver retained-window span: ").append(metric(span(ChannelRole.MAP_PRED_EVENT_OVER))).append('\n');
         } else if (recipe == GuidedTuningRecipe.MAP_ESTIMATE) {
             MapEstimateEvidenceBasis basis = mapEstimateGuided.configured()
-                    ? ((state == GuidedCaptureState.COMPLETE || mapEstimateGuided.active())
-                        ? mapEstimateGuided.activeEvidenceBasis()
-                        : mapEstimateGuided.pendingEvidenceBasis())
+                    ? ((state == GuidedCaptureState.COMPLETE || mapEstimateGuided.active()) ? mapEstimateGuided.activeEvidenceBasis() : mapEstimateGuided.pendingEvidenceBasis())
                     : MapEstimateEvidenceBasis.LEARNED_MEMORY;
             MapEstimateProposalLimitPolicy limit = mapEstimateGuided.configured()
-                    ? ((state == GuidedCaptureState.COMPLETE || mapEstimateGuided.active())
-                        ? mapEstimateGuided.activeProposalLimitPolicy()
-                        : mapEstimateGuided.pendingProposalLimitPolicy())
+                    ? ((state == GuidedCaptureState.COMPLETE || mapEstimateGuided.active()) ? mapEstimateGuided.activeProposalLimitPolicy() : mapEstimateGuided.pendingProposalLimitPolicy())
                     : MapEstimateProposalLimitPolicy.HIGH_TPS_CAP;
             out.append(mapEstimateCollector.statusText(mapMinimumSamples)).append('\n')
-                    .append("Persistent learned samples: ")
-                    .append(mapEstimateGuided.configured() ? mapEstimateGuided.storedSamples() : 0L)
-                    .append(" | current capture samples: ")
-                    .append(mapEstimateGuided.configured() ? mapEstimateGuided.currentRunSamples() : 0L).append('\n')
-                    .append("Evidence basis: ").append(basis)
-                    .append(" | proposal limit: ").append(limit);
-            if (limit == MapEstimateProposalLimitPolicy.HIGH_TPS_CAP) {
-                out.append(" (").append(f1(mapCapKpa)).append(" kPa from ")
-                        .append(f1(MapEstimateProposal.HIGH_TPS_CAP_START)).append("% TPS)");
-            }
-            out.append('\n')
-                    .append("Minimum samples/direct anchor: ").append(mapMinimumSamples).append('\n')
+                    .append("Persistent learned samples: ").append(mapEstimateGuided.configured() ? mapEstimateGuided.storedSamples() : 0L)
+                    .append(" | current capture samples: ").append(mapEstimateGuided.configured() ? mapEstimateGuided.currentRunSamples() : 0L).append('\n')
+                    .append("Evidence basis: ").append(basis).append(" | proposal limit: ").append(limit);
+            if (limit == MapEstimateProposalLimitPolicy.HIGH_TPS_CAP) out.append(" (").append(f1(mapCapKpa)).append(" kPa from ").append(f1(MapEstimateProposal.HIGH_TPS_CAP_START)).append("% TPS)");
+            out.append('\n').append("Minimum samples/direct anchor: ").append(mapMinimumSamples).append('\n')
                     .append("Direct evidence and bounded interpolation retain separate provenance; no extrapolation is permitted.\n");
         } else if (recipe == GuidedTuningRecipe.ENGAGEMENT_DETECTION) {
-            out.append("Working detector: ")
-                    .append(projectSnapshot == null ? "unknown" : projectSnapshot.getEngagementModel())
-                    .append('\n')
-                    .append("Peak detector / AccelThreshold ratios:\n")
-                    .append("  legacy max step: ").append(metric(detectorPeakRatio(ChannelRole.AE_DELTA_MAX_STEP))).append('\n')
-                    .append("  timed max step: ").append(metric(detectorPeakRatio(ChannelRole.AE_DELTA_TIMED))).append('\n')
-                    .append("  window span: ").append(metric(detectorPeakRatio(ChannelRole.AE_DELTA_SPAN))).append('\n')
-                    .append("  rise from floor: ").append(metric(detectorPeakRatio(ChannelRole.AE_DELTA_FLOOR))).append('\n')
-                    .append("  dual stride/newest: ").append(metric(detectorPeakRatio(ChannelRole.AE_DELTA_NEWEST_PAIR))).append('\n')
-                    .append("Selected-detector above-threshold samples: ").append(selectedDetectorAboveThresholdCount()).append('\n')
-                    .append("Maximum |Fuel: TPS AE change - selected detector output|: ")
-                    .append(metric(maxProductionSelectedDifference())).append('\n')
-                    .append("These are comparison measurements only; no detector setting recommendation is generated automatically.\n");
+            out.append(EngagementPassiveCapture.reviewText(projectSnapshot)).append('\n');
         } else if (recipe == GuidedTuningRecipe.WALL_WETTING) {
             out.append("Maximum |Fuel: wall correction|: ").append(metric(maxAbs(ChannelRole.WALL_CORRECTION))).append('\n')
                     .append("Maximum |fuel wallwetting injection time|: ").append(metric(maxAbs(ChannelRole.WALL_WETTING_PW))).append(" ms\n")
@@ -652,8 +654,7 @@ final class GuidedMethodProbeSession {
                     .append("Instant Fuel overlap samples: ").append(positiveCount(ChannelRole.INSTANT_PULSE_PW)).append('\n')
                     .append("MAP Predict overlap samples: ").append(boolCount(ChannelRole.MAP_PRED_ACTIVE)).append('\n');
         } else if (recipe == GuidedTuningRecipe.TPS_AE) {
-            out.append("Completed TPS AE table-analysis windows: ").append(tpsAeEvents.eventCount())
-                    .append(" | fuel-proved: ").append(tpsAeEvents.fuelProvedEventCount()).append('\n')
+            out.append("Completed TPS AE table-analysis windows: ").append(tpsAeEvents.eventCount()).append(" | fuel-proved: ").append(tpsAeEvents.fuelProvedEventCount()).append('\n')
                     .append("Peak smoothedDeltaTps / AccelThreshold: ").append(metric(peakRatio())).append('\n')
                     .append("TPS-to observed range: ").append(range(ChannelRole.TPS_TO)).append('\n')
                     .append("Maximum Fuel: TPS AE add fuel ms: ").append(metric(maxAbs(ChannelRole.AE_ADD_MS))).append(" ms\n")
@@ -669,188 +670,31 @@ final class GuidedMethodProbeSession {
                     .append("TPS AE overlap samples: ").append(fuelOverlapCount()).append('\n')
                     .append("Wall Wetting overlap samples: ").append(positiveCount(ChannelRole.WALL_WETTING_PW)).append('\n')
                     .append("MAP Predict overlap samples: ").append(boolCount(ChannelRole.MAP_PRED_ACTIVE)).append('\n');
-        } else {
-            out.append("No method-specific metrics.");
-        }
+        } else out.append("No method-specific metrics.");
         return out.toString();
     }
 
     private boolean allFinite(LiveSample sample, ChannelRole[] roles) {
         if (roles == null) return true;
-        for (ChannelRole role : roles) {
-            if (!Double.isFinite(sample.get(role))) return false;
-        }
+        for (ChannelRole role : roles) if (!Double.isFinite(sample.get(role))) return false;
         return true;
     }
 
-    private int boolCount(ChannelRole role) {
-        int count = 0;
-        for (LiveSample sample : samples) if (sample.bool(role)) count++;
-        return count;
-    }
-
-    private int positiveCount(ChannelRole role) {
-        int count = 0;
-        for (LiveSample sample : samples) {
-            double value = sample.get(role);
-            if (Double.isFinite(value) && Math.abs(value) > 0.000001) count++;
-        }
-        return count;
-    }
-
-    private int fuelOverlapCount() {
-        int count = 0;
-        for (LiveSample sample : samples) {
-            double add = sample.get(ChannelRole.AE_ADD_MS);
-            double extra = sample.get(ChannelRole.EXTRA_FUEL);
-            if ((Double.isFinite(add) && Math.abs(add) > 0.000001)
-                    || (Double.isFinite(extra) && Math.abs(extra) > 0.000001)) count++;
-        }
-        return count;
-    }
-
-    private double peakRatio() {
-        double best = Double.NaN;
-        for (LiveSample sample : samples) {
-            double delta = sample.get(ChannelRole.SMOOTHED_DELTA_TPS);
-            double threshold = sample.get(ChannelRole.ACCEL_THRESHOLD);
-            if (!Double.isFinite(delta) || !Double.isFinite(threshold) || threshold <= 0.000001) continue;
-            double ratio = delta / threshold;
-            if (!Double.isFinite(best) || ratio > best) best = ratio;
-        }
-        return best;
-    }
-
-    private double detectorPeakRatio(ChannelRole detectorRole) {
-        double best = Double.NaN;
-        for (LiveSample sample : samples) {
-            double detector = sample.get(detectorRole);
-            double threshold = sample.get(ChannelRole.ACCEL_THRESHOLD);
-            if (!Double.isFinite(detector) || !Double.isFinite(threshold) || threshold <= 0.000001) continue;
-            double ratio = detector / threshold;
-            if (!Double.isFinite(best) || ratio > best) best = ratio;
-        }
-        return best;
-    }
-
-    private int selectedDetectorAboveThresholdCount() {
-        int count = 0;
-        for (LiveSample sample : samples) {
-            double detector = EngagementFocusModel.selectedDetectorOutput(projectSnapshot, sample);
-            double threshold = sample.get(ChannelRole.ACCEL_THRESHOLD);
-            if (Double.isFinite(detector) && Double.isFinite(threshold) && detector > threshold) count++;
-        }
-        return count;
-    }
-
-    private double maxProductionSelectedDifference() {
-        double best = Double.NaN;
-        for (LiveSample sample : samples) {
-            double production = sample.get(ChannelRole.DELTA_TPS);
-            double detector = EngagementFocusModel.selectedDetectorOutput(projectSnapshot, sample);
-            if (!Double.isFinite(production) || !Double.isFinite(detector)) continue;
-            double difference = Math.abs(production - detector);
-            if (!Double.isFinite(best) || difference > best) best = difference;
-        }
-        return best;
-    }
-
-    private double maxDifferenceWhilePredictionActive(ChannelRole a, ChannelRole b) {
-        double best = Double.NaN;
-        for (LiveSample sample : samples) {
-            if (!sample.bool(ChannelRole.MAP_PRED_ACTIVE)) continue;
-            double first = sample.get(a);
-            double second = sample.get(b);
-            if (!Double.isFinite(first) || !Double.isFinite(second)) continue;
-            double value = first - second;
-            if (!Double.isFinite(best) || value > best) best = value;
-        }
-        return best;
-    }
-
-    private double maxAbsDifferenceWhilePredictionActive(ChannelRole a, ChannelRole b) {
-        double best = Double.NaN;
-        for (LiveSample sample : samples) {
-            if (!sample.bool(ChannelRole.MAP_PRED_ACTIVE)) continue;
-            double first = sample.get(a);
-            double second = sample.get(b);
-            if (!Double.isFinite(first) || !Double.isFinite(second)) continue;
-            double value = Math.abs(first - second);
-            if (!Double.isFinite(best) || value > best) best = value;
-        }
-        return best;
-    }
-
-    private double maxAbs(ChannelRole role) {
-        double best = Double.NaN;
-        for (LiveSample sample : samples) {
-            double value = sample.get(role);
-            if (!Double.isFinite(value)) continue;
-            value = Math.abs(value);
-            if (!Double.isFinite(best) || value > best) best = value;
-        }
-        return best;
-    }
-
-    private double max(ChannelRole role) {
-        double best = Double.NaN;
-        for (LiveSample sample : samples) {
-            double value = sample.get(role);
-            if (!Double.isFinite(value)) continue;
-            if (!Double.isFinite(best) || value > best) best = value;
-        }
-        return best;
-    }
-
-    private double span(ChannelRole role) {
-        double min = Double.POSITIVE_INFINITY;
-        double max = Double.NEGATIVE_INFINITY;
-        for (LiveSample sample : samples) {
-            double value = sample.get(role);
-            if (!Double.isFinite(value)) continue;
-            min = Math.min(min, value);
-            max = Math.max(max, value);
-        }
-        return min == Double.POSITIVE_INFINITY ? Double.NaN : max - min;
-    }
-
-    private String range(ChannelRole role) {
-        double min = Double.POSITIVE_INFINITY;
-        double max = Double.NEGATIVE_INFINITY;
-        for (LiveSample sample : samples) {
-            double value = sample.get(role);
-            if (!Double.isFinite(value)) continue;
-            min = Math.min(min, value);
-            max = Math.max(max, value);
-        }
-        return min == Double.POSITIVE_INFINITY ? "n/a" : f2(min) + " to " + f2(max);
-    }
-
-    private String lambdaErrorRange() {
-        double min = Double.POSITIVE_INFINITY;
-        double max = Double.NEGATIVE_INFINITY;
-        for (LiveSample sample : samples) {
-            double lambda = sample.get(ChannelRole.LAMBDA);
-            double target = sample.get(ChannelRole.TARGET_LAMBDA);
-            if (!Double.isFinite(lambda) || !Double.isFinite(target)) continue;
-            double error = lambda - target;
-            min = Math.min(min, error);
-            max = Math.max(max, error);
-        }
-        return min == Double.POSITIVE_INFINITY ? "n/a" : f3(min) + " to " + f3(max);
-    }
-
-    private static String csv(String value) {
-        String safe = value == null ? "" : value;
-        return '"' + safe.replace("\"", "\"\"") + '"';
-    }
-
-    private static String metric(double value) {
-        return Double.isFinite(value) ? f3(value) : "n/a";
-    }
-
-    private static String f1(double value) { return String.format(Locale.US, "%.1f", value); }
-    private static String f2(double value) { return String.format(Locale.US, "%.2f", value); }
-    private static String f3(double value) { return String.format(Locale.US, "%.3f", value); }
-    private static String f6(double value) { return String.format(Locale.US, "%.6f", value); }
+    private int boolCount(ChannelRole role) { int count=0; for (LiveSample sample: samples) if (sample.bool(role)) count++; return count; }
+    private int positiveCount(ChannelRole role) { int count=0; for (LiveSample sample: samples) { double v=sample.get(role); if (Double.isFinite(v)&&Math.abs(v)>0.000001) count++; } return count; }
+    private int fuelOverlapCount() { int count=0; for (LiveSample sample: samples) { double add=sample.get(ChannelRole.AE_ADD_MS), extra=sample.get(ChannelRole.EXTRA_FUEL); if ((Double.isFinite(add)&&Math.abs(add)>0.000001)||(Double.isFinite(extra)&&Math.abs(extra)>0.000001)) count++; } return count; }
+    private double peakRatio() { double best=Double.NaN; for (LiveSample sample: samples) { double d=sample.get(ChannelRole.SMOOTHED_DELTA_TPS), t=sample.get(ChannelRole.ACCEL_THRESHOLD); if (!Double.isFinite(d)||!Double.isFinite(t)||t<=0.000001) continue; double r=d/t; if (!Double.isFinite(best)||r>best) best=r; } return best; }
+    private double maxDifferenceWhilePredictionActive(ChannelRole a, ChannelRole b) { double best=Double.NaN; for (LiveSample s:samples) { if(!s.bool(ChannelRole.MAP_PRED_ACTIVE)) continue; double x=s.get(a),y=s.get(b); if(!Double.isFinite(x)||!Double.isFinite(y)) continue; double v=x-y; if(!Double.isFinite(best)||v>best) best=v;} return best; }
+    private double maxAbsDifferenceWhilePredictionActive(ChannelRole a, ChannelRole b) { double best=Double.NaN; for (LiveSample s:samples) { if(!s.bool(ChannelRole.MAP_PRED_ACTIVE)) continue; double x=s.get(a),y=s.get(b); if(!Double.isFinite(x)||!Double.isFinite(y)) continue; double v=Math.abs(x-y); if(!Double.isFinite(best)||v>best) best=v;} return best; }
+    private double maxAbs(ChannelRole role) { double best=Double.NaN; for (LiveSample s:samples) { double v=s.get(role); if(!Double.isFinite(v))continue; v=Math.abs(v); if(!Double.isFinite(best)||v>best)best=v;} return best; }
+    private double max(ChannelRole role) { double best=Double.NaN; for (LiveSample s:samples) { double v=s.get(role); if(!Double.isFinite(v))continue; if(!Double.isFinite(best)||v>best)best=v;} return best; }
+    private double span(ChannelRole role) { double min=Double.POSITIVE_INFINITY,max=Double.NEGATIVE_INFINITY; for(LiveSample s:samples){double v=s.get(role); if(!Double.isFinite(v))continue; min=Math.min(min,v);max=Math.max(max,v);} return min==Double.POSITIVE_INFINITY?Double.NaN:max-min; }
+    private String range(ChannelRole role) { double min=Double.POSITIVE_INFINITY,max=Double.NEGATIVE_INFINITY; for(LiveSample s:samples){double v=s.get(role);if(!Double.isFinite(v))continue;min=Math.min(min,v);max=Math.max(max,v);} return min==Double.POSITIVE_INFINITY?"n/a":f2(min)+" to "+f2(max); }
+    private String lambdaErrorRange() { double min=Double.POSITIVE_INFINITY,max=Double.NEGATIVE_INFINITY; for(LiveSample s:samples){double l=s.get(ChannelRole.LAMBDA),t=s.get(ChannelRole.TARGET_LAMBDA);if(!Double.isFinite(l)||!Double.isFinite(t))continue;double e=l-t;min=Math.min(min,e);max=Math.max(max,e);} return min==Double.POSITIVE_INFINITY?"n/a":f3(min)+" to "+f3(max); }
+    private static String csv(String value) { String safe=value==null?"":value; return '"'+safe.replace("\"","\"\"")+'"'; }
+    private static String metric(double value) { return Double.isFinite(value)?f3(value):"n/a"; }
+    private static String f1(double value) { return String.format(Locale.US,"%.1f",value); }
+    private static String f2(double value) { return String.format(Locale.US,"%.2f",value); }
+    private static String f3(double value) { return String.format(Locale.US,"%.3f",value); }
+    private static String f6(double value) { return String.format(Locale.US,"%.6f",value); }
 }

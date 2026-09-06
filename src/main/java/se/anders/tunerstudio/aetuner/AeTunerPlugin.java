@@ -17,6 +17,7 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
@@ -42,12 +43,12 @@ import java.util.function.Supplier;
 
 /** Thin TunerStudio host shell for AE Tuner (EPICEFI). */
 public final class AeTunerPlugin implements ApplicationPlugin {
-    public static final String VERSION = "0.4.2-rc.2";
+    public static final String VERSION = BuildIdentity.VERSION;
     public static final String PUBLIC_REPOSITORY_URL =
             "https://github.com/PJawZK/AE-Tuner-EPICEFI_Public";
     static final String VEHICLE_TEST_BANNER =
             "AE TUNER " + VERSION
-                    + " — RELEASE CANDIDATE; PUBLIC TEST; guarded Apply/Restore only; NO BURN";
+                    + " — PUBLIC RELEASE; guarded Apply/Restore only; NO BURN";
     private static final int GUIDED_SCROLL_UNIT = 24;
 
     private final AeTunerPanel panel = new AeTunerPanel();
@@ -63,6 +64,8 @@ public final class AeTunerPlugin implements ApplicationPlugin {
     private final JButton testSound = new JButton("Test READY");
     private final JButton openAudioLab = new JButton("Audio Cue Lab");
     private final JButton openGuidedFocus = new JButton("Guided Focus");
+    private final JButton openValidationLab =
+            new JButton("Apply/Restore Validation Lab (TEMP)");
     private final JLabel soundCueStatus = new JLabel();
     private final JTextArea overviewPlan = new JTextArea();
     private final JTabbedPane rootTabs = new JTabbedPane();
@@ -72,6 +75,7 @@ public final class AeTunerPlugin implements ApplicationPlugin {
 
     private ControllerAccess controllerAccess;
     private GuidedFocusWindow guidedFocusWindow;
+    private AeApplyRestoreValidationLabWindow validationLabWindow;
     private volatile AeProjectSnapshot overviewSnapshot;
     private volatile String overviewReadStatus = "Working tune not read yet.";
     private volatile boolean lifecycleActive;
@@ -104,19 +108,24 @@ public final class AeTunerPlugin implements ApplicationPlugin {
 
         vehicleTestStatus.setFont(vehicleTestStatus.getFont().deriveFont(Font.BOLD));
         vehicleTestStatus.setToolTipText(
-                "0.4.2-rc.2 release candidate / public test build. Guided TPS Movement / Timing coaches production detected TPS change against AccelThreshold. Delta Window is the physically qualified A/B setting; detector mode, Sample Length and Fast Callback are read-only context. Capture never writes automatically and no burn exists.");
+                "AE Tuner " + VERSION + " public release. TPS Movement / Timing and Threshold / Sensitivity use the physically validated Foundation workflow. MAP Predict / Blend Duration uses the corrected final-target measurement model and dedicated Driver Focus. Final Apply remains explicit and no burn exists.");
 
         JPanel soundBar = new JPanel(new WrapLayout(FlowLayout.LEFT, 8, 3));
         soundBar.add(soundCues);
         soundBar.add(testSound);
         soundBar.add(openAudioLab);
         soundBar.add(openGuidedFocus);
+        // The temporary physical Validation Lab intentionally has no normal UI
+        // entry point after the complete 816/816 Apply/Restore campaign. Its
+        // canonical catalog, validation engine and regressions remain retained.
         soundBar.add(soundCueStatus);
         soundCues.setToolTipText("Default-on one-shot tones. Pause or hiding the plugin cancels current audio.");
         testSound.setToolTipText("Preview the current READY cue while stationary.");
         openAudioLab.setToolTipText("Open Evidence / Diagnostics -> Audio Cue Lab.");
         openGuidedFocus.setToolTipText(
-                "Open the modeless Guided Focus pop-out. MAP Estimate has the learned-surface heat map; TPS Movement / Timing coaches detected TPS movement and offers only the secondary Delta Window A/B control.");
+                "Open the modeless Guided Focus pop-out. MAP Estimate, TPS Movement / Timing and Threshold / Sensitivity have dedicated Focus views; remaining tasks use the shared coach surface until specialized.");
+        openValidationLab.setToolTipText(
+                "TEMPORARY developer tool: physically validate one audited AE controller target at a time using production Apply/readback/Restore. Working tune only; no burn.");
 
         panel.setRecoveryDirtyAction(new Runnable() {
             @Override public void run() { recoveryManager.requestCheckpoint(); }
@@ -149,6 +158,7 @@ public final class AeTunerPlugin implements ApplicationPlugin {
             evidenceDiagnostics.selectAudioCueLab();
         });
         openGuidedFocus.addActionListener(event -> openGuidedFocusWindow());
+        openValidationLab.addActionListener(event -> openValidationLabWindow());
         audioStatusTimer = new Timer(250, event -> {
             soundCueStatus.setText(guidedAudio.statusText());
             recoveryStatus.setText(recoveryManager.statusText());
@@ -177,7 +187,7 @@ public final class AeTunerPlugin implements ApplicationPlugin {
         rootTabs.addTab("Passive Analysis", passiveContent);
         rootTabs.addTab("Evidence / Diagnostics", evidenceDiagnostics);
         rootTabs.setToolTipTextAt(0, "Current AE method states, general workflow order, combination review and safety boundary.");
-        rootTabs.setToolTipTextAt(1, "Choose one isolated AE method, accumulate evidence, review generated output, and explicitly Apply only exact changed targets declared by the reviewed plan. No automatic Apply and no burn.");
+        rootTabs.setToolTipTextAt(1, "Choose one isolated AE method, accumulate evidence, review generated output, and explicitly Apply only exact changed targets declared by the reviewed plan. No automatic final Apply and no burn.");
         rootTabs.setToolTipTextAt(2, "Passive AE observation, Passive detector calibration, session evidence and drafts.");
         rootTabs.setToolTipTextAt(3, "Runtime/channel diagnostics, Audio Cue Lab, recovery and Apply/Restore audit information.");
 
@@ -243,6 +253,34 @@ public final class AeTunerPlugin implements ApplicationPlugin {
         GuidedFocusHub.snapshot().refresh(guidedFocusWindow);
     }
 
+    private void openValidationLabWindow() {
+        if (controllerAccess == null) {
+            JOptionPane.showMessageDialog(panel,
+                    "Connect the controller before opening the physical Apply/Restore Validation Lab.",
+                    "Validation Lab — Controller Required",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        refreshOverviewSnapshot();
+        AeProjectSnapshot snapshot = overviewSnapshot;
+        if (snapshot == null || snapshot.getConfigurationName() == null
+                || snapshot.getConfigurationName().trim().length() == 0) {
+            JOptionPane.showMessageDialog(panel,
+                    "AE Tuner could not read the active working-tune configuration.\nRead/repair controller access before physical validation.",
+                    "Validation Lab — Working Tune Unavailable",
+                    JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        if (validationLabWindow == null || !validationLabWindow.isDisplayable()) {
+            AeApplyRestoreValidationLabModel model =
+                    new AeApplyRestoreValidationLabModel(
+                            controllerAccess, snapshot.getConfigurationName());
+            validationLabWindow = new AeApplyRestoreValidationLabWindow(
+                    SwingUtilities.getWindowAncestor(panel), model);
+        }
+        validationLabWindow.openWindow();
+    }
+
     private void refreshOverviewSnapshot() {
         if (controllerAccess == null) {
             overviewSnapshot = null;
@@ -281,13 +319,13 @@ public final class AeTunerPlugin implements ApplicationPlugin {
                 + "GENERAL WORKFLOW\n================\n"
                 + "1. Read and verify the current working tune.\n"
                 + "2. Choose one AE method in Guided Tuning. The selected method states its operator action, required channels, context channels, accumulation rule and review output.\n"
-                + "3. Capture never writes. After Finish/Review, any method that has an actual explicit ProposalWritePlan may use the common stale-check -> Apply -> readback -> Restore gateway. No burn exists.\n"
-                + "4. TPS Movement / Timing is upstream of the fuel methods. AE Tuner reads detector mode, Delta Window, Sample Length and Fast Callback for context. Delta Window is physically qualified for guarded A/B changes; detector mode, Sample Length and Fast Callback are read-only in this workflow.\n"
+                + "3. Guided capture normally observes only. TPS Movement / Timing is the controlled exception: its explicitly started two-stage timing run may temporarily cycle Sample Length first and Delta Window second, with stale-check/readback, live ECU timing qualification and automatic pre-test restore. Final tuning Apply remains explicit; no burn exists.\n"
+                + "4. TPS Movement / Timing is upstream of the fuel methods. Sample Length is controlled Stage 1 and Delta Window is controlled Stage 2. Engagement Model and Fast Callback remain read-only controller context/prerequisite. Maneuver evidence cannot count until the live ECU window/sample/stride signature proves the requested timing is effective.\n"
                 + "5. MAP Estimate keeps accepted stable MAP at its actual TPS/RPM coordinates in compact learned memory and retains its existing guarded table Apply/Restore path.\n"
-                + "6. TPS AE groups coherent bursts into complete transient windows and reuses the existing conservative table generator; MAP Predict, Wall Wetting and Instant Fuel retain isolated evidence/review logic while their numerical tuning rules are expanded.\n"
-                + "7. After any successful Apply or Restore, Read Working Tune again before another capture so new evidence cannot silently use a pre-write baseline. Apply/Restore itself does not require the engine to be running.\n\n"
-                + "RELEASE CANDIDATE STATUS\n==========================\n"
-                + "0.4.2-rc.2 is a release candidate for public testing of the general-AE / coaching foundation. Delta Window is already physically qualified for guarded Apply/readback/Restore and remains the explicit TPS Movement / Timing A/B setting. The temporary Engagement Model editing experiment has been removed; Sample Length and Fast Callback are read-only context.\n\n"
+                + "6. Threshold / Sensitivity has active evidence, a dedicated Guided Focus, and conservative static-threshold recommendation logic. Dynamic-threshold operation blocks automatic static-threshold planning until its exact combination equation is verified. TPS AE, MAP Predict, Wall Wetting and Instant Fuel retain isolated evidence/review logic while their numerical tuning rules are expanded.\n"
+                + "7. After any successful final Apply or Restore, Read Working Tune again before another capture so new evidence cannot silently use a pre-write baseline. Apply/Restore itself does not require the engine to be running.\n\n"
+                + "PUBLIC RELEASE STATUS\n=====================\n"
+                + VERSION + " is the current public release. AE Foundation 1/2 incorporate the validated road-test workflow and guarded A/B validation. MAP Predict / Blend Duration includes the corrected firmware-faithful measurement path and Driver Focus; numerical Blend Duration conversion remains intentionally withheld.\n\n"
                 + "Blend Duration numerical conversion remains withheld until its model is validated. Guarded Apply/Restore infrastructure is shared across Guided methods; there is no Burn button or burn API."
         );
         overviewPlan.setCaretPosition(0);
@@ -303,6 +341,7 @@ public final class AeTunerPlugin implements ApplicationPlugin {
                 + "Recovery: " + recoveryManager.statusText() + "\n\n"
                 + "Use Channels / Runtime for controller and live-channel diagnostics.\n"
                 + "Use Audio Cue Lab for stationary cue testing.\n"
+                + "The temporary physical Apply/Restore Validation Lab has been removed from the normal UI after the complete 816/816 campaign; its catalog, validated mappings, coordinator/readback/restore safety and permanent regressions remain retained.\n"
                 + "Use Recovery / Audit for recovery state and the latest Guided Apply/Restore verification record.";
     }
 
@@ -444,6 +483,16 @@ public final class AeTunerPlugin implements ApplicationPlugin {
 
     private synchronized void suspendForHide() {
         if (!lifecycleActive || closingLifecycle || presentationSuspended) return;
+        if (validationLabWindow != null
+                && !validationLabWindow.prepareForExternalLifecycleEnd()) {
+            System.err.println("AE Tuner hide blocked: Validation Lab could not restore its temporary working-tune value.");
+            return;
+        }
+        if (!EngagementDeltaWindowLifecycleGuard.finishBeforeExternalLifecycleEnd()) {
+            System.err.println("AE Tuner hide blocked from lifecycle teardown: "
+                    + EngagementDeltaWindowLifecycleGuard.statusText());
+            return;
+        }
         presentationSuspended = true;
         guidedAudio.stopNow();
         guidedPanel.suspendPanel();
@@ -463,6 +512,16 @@ public final class AeTunerPlugin implements ApplicationPlugin {
 
     private synchronized boolean beginFinalClose() {
         if (!lifecycleActive || closingLifecycle) return false;
+        if (validationLabWindow != null
+                && !validationLabWindow.prepareForExternalLifecycleEnd()) {
+            System.err.println("AE Tuner close blocked: Validation Lab could not restore its temporary working-tune value.");
+            return false;
+        }
+        if (!EngagementDeltaWindowLifecycleGuard.finishBeforeExternalLifecycleEnd()) {
+            System.err.println("AE Tuner close blocked before controller teardown: "
+                    + EngagementDeltaWindowLifecycleGuard.statusText());
+            return false;
+        }
         closingLifecycle = true;
         lifecycleActive = false;
         presentationSuspended = true;
@@ -476,6 +535,10 @@ public final class AeTunerPlugin implements ApplicationPlugin {
         if (guidedFocusWindow != null) {
             guidedFocusWindow.disposeWindow();
             guidedFocusWindow = null;
+        }
+        if (validationLabWindow != null) {
+            validationLabWindow.disposeWindow();
+            validationLabWindow = null;
         }
         GuidedFocusHub.clear();
         return true;
@@ -507,6 +570,8 @@ public final class AeTunerPlugin implements ApplicationPlugin {
     int evidenceDiagnosticsTabCountForTest() { return evidenceDiagnostics.tabCountForTest(); }
     String evidenceDiagnosticsTabTitleForTest(int index) { return evidenceDiagnostics.tabTitleForTest(index); }
     boolean areVehicleTestOverridesEnabledForTest() { return overridePanel.isEnabledForTest(); }
+    String validationLabButtonTextForTest() { return openValidationLab.getText(); }
+    String validationLabButtonToolTipForTest() { return openValidationLab.getToolTipText(); }
     public int guidedWorkspaceVerticalScrollPolicyForTest() { return guidedWorkspaceScroll.getVerticalScrollBarPolicy(); }
     public int guidedWorkspaceHorizontalScrollPolicyForTest() { return guidedWorkspaceScroll.getHorizontalScrollBarPolicy(); }
     public int guidedWorkspaceScrollUnitForTest() { return guidedWorkspaceScroll.getVerticalScrollBar().getUnitIncrement(); }

@@ -148,8 +148,15 @@ public final class ProposalWritePlan {
     }
 
     public String reviewText() {
+        String heading = "foundation-threshold-curve".equals(recipeId)
+                ? "NEXT INCREMENTAL PROPOSAL — NOT YET APPLIED"
+                : "CURRENT PROPOSAL";
+        return reviewText(heading);
+    }
+
+    public String reviewText(String heading) {
         StringBuilder text = new StringBuilder();
-        text.append("CURRENT PROPOSAL\n")
+        text.append(requireText(heading, "heading")).append("\n")
                 .append(displayName).append("\n");
         if (context.length() > 0) {
             text.append(context).append("\n");

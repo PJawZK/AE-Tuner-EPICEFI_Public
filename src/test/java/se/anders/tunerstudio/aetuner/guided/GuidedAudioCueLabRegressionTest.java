@@ -20,10 +20,11 @@ public final class GuidedAudioCueLabRegressionTest {
             require(lab.cueRowCountForTest()
                             == GuidedAudioCueController.Cue.values().length,
                     "Audio Cue Lab must expose every assignable event");
-            require(lab.triggerDescriptionForTest(
-                            GuidedAudioCueController.Cue.TARGET_ACQUIRED)
-                            .contains("natural pedal plateau"),
-                    "cue demo must explain when adaptive pedal-hold acquisition triggers");
+            String detectorDescription = lab.triggerDescriptionForTest(
+                    GuidedAudioCueController.Cue.TARGET_ACQUIRED);
+            require(detectorDescription.contains("ECU TPS AE detector reacted")
+                            && detectorDescription.contains("does not mean the Guided maneuver was accepted or counted"),
+                    "cue demo must distinguish raw ECU detector reaction from later Guided maneuver acceptance");
             require(controller.pendingSetting(
                             GuidedAudioCueController.Cue.EXCLUDED)
                             .estimatedDurationMs() >= 300,

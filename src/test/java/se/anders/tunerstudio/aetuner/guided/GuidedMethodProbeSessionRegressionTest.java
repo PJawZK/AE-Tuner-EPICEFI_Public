@@ -7,6 +7,7 @@ import se.anders.tunerstudio.aetuner.model.ChannelRole;
 import se.anders.tunerstudio.aetuner.model.LiveSample;
 import se.anders.tunerstudio.aetuner.proposal.ProposalWritePlan;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
@@ -15,6 +16,7 @@ public final class GuidedMethodProbeSessionRegressionTest {
     private GuidedMethodProbeSessionRegressionTest() { }
 
     public static void main(String[] args) {
+        passiveFoundationEmitsReadyOnceAfterSettling();
         mapPredictProbeCapturesRawCoherentEvidence();
         distinctActivityEventsAreAccumulated();
         inactiveFallbackGapDoesNotCountAsPredictionActivity();
@@ -28,6 +30,53 @@ public final class GuidedMethodProbeSessionRegressionTest {
         mapEstimateReusesStableTableGenerator();
         tpsAeReusesConservativeTableGenerator();
         System.out.println("GuidedMethodProbeSessionRegressionTest passed");
+    }
+
+
+    private static void passiveFoundationEmitsReadyOnceAfterSettling() {
+        GuidedMethodProbeSession session = new GuidedMethodProbeSession();
+        final List<GuidedWorkflowEvent> events = new ArrayList<GuidedWorkflowEvent>();
+        session.setWorkflowEventListener(new GuidedWorkflowEvent.Listener() {
+            @Override public void onGuidedWorkflowEvent(
+                    GuidedWorkflowEvent event, String detail, long nanoTime) {
+                events.add(event);
+            }
+        });
+        session.start(GuidedAeMethodModules.forRecipe(GuidedTuningRecipe.ENGAGEMENT_DETECTION),
+                null, 3, 20, 115.0);
+
+        session.accept(engagementSample(0.00, 5.0, 0.1, false));
+        session.accept(engagementSample(0.05, 5.0, 0.1, false));
+        session.accept(engagementSample(0.10, 5.0, 0.1, false));
+        session.accept(engagementSample(0.15, 5.0, 0.1, false));
+        session.accept(engagementSample(0.20, 10.0, 60.0, true));
+        session.accept(engagementSample(0.26, 16.0, 60.0, true));
+        session.accept(engagementSample(0.32, 20.0, 60.0, true));
+        session.accept(engagementSample(0.38, 19.0, -20.0, false));
+        require(EngagementPassiveCapture.snapshot().settling,
+                "Foundation 1 fixture did not enter SETTLING after the movement");
+        require(count(events, GuidedWorkflowEvent.READY_ENTERED) == 0,
+                "READY cue was emitted before settling/re-anchor completed");
+
+        session.accept(engagementSample(0.45, 5.0, -20.0, false));
+        session.accept(engagementSample(0.55, 5.0, 0.0, false));
+        session.accept(engagementSample(0.75, 5.0, 0.0, false));
+        session.accept(engagementSample(1.05, 5.0, 0.0, false));
+        require(EngagementPassiveCapture.snapshot().readyForMovement(),
+                "Foundation 1 fixture did not re-anchor to READY");
+        require(count(events, GuidedWorkflowEvent.READY_ENTERED) == 1,
+                "SETTLING -> READY did not emit exactly one READY_ENTERED workflow event");
+
+        session.accept(engagementSample(1.20, 5.0, 0.0, false));
+        session.accept(engagementSample(1.35, 5.0, 0.0, false));
+        require(count(events, GuidedWorkflowEvent.READY_ENTERED) == 1,
+                "READY_ENTERED repeated continuously while the collector remained READY");
+    }
+
+    private static int count(List<GuidedWorkflowEvent> events, GuidedWorkflowEvent wanted) {
+        int total = 0;
+        for (GuidedWorkflowEvent event : events) if (event == wanted) total++;
+        return total;
     }
 
     private static void mapPredictProbeCapturesRawCoherentEvidence() {
@@ -127,9 +176,12 @@ public final class GuidedMethodProbeSessionRegressionTest {
         require(snapshot.state == GuidedCaptureState.COMPLETE,
                 "method-base finish did not enter review/complete state");
         String report = session.reportText("0.4.2-dev.test");
-        require(report.contains("any explicit ProposalWritePlan may use the common guarded Apply/readback/Restore gateway")
-                        && report.contains("No automatic Apply and no burn"),
-                "method report did not expose the common guarded Apply contract");
+        require(report.contains("Guided capture observes only")
+                        && report.contains("The selected method owns its own evidence/recommendation boundary")
+                        && report.contains("Capture never writes")
+                        && report.contains("final Apply remains explicit")
+                        && report.contains("no burn"),
+                "method report did not expose the method-owned capture / guarded final Apply boundary");
         require(session.reviewedWritePlan() == null,
                 "Wall Wetting invented a numerical change before its tuning rule produced one");
         require(session.reviewText().contains("No supported setting/value change is currently proposed"),
@@ -228,6 +280,8 @@ public final class GuidedMethodProbeSessionRegressionTest {
         addTpsAeEvent(session, 10.00, 20.0);
         addTpsAeEvent(session, 11.40, 20.0);
         addTpsAeEvent(session, 12.80, 20.0);
+        require(session.reviewedWritePlan() == null,
+                "Guided TPS AE exposed a table write plan before Finish/Review");
         session.finish();
 
         require(session.tpsAeTableEventCount() == 3
@@ -237,12 +291,16 @@ public final class GuidedMethodProbeSessionRegressionTest {
                 "Guided TPS AE activity progress did not match the three separated test events");
         require(session.copyPasteBlock().length() > 0,
                 "three repeated TPS AE fuel-proved events did not produce the existing bounded table draft");
+        ProposalWritePlan plan = session.reviewedWritePlan();
+        require(plan != null && plan.changeCount() > 1,
+                "reviewed TPS AE draft did not become one coherent multi-cell write plan");
         String review = session.reviewText();
         require(review.contains("TPS AE TABLE REVIEW")
                         && review.contains("Basis: 3 usable TPS AE fuel-proved event(s)")
                         && review.contains("TPS-to 20.00")
-                        && review.contains("No supported setting/value change is currently proposed"),
-                "Guided TPS AE review did not expose its table draft while preserving the common no-invented-change rule");
+                        && review.contains("Guarded working-tune Apply/readback/Restore is available")
+                        && review.contains("multi-cell Apply/Restore"),
+                "Guided TPS AE review did not expose its reviewed multi-cell Apply contract");
         require(session.reportText("0.4.2-dev.test").contains("PASTE-READY DRAFT"),
                 "Guided TPS AE report/export path omitted its paste-ready draft");
     }
@@ -289,6 +347,20 @@ public final class GuidedMethodProbeSessionRegressionTest {
                 new double[0][0], new double[0][0],
                 new double[0], new double[0], new double[0][0],
                 new double[0], new double[0]);
+    }
+
+
+    private static LiveSample engagementSample(double seconds, double tps,
+                                               double tpsRate, boolean detectorActive) {
+        EnumMap<ChannelRole, Double> values = new EnumMap<ChannelRole, Double>(ChannelRole.class);
+        values.put(ChannelRole.RPM, 1600.0);
+        values.put(ChannelRole.TPS, tps);
+        values.put(ChannelRole.ACCEL_THRESHOLD, 1.0);
+        values.put(ChannelRole.DELTA_TPS, detectorActive ? 2.0 : 0.0);
+        values.put(ChannelRole.AE_ABOVE_THRESHOLD, detectorActive ? 1.0 : 0.0);
+        values.put(ChannelRole.VSS, 0.0);
+        return new LiveSample(Math.round(seconds * 1000000000.0), seconds,
+                values, tpsRate, 0.0);
     }
 
     private static LiveSample sample(double seconds, double rpm, double tps,

@@ -1,7 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
-
 import se.anders.tunerstudio.aetuner.host.*;
 import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.guided.*;
@@ -23,6 +22,7 @@ public final class GuidedSampleDispatcherRegressionTest {
     public static void main(String[] args) throws Exception {
         producerNeverRunsGuidedListenerInline();
         backlogIsBoundedAndCriticalSamplesSurviveCoalescing();
+        probeWideCapturingDoesNotDisableQuietCoalescing();
         suspendClearsBacklogAndResumeWorks();
         listenerFailureDoesNotKillWorker();
         System.out.println("GuidedSampleDispatcherRegressionTest passed");
@@ -99,6 +99,55 @@ public final class GuidedSampleDispatcherRegressionTest {
             require(criticalIds.get(i) == i + 1,
                     "critical sample order changed under backlog");
         }
+        dispatcher.close();
+    }
+
+    private static void probeWideCapturingDoesNotDisableQuietCoalescing()
+            throws Exception {
+        final CountDownLatch firstDelivered = new CountDownLatch(1);
+        final CountDownLatch secondEntered = new CountDownLatch(1);
+        final CountDownLatch releaseSecond = new CountDownLatch(1);
+        final int[] calls = new int[1];
+
+        GuidedSampleDispatcher dispatcher = new GuidedSampleDispatcher(sample -> {
+            calls[0]++;
+            if (calls[0] == 1) {
+                firstDelivered.countDown();
+            } else if (calls[0] == 2) {
+                secondEntered.countDown();
+                try {
+                    releaseSecond.await(2, TimeUnit.SECONDS);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            // This models the generic probe session state. It is NOT proof that
+            // every sample belongs to an active transient maneuver.
+            return GuidedCaptureState.CAPTURING;
+        });
+        dispatcher.resume();
+        require(dispatcher.offer(sample(1.0, false, 0.0)),
+                "dispatcher rejected first probe sample");
+        require(firstDelivered.await(2, TimeUnit.SECONDS),
+                "first probe sample did not establish CAPTURING session state");
+        require(dispatcher.offer(sample(1.1, false, 0.0)),
+                "dispatcher rejected second probe sample");
+        require(secondEntered.await(2, TimeUnit.SECONDS),
+                "second probe sample did not block the worker fixture");
+
+        for (int i = 0; i < 400; i++) {
+            dispatcher.offer(sample(2.0 + i / 1000.0, false, 0.0));
+        }
+        GuidedSampleDispatcher.Diagnostics blocked = dispatcher.diagnostics();
+        require(blocked.coalesced > 0,
+                "generic probe CAPTURING state disabled quiet-sample coalescing");
+        require(blocked.queueDepth < GuidedSampleDispatcher.CAPACITY,
+                "generic probe CAPTURING state saturated the queue with quiet samples");
+        require(blocked.criticalDropped == 0,
+                "quiet probe backlog was incorrectly counted as critical loss");
+
+        releaseSecond.countDown();
+        waitForEmpty(dispatcher, 3000L);
         dispatcher.close();
     }
 

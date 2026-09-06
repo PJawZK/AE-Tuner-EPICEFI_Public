@@ -17,9 +17,19 @@ for test_class in \
   se.anders.tunerstudio.aetuner.proposal.ProposalWritePlanRegressionTest \
   se.anders.tunerstudio.aetuner.proposal.SessionExportSupportRegressionTest \
   se.anders.tunerstudio.aetuner.host.AeTuningParameterCatalogRegressionTest \
+  se.anders.tunerstudio.aetuner.host.AeApplyRestoreValidationTargetsRegressionTest \
+  se.anders.tunerstudio.aetuner.host.GuidedWriteCapabilityMaturityRegressionTest \
   se.anders.tunerstudio.aetuner.host.ProposalApplyCoordinatorRegressionTest \
+  se.anders.tunerstudio.aetuner.host.ProposalApplyCoordinatorMultiCellRegressionTest \
+  se.anders.tunerstudio.aetuner.host.ProposalApplyCoordinatorBitSelectionRegressionTest \
+  se.anders.tunerstudio.aetuner.host.AeApplyRestoreValidationEngineRegressionTest \
+  se.anders.tunerstudio.aetuner.host.AeApplyRestoreValidationLabModelRegressionTest \
+  se.anders.tunerstudio.aetuner.host.AeApplyRestoreValidationAutomationRegressionTest \
+  se.anders.tunerstudio.aetuner.host.AeValidationAutomaticAxisSafetyRegressionTest \
+  se.anders.tunerstudio.aetuner.host.AeApplyRestoreValidationReportRegressionTest \
   se.anders.tunerstudio.aetuner.host.EngagementDetectionApplyWorkflowRegressionTest \
   se.anders.tunerstudio.aetuner.host.GuidedBlendApplyWorkflowRegressionTest \
+  se.anders.tunerstudio.aetuner.host.GuidedTaskSettingsPanelIntegrationRegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedVehicleTestLimitsRegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedVehicleTest9RegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedAttemptTraceRegressionTest \
@@ -36,6 +46,8 @@ for test_class in \
   se.anders.tunerstudio.aetuner.guided.PhaseA3LegacyInvariantMigrationTest \
   se.anders.tunerstudio.aetuner.guided.GuidedEvidenceRecorderRegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedMethodProbeSessionRegressionTest \
+  se.anders.tunerstudio.aetuner.guided.GuidedTpsAeMultiCellProposalRegressionTest \
+  se.anders.tunerstudio.aetuner.guided.GuidedTaskSettingsDraftRegressionTest \
   se.anders.tunerstudio.aetuner.guided.EngagementDetectionRoutingRegressionTest \
   se.anders.tunerstudio.aetuner.guided.EngagementDetectionSettingRoutingRegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedTuningNavigationRegressionTest \
@@ -55,5 +67,7 @@ for test_class in \
 do
   java -cp "target/classes:target/test-classes:lib/TunerStudioPluginAPI.jar" "$test_class"
 done
+
+bash scripts/package-dev-plugin.sh
 
 echo "Fast development check passed."

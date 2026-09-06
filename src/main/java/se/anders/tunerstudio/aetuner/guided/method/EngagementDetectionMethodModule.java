@@ -1,32 +1,42 @@
 package se.anders.tunerstudio.aetuner.guided.method;
 
-import se.anders.tunerstudio.aetuner.guided.EngagementDetectionWriteSelection;
+import se.anders.tunerstudio.aetuner.guided.EngagementPassiveCapture;
 import se.anders.tunerstudio.aetuner.guided.GuidedTuningRecipe;
 import se.anders.tunerstudio.aetuner.host.AeTuningParameterCatalog;
 import se.anders.tunerstudio.aetuner.model.AeProjectSnapshot;
 import se.anders.tunerstudio.aetuner.model.ChannelRole;
+import se.anders.tunerstudio.aetuner.model.EngagementModelOption;
 import se.anders.tunerstudio.aetuner.model.LiveSample;
-import se.anders.tunerstudio.aetuner.proposal.EngagementDetectionSettingProposal;
 import se.anders.tunerstudio.aetuner.proposal.ProposalWritePlan;
 
 import java.util.List;
 
-/** TPS movement / threshold timing evidence and Delta Window A/B route. */
+/**
+ * Foundation 1 passive TPS movement/timing analysis.
+ *
+ * Capture never changes controller settings. The first usable physical opening
+ * becomes a presentation-only TPS reference marker, later peaks get shorter
+ * repeat markers, and a real settling gate separates independent movements.
+ * Delta Window candidates are still calculated from measured traces, not from
+ * whether the driver visually hits the reference marker.
+ */
 public final class EngagementDetectionMethodModule extends AbstractProbeMethodModule {
     private static final ChannelRole[] REQUIRED = new ChannelRole[]{
             ChannelRole.RPM,
             ChannelRole.TPS,
-            ChannelRole.DELTA_TPS,
             ChannelRole.ACCEL_THRESHOLD,
-            ChannelRole.AE_DELTA_NEWEST_PAIR,
-            ChannelRole.AE_WINDOW_MS,
-            ChannelRole.AE_DELTA_STRIDE
+            ChannelRole.AE_ABOVE_THRESHOLD
     };
 
     private static final ChannelRole[] CONTEXT = new ChannelRole[]{
+            ChannelRole.VSS,
+            ChannelRole.DELTA_TPS,
+            ChannelRole.AE_DELTA_NEWEST_PAIR,
+            ChannelRole.AE_WINDOW_MS,
             ChannelRole.AE_WINDOW_SAMPLES,
+            ChannelRole.AE_DELTA_STRIDE,
+            ChannelRole.TPS_DECEL_ACTIVE,
             ChannelRole.SMOOTHED_DELTA_TPS,
-            ChannelRole.AE_ABOVE_THRESHOLD,
             ChannelRole.TPS_AE_CYCLE_CNT,
             ChannelRole.MAP_PRED_ACTIVE,
             ChannelRole.AE_ADD_MS,
@@ -34,73 +44,86 @@ public final class EngagementDetectionMethodModule extends AbstractProbeMethodMo
             ChannelRole.INSTANT_PULSE_PW
     };
 
-    @Override public GuidedTuningRecipe recipe() { return GuidedTuningRecipe.ENGAGEMENT_DETECTION; }
+    private AeProjectSnapshot latestSnapshot;
 
+    @Override public GuidedTuningRecipe recipe() { return GuidedTuningRecipe.ENGAGEMENT_DETECTION; }
     @Override public String setupTitle() { return "TPS movement / timing"; }
 
     @Override public String setupGuidance() {
-        return "Read Working Tune, then use Guided Focus as a driver coach for TPS movement -> Fuel: TPS AE change -> AccelThreshold. Dual Stride / Newest is expected read-only controller context. Sample Length and Fast Callback are informational here; AE Tuner does not tune them. Establish a baseline before considering a Delta Window A/B experiment.";
+        return "Read Working Tune, then Start Capture. Make one comfortable moderate positive pedal opening when safe; its peak becomes a full-height presentation-only visual reference marker. "
+                + "After SETTLING completes, repeat approximately that movement. Later completed peaks are shown as shorter lower-half markers so the original reference stays obvious. "
+                + "There is no exact TPS target and the marker does not decide acceptance. AE Tuner groups the measured repeatable step-size cluster itself. "
+                + "Idle/no-load blips are valid provisional evidence, but guarded Apply is withheld until comparable openings cover a useful spread of pre-event operating RPM. Vehicle speed is useful context but is not a hard prerequisite; no fixed 2000 RPM target is required. "
+                + "No temporary timing write occurs during capture. With Dual Stride / Newest, Sample Length remains a history-capacity constraint and is increased only if the selected Delta Window would otherwise clamp. No burn.";
     }
 
     @Override public String captureGoal() {
-        return "Build repeatable TPS-movement timing evidence from ordinary openings, quick stab/hold, partial lift/reapply and stacked short stabs. Look for prompt intentional threshold crossings, quick clear when pedal movement stops and clean fresh re-arm on reapply.";
+        return "Capture a small set of naturally repeatable moderate TPS openings. The first usable opening establishes the visual reference; subsequent movements only need to be approximately similar. "
+                + "Wait for SETTLING to finish before the next opening so two physical movements cannot overlap. "
+                + "The plugin decides comparability and withholds ambiguous/tied Delta Window changes instead of inventing precision.";
     }
 
     @Override public ChannelRole[] requiredRoles() { return REQUIRED.clone(); }
     @Override public ChannelRole[] contextRoles() { return CONTEXT.clone(); }
 
     @Override public String operatorInputs(AeProjectSnapshot snapshot) {
-        return "Start a baseline capture and follow Guided Focus. Finish/Review before changing anything. If timing evidence justifies an A/B experiment, change Delta Window only, Apply/readback, Read Working Tune, then repeat the same maneuver set in similar conditions.";
+        return "Make one comfortable moderate positive pedal opening, then use its full-height TPS marker as a visual memory aid for the next openings. "
+                + "Short lower-half markers show where later completed openings peaked. The markers are presentation-only; do not chase an exact number. "
+                + "After every event, let TPS return and stabilize before READY returns. Stationary captures also wait for the obvious RPM flare to finish. "
+                + "Garage/idle testing is useful for provisional repeatability and scoring; representative openings across a useful pre-event operating RPM spread are required before Apply; VSS is context, not a prerequisite.";
     }
 
     @Override public String accumulationPlan() {
-        return "Retain TPS, production Fuel: TPS AE change, AccelThreshold, Dual Stride/Newest diagnostic output, actual AE window and stride. The production detected TPS change is the coached signal; the newest-pair diagnostic is a sanity/verification channel, not a competing user-selectable algorithm.";
+        return "The live path stores only bounded TPS/RPM/threshold/VSS points around each positive physical opening. "
+                + "Movement onset is derived from a rolling vehicle-specific TPS-rate noise floor and the event closes on the first natural peak/reversal. "
+                + "A settling gate then requires TPS to return near the pre-event baseline and remain quiet before re-arm; when stationary, rapidly falling post-blip RPM also prevents re-arm. "
+                + "A robust densest-cluster calculation uses TPS-step median and MAD with bounded tolerance, independently of the presentation-only reference marker. "
+                + "When the comparable set is complete, AE Tuner replays the captured TPS traces through the firmware-equivalent Dual Stride / Newest comparison shape for a bounded Delta Window candidate set. "
+                + "Small candidate-score improvements retain the current value, and tied/near-tied change candidates request another independent set instead of choosing arbitrarily. "
+                + "Final confirmation requires several comparable openings across a useful pre-event operating RPM spread, but not a fixed RPM target or a working VSS channel. No controller writes occur during capture.";
     }
 
     @Override public String reviewOutputs() {
-        return "Evidence review: TPS-movement onset, detected-change/threshold separation, trigger timing, hold drop-out, reversal clearing, lift/reapply re-arm, stacked-event separation, actual window/stride and channel completeness. Delta Window may be tested through exact baseline -> one change -> repeated maneuver A/B. No automatic recommendation, no automatic Apply and no burn.";
+        return EngagementPassiveCapture.reviewText(latestSnapshot);
     }
 
-    @Override public String currentTuneContext(AeProjectSnapshot snapshot) {
+    @Override public synchronized String currentTuneContext(AeProjectSnapshot snapshot) {
         int parameterCount = AeTuningParameterCatalog.forSubsystem(
                 AeTuningParameterCatalog.Subsystem.ENGAGEMENT_DETECTION).size();
         if (snapshot == null) {
             return "AE Foundation detector/timing family: " + parameterCount
-                    + " catalogued settings. Read Working Tune to load detector mode, Delta Window, Sample Length, Fast Callback and threshold context. Only Delta Window is currently an AE Tuner A/B edit target.";
+                    + " catalogued settings. Read Working Tune before passive capture.";
         }
-        EngagementDetectionWriteSelection.observeWorkingTune(snapshot);
+        if (latestSnapshot != snapshot) {
+            latestSnapshot = snapshot;
+            EngagementPassiveCapture.reset();
+        }
+        EngagementModelOption model = EngagementModelOption.fromControllerText(snapshot.getEngagementModel());
+        String modelState = model == EngagementModelOption.DUAL_STRIDE_NEWEST
+                ? "Dual Stride / Newest verified"
+                : "WARNING: passive timing estimator is calibrated for Dual Stride / Newest";
+        String callbackState = snapshot.hasEngagementFastCallback()
+                ? (snapshot.isEngagementFastCallback()
+                    ? "Fast Callback ON"
+                    : "Fast Callback OFF")
+                : "Fast Callback state unavailable";
         return "AE Foundation detector/timing family: " + parameterCount
                 + " catalogued settings. " + snapshot.engagementSettingsText()
-                + ". Engagement Model, Sample Length and Fast Callback are read-only context; Delta Window is the current guarded A/B setting.";
+                + ". " + modelState + ". " + callbackState + ". "
+                + "Capture is read-only. Idle/no-load evidence may produce a provisional result; guarded Apply remains withheld until representative pre-event operating RPM coverage confirms it. "
+                + "Delta Window is estimated after a comparable natural-movement set is captured, while Sample Length remains history capacity. No burn.";
     }
 
     @Override public boolean activityObserved(LiveSample sample) {
-        if (sample == null) return false;
-        double delta = sample.get(ChannelRole.DELTA_TPS);
-        double threshold = sample.get(ChannelRole.ACCEL_THRESHOLD);
-        if (!Double.isFinite(delta)) return false;
-        if (!Double.isFinite(threshold)) return delta > 0.0;
-        return delta > threshold;
+        return EngagementPassiveCapture.accept(sample);
     }
 
     @Override public ProposalWritePlan explicitSettingWritePlan(AeProjectSnapshot snapshot) {
-        return selectedDeltaWindowPlan(snapshot);
+        return null;
     }
 
     @Override public ProposalWritePlan reviewedWritePlan(AeProjectSnapshot snapshot,
                                                           List<LiveSample> evidence) {
-        // No automatic evidence-derived recommendation yet. Only an explicit
-        // operator-selected Delta Window A/B proposal may be returned.
-        return selectedDeltaWindowPlan(snapshot);
-    }
-
-    private ProposalWritePlan selectedDeltaWindowPlan(AeProjectSnapshot snapshot) {
-        if (snapshot == null) return null;
-        EngagementDetectionWriteSelection.observeWorkingTune(snapshot);
-        EngagementDetectionWriteSelection.Snapshot selection =
-                EngagementDetectionWriteSelection.snapshot();
-        if (!selection.hasRequestedDeltaWindowChange()) return null;
-        return EngagementDetectionSettingProposal.deltaWindow(
-                snapshot, selection.requestedDeltaWindowMs);
+        return EngagementPassiveCapture.recommendationPlan(snapshot);
     }
 }

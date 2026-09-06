@@ -9,27 +9,31 @@ import se.anders.tunerstudio.aetuner.recovery.*;
 import se.anders.tunerstudio.aetuner.ui.*;
 
 public final class VehicleTestIdentityRegressionTest {
-    private static final String EXPECTED_VERSION = "0.4.2-rc.2";
+    private static final String EXPECTED_VERSION = "0.4.3";
     private static final String EXPECTED_PUBLIC_REPOSITORY =
             "https://github.com/PJawZK/AE-Tuner-EPICEFI_Public";
 
     public static void main(String[] args) {
+        assertEquals(EXPECTED_VERSION, BuildIdentity.VERSION,
+                "small build-identity authority must identify the exact vehicle-test build");
         assertEquals(EXPECTED_VERSION, AeTunerPlugin.VERSION,
-                "source version must identify the release-candidate build");
+                "source version must identify the exact vehicle-test build");
         assertTrue(AeTunerPlugin.VEHICLE_TEST_BANNER.contains(EXPECTED_VERSION),
-                "banner must include the exact release-candidate version");
-        assertTrue(AeTunerPlugin.VEHICLE_TEST_BANNER.contains("RELEASE CANDIDATE"),
-                "release-candidate banner must not masquerade as accepted");
-        assertTrue(AeTunerPlugin.VEHICLE_TEST_BANNER.contains("PUBLIC TEST"),
-                "release-candidate banner must identify the public-test boundary");
+                "banner must include the exact vehicle-test version");
+        assertTrue(AeTunerPlugin.VEHICLE_TEST_BANNER.contains("PUBLIC RELEASE"),
+                "public release banner must identify the release boundary");
+        assertTrue(!AeTunerPlugin.VEHICLE_TEST_BANNER.contains("RELEASE CANDIDATE"),
+                "internal vehicle-test build must not masquerade as the published release candidate");
+        assertTrue(!AeTunerPlugin.VEHICLE_TEST_BANNER.contains("PUBLIC TEST"),
+                "internal vehicle-test build must not masquerade as the published public-test artifact");
         assertTrue(AeTunerPlugin.VEHICLE_TEST_BANNER.contains("guarded Apply/Restore"),
-                "release-candidate banner must preserve the guarded working-tune mutation boundary");
+                "vehicle-test banner must preserve the guarded working-tune mutation boundary");
         assertTrue(AeTunerPlugin.VEHICLE_TEST_BANNER.contains("NO BURN"),
                 "banner must preserve the no-burn boundary");
         assertTrue(AeTunerPlugin.VEHICLE_TEST_BANNER.length() <= 130,
-                "release-candidate banner regressed to a long line likely to clip at the physical 1366 px test width");
+                "vehicle-test banner regressed to a long line likely to clip at the physical 1366 px test width");
         assertTrue(!AeTunerPlugin.VEHICLE_TEST_BANNER.contains("physically validated"),
-                "release candidate must not claim physical validation it has not received");
+                "vehicle-test candidate must not claim broad physical validation beyond the scoped Foundation evidence");
         assertEquals(EXPECTED_PUBLIC_REPOSITORY, AeTunerPlugin.PUBLIC_REPOSITORY_URL,
                 "public repository constant changed unexpectedly");
 
@@ -46,7 +50,7 @@ public final class VehicleTestIdentityRegressionTest {
                     plugin.getVehicleTestBannerForTest(),
                     "visible Guided Tuning banner must match the source identity");
             assertEquals(EXPECTED_VERSION, plugin.getVersion(),
-                    "plugin API version must match the release-candidate identity");
+                    "plugin API version must match the vehicle-test identity");
             assertEquals(EXPECTED_PUBLIC_REPOSITORY, plugin.getHelpUrl(),
                     "TunerStudio About plugin/help metadata must expose the public repository URL");
             assertTrue(plugin.areGuidedSoundCuesEnabledForTest(),

@@ -17,14 +17,14 @@ package se.anders.tunerstudio.aetuner.guided;
 public enum GuidedTuningRecipe {
     ENGAGEMENT_DETECTION(
             "1. TPS Movement / Timing",
-            "Coached timing evidence + Delta Window A/B available",
+            "Two-stage timing vehicle validation available",
             true,
-            "Coach repeatable TPS movement against production detected TPS change and AccelThreshold. Dual Stride / Newest is expected read-only detector context. Delta Window is the physically qualified A/B setting; Sample Length and Fast Callback are informational/read-only here."),
+            "Coach repeatable TPS movement against production detected TPS change and AccelThreshold. Sample Length is controlled Stage 1 and Delta Window is controlled Stage 2; live ECU window/sample/stride timing must qualify before maneuver evidence counts. Dual Stride / Newest and Fast Callback remain read-only controller context/prerequisite."),
     FOUNDATION_THRESHOLD(
             "2. Threshold / Sensitivity",
-            "Planned Guided scaffold",
-            false,
-            "Tune how much throttle movement is required to count as an acceleration event. Current firmware exposes the RPM threshold curve, dynamic-threshold enable/mixing and delta-TPS smoothing/averaging controls."),
+            "Guided sensitivity evidence + guarded recommendation available",
+            true,
+            "Measure event-level separation between ordinary tiny pedal corrections and deliberate openings in Fuel: TPS AE change / AccelThreshold space across broad RPM regions. The implemented recommendation is limited to evidence-backed tpsAeThresholdValue bins. Dynamic Threshold OFF uses the static curve directly; Dynamic ON with static averaging ON uses verified Effective=(Static+Dynamic)/2 inversion; Dynamic ON with averaging OFF leaves the static curve at zero runtime authority."),
     FOUNDATION_VALIDATION(
             "3. Engagement Validation",
             "Planned Guided validation coach",

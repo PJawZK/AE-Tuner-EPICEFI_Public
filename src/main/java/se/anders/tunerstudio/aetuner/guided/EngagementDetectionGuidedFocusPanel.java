@@ -1,340 +1,464 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.JSpinner;
 import javax.swing.JTextArea;
-import javax.swing.JToggleButton;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingConstants;
+import javax.swing.UIManager;
+import java.awt.BasicStroke;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
+import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
-import java.awt.GridLayout;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 
-/**
- * Driver-facing TPS Movement / Timing coach.
- *
- * Driver view has deliberately no root scroll container. Live refreshes update
- * values only and must not move the viewport. Engagement Model, Sample Length
- * and Fast Callback are read-only context; only Delta Window is available as a
- * secondary explicit A/B experiment.
- */
+/** Minimal eyes-up Foundation 1 passive capture view. */
 public final class EngagementDetectionGuidedFocusPanel extends JPanel {
-    private final JLabel current = new JLabel("Working tune not read");
-    private final JTextArea nextAction = text(
-            "READ WORKING TUNE\nLoad the current TPS Movement / Timing baseline first.",
-            3, 24f, Font.BOLD);
-    private final JLabel detectorState = new JLabel("WAIT — live TPS movement data unavailable");
-    private final JLabel liveTps = new JLabel("TPS: n/a");
-    private final JLabel liveRpm = new JLabel("RPM: n/a");
-    private final JLabel liveDelta = new JLabel("Fuel: TPS AE change: n/a");
-    private final JLabel liveWindow = new JLabel("Window / stride: n/a");
-    private final JLabel newestCheck = new JLabel("Dual Stride / Newest check: n/a");
-    private final JLabel prerequisites = new JLabel("Read Working Tune for detector prerequisites");
-    private final JProgressBar detectedSignal = signalBar();
-    private final JProgressBar eventProgress = new JProgressBar();
-    private final JProgressBar dataProgress = new JProgressBar(0, 100);
-    private final JTextArea maneuverPlan = text(defaultManeuverPlan(), 7, 13f, Font.PLAIN);
-    private final JTextArea audioPlan = text(defaultAudioPlan(), 7, 13f, Font.PLAIN);
+    private static final String CARD_DRIVER = "driver";
+    private static final String CARD_DETAILS = "details";
 
-    private final JSpinner requestedDeltaWindow = new JSpinner(
-            new SpinnerNumberModel(Double.valueOf(25.0), Double.valueOf(1.0),
-                    Double.valueOf(500.0), Double.valueOf(1.0)));
-    private final JToggleButton settingsToggle =
-            new JToggleButton("Show Delta Window A/B control");
-    private final JPanel settingsPanel = new JPanel(new GridLayout(1, 3, 8, 6));
-    private final JPanel settingsHost = new JPanel();
-    private boolean updating;
+    private final CardLayout cards = new CardLayout();
+    private final JPanel cardHost = new JPanel(cards);
+    private final JPanel driverCard = new JPanel();
+    private final JPanel detailsCard = new JPanel(new BorderLayout(7, 7));
+
+    private final JTextArea driverInstruction = area(
+            "MAKE ONE COMFORTABLE PEDAL OPENING WHEN SAFE", 2, 32f, Font.BOLD);
+    private final JLabel driverStatus = new JLabel("Passive TPS capture", SwingConstants.CENTER);
+    private final JLabel driverRpmText = new JLabel("RPM: n/a", SwingConstants.CENTER);
+    private final JLabel driverTpsText = new JLabel("TPS: n/a", SwingConstants.CENTER);
+    private final JLabel driverCandidate = new JLabel("First usable movement sets the visual reference", SwingConstants.CENTER);
+    private final JProgressBar driverEventProgress = bar(0, 6);
+    private final BandGauge rpmGauge = new BandGauge();
+    private final BandGauge tpsGauge = new BandGauge();
+
+    private final JLabel current = new JLabel("Working tune not read");
+    private final JLabel detectorState = new JLabel("Passive capture idle");
+    private final JLabel sweepCandidate = new JLabel("No comparable cluster yet");
+    private final JLabel sweepTarget = new JLabel("No exact TPS target");
+    private final JProgressBar eventProgress = bar(0, 6);
+    private final JProgressBar detectedSignal = bar(0, 100);
+    private final JTextArea nextAction = area(
+            "Start Capture, then make one comfortable positive pedal opening when safe.",
+            3, 20f, Font.BOLD);
+    private final JTextArea maneuverPlan = area(
+            "The first usable opening sets a full-height visual TPS reference marker. Later completed openings get shorter lower-half markers. Those markers are driver aids only; AE Tuner still decides comparability from the measured event data. After every movement, SETTLING must complete before another event can be accepted.",
+            6, 13f, Font.PLAIN);
+    private final JTextArea audioPlan = area(
+            "Foundation 1 uses one optional accepted-event cue only. SETTLING is a physical event-separation state, not target choreography. There are no exact-target, hold or candidate-transition cues.",
+            4, 13f, Font.PLAIN);
+
+    private final EngagementQuietCalibrationPanel quietCalibrationDetails =
+            new EngagementQuietCalibrationPanel(false);
+    private final JPanel settingsPanel = new JPanel();
+    private final JSpinner requestedDeltaWindow = spinner(25, 1, 500, 1);
+    private final JSpinner rpmStartingPoint = spinner(1800, 600, 6500, 50);
+    private final JSpinner sweepEvents = new JSpinner(new SpinnerNumberModel(6, 3, 12, 1));
+
     private boolean driverView = true;
 
     public EngagementDetectionGuidedFocusPanel() {
-        super(new BorderLayout(8, 8));
-        setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-        JLabel title = new JLabel("AE Foundation — TPS Movement / Timing");
-        title.setFont(title.getFont().deriveFont(Font.BOLD, 20f));
-        JPanel header = new JPanel(new BorderLayout(0, 4));
-        header.add(title, BorderLayout.NORTH);
-        header.add(current, BorderLayout.CENTER);
-        add(header, BorderLayout.NORTH);
-
-        JPanel coaching = new JPanel(new BorderLayout(8, 8));
-        JPanel actionPanel = new JPanel(new BorderLayout());
-        actionPanel.setBorder(BorderFactory.createTitledBorder("WHAT TO DO NOW"));
-        actionPanel.add(nextAction, BorderLayout.CENTER);
-        coaching.add(actionPanel, BorderLayout.NORTH);
-
-        JPanel liveRow = new JPanel(new GridLayout(1, 2, 8, 8));
-        liveRow.add(buildLivePanel());
-        liveRow.add(buildContextPanel());
-        coaching.add(liveRow, BorderLayout.CENTER);
-
-        JPanel guideRow = new JPanel(new GridLayout(1, 2, 8, 8));
-        guideRow.add(wrap("MANEUVER / DELTA WINDOW A-B", maneuverPlan));
-        guideRow.add(wrap("AUDIO / EYES-UP CUES", audioPlan));
-        coaching.add(guideRow, BorderLayout.SOUTH);
-        add(coaching, BorderLayout.CENTER);
-
-        settingsPanel.setBorder(BorderFactory.createTitledBorder(
-                "SECONDARY — explicit Delta Window experiment"));
-        settingsPanel.add(new JLabel("Delta Window (ms)"));
-        settingsPanel.add(requestedDeltaWindow);
-        settingsPanel.add(new JLabel("Apply/Restore is handled by the reviewed proposal controls"));
-        settingsPanel.setVisible(false);
-
-        settingsHost.setLayout(new BoxLayout(settingsHost, BoxLayout.Y_AXIS));
-        settingsHost.add(settingsToggle);
-        settingsHost.add(settingsPanel);
-        add(settingsHost, BorderLayout.SOUTH);
-
-        requestedDeltaWindow.addChangeListener(event -> {
-            if (updating) return;
-            EngagementDetectionWriteSelection.requestDeltaWindowMs(
-                    ((Number) requestedDeltaWindow.getValue()).doubleValue());
-            refreshFromSelection();
-        });
-        settingsToggle.addActionListener(event -> updateSettingsVisibility());
-        refreshFromSelection();
+        super(new BorderLayout());
+        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        buildDriver();
+        buildDetails();
+        cardHost.add(driverCard, CARD_DRIVER);
+        cardHost.add(detailsCard, CARD_DETAILS);
+        add(cardHost, BorderLayout.CENTER);
         setDriverView(true);
     }
 
-    private JPanel buildLivePanel() {
-        JPanel panel = new JPanel();
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        panel.setBorder(BorderFactory.createTitledBorder(
-                "TPS MOVEMENT -> DETECTED CHANGE -> THRESHOLD"));
-        detectorState.setFont(detectorState.getFont().deriveFont(Font.BOLD, 17f));
-        panel.add(detectorState);
-
-        JPanel values = new JPanel(new GridLayout(2, 2, 6, 3));
-        values.add(liveTps);
-        values.add(liveRpm);
-        values.add(liveDelta);
-        values.add(liveWindow);
-        panel.add(values);
-
-        detectedSignal.setBorder(BorderFactory.createTitledBorder(
-                "Fuel: TPS AE change / AccelThreshold — crossing = 100%"));
-        detectedSignal.setPreferredSize(new Dimension(460, 56));
-        panel.add(detectedSignal);
-        panel.add(newestCheck);
-
-        eventProgress.setStringPainted(true);
-        eventProgress.setBorder(BorderFactory.createTitledBorder("Observed intentional events"));
-        panel.add(eventProgress);
-        return panel;
+    private void buildDriver() {
+        driverCard.setLayout(new BoxLayout(driverCard, BoxLayout.Y_AXIS));
+        driverCard.setBorder(BorderFactory.createEmptyBorder(12, 18, 12, 18));
+        driverStatus.setFont(driverStatus.getFont().deriveFont(Font.BOLD, 16f));
+        driverStatus.setAlignmentX(CENTER_ALIGNMENT);
+        driverInstruction.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+        driverInstruction.setAlignmentX(CENTER_ALIGNMENT);
+        driverInstruction.setOpaque(false);
+        driverCard.add(driverStatus);
+        driverCard.add(Box.createVerticalStrut(10));
+        driverCard.add(driverInstruction);
+        driverCard.add(Box.createVerticalStrut(14));
+        driverCard.add(driverRpmText);
+        rpmGauge.setPreferredSize(new Dimension(900, 48));
+        rpmGauge.setMaximumSize(new Dimension(Integer.MAX_VALUE, 48));
+        rpmGauge.setAlignmentX(CENTER_ALIGNMENT);
+        driverCard.add(rpmGauge);
+        driverCard.add(Box.createVerticalStrut(12));
+        driverCard.add(driverTpsText);
+        tpsGauge.setPreferredSize(new Dimension(900, 48));
+        tpsGauge.setMaximumSize(new Dimension(Integer.MAX_VALUE, 48));
+        tpsGauge.setAlignmentX(CENTER_ALIGNMENT);
+        driverCard.add(tpsGauge);
+        driverCard.add(Box.createVerticalStrut(16));
+        driverEventProgress.setBorder(BorderFactory.createTitledBorder("COMPARABLE PEDAL MOVEMENTS"));
+        driverEventProgress.setMaximumSize(new Dimension(Integer.MAX_VALUE, 56));
+        driverCard.add(driverEventProgress);
+        driverCandidate.setFont(driverCandidate.getFont().deriveFont(Font.BOLD, 16f));
+        driverCandidate.setAlignmentX(CENTER_ALIGNMENT);
+        driverCard.add(Box.createVerticalStrut(7));
+        driverCard.add(driverCandidate);
     }
 
-    private JPanel buildContextPanel() {
-        JPanel panel = new JPanel(new BorderLayout(4, 4));
-        panel.setBorder(BorderFactory.createTitledBorder("SETUP / EVIDENCE QUALITY"));
-        JPanel top = new JPanel(new GridLayout(2, 1, 2, 2));
-        top.add(prerequisites);
-        dataProgress.setStringPainted(true);
-        dataProgress.setBorder(BorderFactory.createTitledBorder("Required-channel completeness"));
-        top.add(dataProgress);
-        panel.add(top, BorderLayout.NORTH);
+    private void buildDetails() {
+        JPanel header = new JPanel(new BorderLayout());
+        JLabel title = new JLabel("AE Foundation — Passive TPS Movement / Timing");
+        title.setFont(title.getFont().deriveFont(Font.BOLD, 20f));
+        header.add(title, BorderLayout.NORTH);
+        header.add(current, BorderLayout.SOUTH);
+        detailsCard.add(header, BorderLayout.NORTH);
 
-        JTextArea info = text(
-                "Engagement Model: read-only controller context; AE Tuner does not select it.\n"
-                + "Sample Length: read-only until independent tuning value is established.\n"
-                + "Fast Callback: read-only prerequisite/info; ~200 Hz is the intended workflow.\n"
-                + "Delta Window: physically qualified scalar Apply/readback/Restore and the current A/B timing setting.",
-                7, 13f, Font.PLAIN);
-        panel.add(info, BorderLayout.CENTER);
-        return panel;
+        JPanel center = new JPanel();
+        center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
+        detectorState.setFont(detectorState.getFont().deriveFont(Font.BOLD, 16f));
+        center.add(detectorState);
+        center.add(Box.createVerticalStrut(6));
+        center.add(sweepCandidate);
+        center.add(sweepTarget);
+        eventProgress.setBorder(BorderFactory.createTitledBorder("Comparable movements"));
+        center.add(eventProgress);
+        detectedSignal.setBorder(BorderFactory.createTitledBorder("Set completion"));
+        center.add(detectedSignal);
+        center.add(titled("CURRENT INSTRUCTION", nextAction));
+        center.add(titled("CAPTURE LOGIC", maneuverPlan));
+        center.add(titled("AUDIO", audioPlan));
+        quietCalibrationDetails.setVisible(false);
+        center.add(quietCalibrationDetails);
+        detailsCard.add(center, BorderLayout.CENTER);
     }
 
     public void updateModel(EngagementFocusModel model) {
-        refreshFromSelection();
+        EngagementPassiveCapture.Snapshot passive = EngagementPassiveCapture.snapshot();
+        double rpm = model == null ? Double.NaN : model.rpm;
+        double tps = model == null ? Double.NaN : model.tps;
+        driverRpmText.setText("RPM " + fmt0(rpm));
+        if (passive.settling) {
+            driverTpsText.setText("TPS " + fmt1(tps) + "%"
+                    + (Double.isFinite(passive.settleUpperTps)
+                        ? " · NEW BASELINE ~" + fmt1(passive.settleUpperTps) + "%"
+                        : " · REPOSITION / HOLD STEADY"));
+        } else {
+            driverTpsText.setText("TPS " + fmt1(tps) + "%");
+        }
+        rpmGauge.setValues(700, 4500, rpm);
+        tpsGauge.setValues(0, 50, tps, passive.referencePeakTps,
+                passive.repeatPeakTps,
+                passive.settling ? passive.settleUpperTps : Double.NaN);
+
+        int target = Math.max(1, passive.targetComparable);
+        int captured = Math.min(passive.comparableEvents, target);
+        driverEventProgress.setMaximum(target);
+        driverEventProgress.setValue(captured);
+        driverEventProgress.setString(passive.comparableEvents + " / " + target + " comparable");
+        eventProgress.setMaximum(target);
+        eventProgress.setValue(captured);
+        eventProgress.setString(passive.comparableEvents + " / " + target + " comparable");
+        int percent = (int) Math.round(100.0 * captured / target);
+        detectedSignal.setValue(Math.max(0, Math.min(100, percent)));
+        detectedSignal.setString(percent + "% of evidence set");
+
         if (model == null) {
-            nextAction.setText("READ WORKING TUNE\nLoad the current TPS Movement / Timing baseline, then connect live data.");
-            detectorState.setText("WAIT — live TPS movement data unavailable");
-            clearLive();
-            maneuverPlan.setText(defaultManeuverPlan());
-            audioPlan.setText(defaultAudioPlan());
+            driverStatus.setText("Passive TPS capture idle");
+            setTextIfChanged(driverInstruction, "READ WORKING TUNE, THEN START CAPTURE");
+            current.setText("Working tune not read");
             return;
         }
 
-        nextAction.setText(model.nextActionText());
-        detectorState.setText(model.detectorStatusText());
-        liveTps.setText("TPS: " + fmt(model.tps) + " %");
-        liveRpm.setText("RPM: " + fmt(model.rpm));
-        liveDelta.setText("Fuel: TPS AE change: " + fmt(model.productionDeltaTps));
-        liveWindow.setText("Window / stride: " + fmt(model.windowMs) + " ms / "
-                + fmt(model.stride) + " sample(s)");
-        newestCheck.setText("Dual Stride / Newest diagnostic: " + fmt(model.newestPair)
-                + " | production difference: "
-                + differenceText(model.productionDeltaTps, model.newestPair));
-        prerequisites.setText(model.prerequisiteText());
+        current.setText("Working tune: " + (model.workingModel == null ? "unknown detector" : model.workingModel)
+                + " | Sample Length " + fmt0(model.sampleLengthSeconds * 1000.0)
+                + " ms | capture is read-only");
 
-        updateRatioBar(detectedSignal, model.productionDeltaTps, model.threshold);
+        if (passive.complete()) {
+            EngagementPassiveCapture.TimingStatus timing = model.timingStatus;
+            if (!timing.deltaResolved) {
+                driverStatus.setText("1/2 Delta Window — ambiguous; 2/2 capacity assessed");
+                String sampleLine = timing.sampleResolved
+                        ? "\n2/2 SAMPLE LENGTH — " + fmt0(timing.sampleLengthMs) + " ms — "
+                            + (timing.sampleChangeNeeded ? "INCREASE" : "RETAIN")
+                        : "\n2/2 SAMPLE LENGTH — WAITING";
+                setTextIfChanged(driverInstruction,
+                        "1/2 DELTA WINDOW — AMBIGUOUS" + sampleLine);
+                driverCandidate.setText("Pedal " + timing.pedalQuality
+                        + " · best " + fmt0(timing.bestDeltaMs) + " ms / runner "
+                        + fmt0(timing.secondDeltaMs) + " ms · score gap "
+                        + fmt3(timing.scoreGap) + " / " + fmt3(timing.requiredScoreGap)
+                        + " · evidence " + timing.evidenceSets + " set(s) / "
+                        + timing.evidenceEvents + " openings");
+                detectorState.setText(timing.temporalResolutionLimited
+                        ? "DELTA AMBIGUOUS — HOST TRACE IS COARSE FOR 5 ms CANDIDATE SPACING"
+                        : "DELTA AMBIGUOUS — PRIOR SET EVIDENCE IS RETAINED AND COMBINED");
+                setTextIfChanged(nextAction, timing.coaching);
+            } else {
+                driverStatus.setText(timing.applyReady
+                        ? "TIMING PAIR COMPLETE — operating range confirmed"
+                        : "TIMING PAIR COMPLETE — provisional operating coverage");
+                setTextIfChanged(driverInstruction,
+                        "1/2 DELTA WINDOW — " + fmt0(timing.deltaWindowMs) + " ms — "
+                                + (timing.deltaChangeNeeded ? "PROPOSE" : "RETAIN")
+                                + "\n2/2 SAMPLE LENGTH — " + fmt0(timing.sampleLengthMs) + " ms — "
+                                + (timing.sampleChangeNeeded ? "PROPOSE" : "RETAIN"));
+                driverCandidate.setText("TIMING PAIR COMPLETE · VSS-road context "
+                        + passive.roadComparableEvents + " · pre-event RPM span "
+                        + fmt0(passive.roadRpmSpan));
+                detectorState.setText("TIMING PAIR COMPLETE — 1/2 DELTA WINDOW -> 2/2 SAMPLE LENGTH");
+                setTextIfChanged(nextAction,
+                        timing.applyReady
+                                ? "Finish/Review exposes one guarded timing-pair proposal containing only settings that actually need to change."
+                                : "Delta Window and Sample Length are both resolved, but Apply remains withheld until comparable pre-event operating points span about 400 RPM. VSS is useful context, not a hard prerequisite.");
+            }
+        } else if (passive.moving) {
+            driverStatus.setText("Capturing pedal movement");
+            setTextIfChanged(driverInstruction, "MOVEMENT DETECTED — LET IT PEAK NATURALLY");
+            driverCandidate.setText(markerSummary(passive));
+            detectorState.setText("CAPTURING PHYSICAL TPS MOVEMENT");
+            setTextIfChanged(nextAction, "Let this opening peak naturally; no exact target or hold is required.");
+        } else if (passive.settling) {
+            driverStatus.setText("Re-arming — establish the next operating point");
+            if (!passive.settleTpsReturned) {
+                setTextIfChanged(driverInstruction, "EASE OFF THE PREVIOUS OPENING");
+                detectorState.setText("RE-ARM — WAITING FOR THE PREVIOUS OPENING TO END");
+            } else if (!passive.settleTpsQuiet) {
+                setTextIfChanged(driverInstruction, "REPOSITION AS NEEDED — THEN HOLD TPS STEADY");
+                detectorState.setText("RE-ARM — YOU MAY MOVE TO A NEW ROAD TPS / RPM POINT");
+            } else if (!passive.settleRpmReady) {
+                setTextIfChanged(driverInstruction, "TPS STEADY — HOLD THE OPERATING POINT");
+                detectorState.setText("RE-ARM — WAITING FOR RPM TO BECOME STEADY");
+            } else {
+                setTextIfChanged(driverInstruction, Double.isFinite(passive.settleUpperTps)
+                        ? "NEW BASELINE ~" + fmt1(passive.settleUpperTps) + "% TPS — HOLD FOR READY"
+                        : "OPERATING POINT STEADY — HOLD FOR READY");
+                detectorState.setText("RE-ARM — LEARNING THE NEXT PRE-EVENT BASELINE");
+            }
+            driverCandidate.setText(Double.isFinite(passive.settleUpperTps)
+                    ? "New steady baseline ~" + fmt1(passive.settleUpperTps)
+                        + "% TPS · previous baseline was " + fmt1(passive.settleBaselineTps) + "%"
+                    : "Previous baseline " + fmt1(passive.settleBaselineTps)
+                        + "% TPS · it does NOT need to be revisited");
+            setTextIfChanged(nextAction,
+                    "After the previous opening ends, you may reposition to any safe steady road TPS/RPM operating point. Hold that point briefly and AE Tuner will adopt it automatically as the next baseline. You do not need to return to the previous TPS value.");
+        } else if (!Double.isFinite(passive.referencePeakTps)) {
+            driverStatus.setText("Passive capture — establish visual reference");
+            setTextIfChanged(driverInstruction, "MAKE ONE COMFORTABLE PEDAL OPENING WHEN SAFE");
+            driverCandidate.setText("First usable movement sets the full-height TPS reference marker");
+            detectorState.setText("READY — WAITING FOR FIRST USABLE POSITIVE TPS MOVEMENT");
+            setTextIfChanged(nextAction,
+                    "Make one comfortable moderate positive pedal opening. Its peak becomes the visual reference only; it is not a hard numerical target.");
+        } else {
+            driverStatus.setText("Passive capture — " + passive.comparableEvents + "/" + target + " comparable");
+            setTextIfChanged(driverInstruction, "REPEAT APPROXIMATELY THE REFERENCE MOVEMENT");
+            driverCandidate.setText(markerSummary(passive));
+            detectorState.setText("READY — WAITING FOR NEXT NATURAL POSITIVE TPS MOVEMENT");
+            setTextIfChanged(nextAction,
+                    "Repeat approximately the full-height reference marker. Short lower-half markers show prior completed peaks; AE Tuner, not the marker, decides comparability.");
+        }
 
-        eventProgress.setMinimum(0);
-        eventProgress.setMaximum(Math.max(1, model.targetEvents));
-        eventProgress.setValue(Math.min(model.activityEvents, model.targetEvents));
-        eventProgress.setString(model.activityEvents + " / " + model.targetEvents
-                + " minimum representative events");
+        if (Double.isFinite(passive.medianStep)) {
+            sweepCandidate.setText("Natural cluster: median +" + fmt1(passive.medianStep)
+                    + " TPS | MAD " + fmt1(passive.madStep)
+                    + " | tolerance +/-" + fmt1(passive.tolerance));
+        } else {
+            sweepCandidate.setText("Natural cluster: collecting first movements");
+        }
+        sweepTarget.setText("Visual reference " + fmt1(passive.referencePeakTps)
+                + "% TPS | not a hard target | onset floor " + fmt1(passive.onsetRateFloor)
+                + " %TPS/s | prior sets " + passive.completedSets);
+    }
 
-        int completeness = model.observedSamples <= 0 ? 0
-                : (int) Math.round(100.0 * model.completeRequiredSamples
-                        / Math.max(1, model.observedSamples));
-        completeness = Math.max(0, Math.min(100, completeness));
-        dataProgress.setValue(completeness);
-        dataProgress.setString(model.observedSamples <= 0
-                ? "No capture samples yet" : completeness + "% required-complete samples");
-
-        maneuverPlan.setText(model.maneuverPlanText());
-        audioPlan.setText(model.audioPlanText());
+    private static String markerSummary(EngagementPassiveCapture.Snapshot passive) {
+        if (!Double.isFinite(passive.referencePeakTps)) return passive.lastEvent;
+        return "Reference " + fmt1(passive.referencePeakTps) + "% TPS · repeats "
+                + passive.repeatPeakTps.length + " · " + passive.lastEvent;
     }
 
     public void setDriverView(boolean driver) {
         driverView = driver;
-        settingsToggle.setVisible(!driver);
-        if (driver) settingsToggle.setSelected(false);
-        updateSettingsVisibility();
-        nextAction.setFont(nextAction.getFont().deriveFont(Font.BOLD, driver ? 27f : 23f));
-        detectorState.setFont(detectorState.getFont().deriveFont(Font.BOLD,
-                driver ? 19f : 17f));
-    }
-
-    private void updateSettingsVisibility() {
-        settingsPanel.setVisible(!driverView && settingsToggle.isSelected());
+        cards.show(cardHost, driver ? CARD_DRIVER : CARD_DETAILS);
         revalidate();
         repaint();
     }
 
-    public void refreshFromSelection() {
-        EngagementDetectionWriteSelection.Snapshot state =
-                EngagementDetectionWriteSelection.snapshot();
-        updating = true;
-        try {
-            if (state.baselineAvailable) {
-                requestedDeltaWindow.setValue(Double.valueOf(state.requestedDeltaWindowMs));
-                requestedDeltaWindow.setEnabled(true);
-            } else {
-                requestedDeltaWindow.setEnabled(false);
-            }
-            if (state.modelBaselineAvailable || state.baselineAvailable
-                    || state.sampleLengthBaselineAvailable
-                    || state.fastCallbackBaselineAvailable) {
-                String fast = state.fastCallbackBaselineAvailable
-                        ? (state.baselineFastCallback ? "ON (~200 Hz)" : "OFF") : "unknown";
-                current.setText("Working tune: detector " + state.engagementModel
-                        + " (read-only) | Delta Window " + format(state.baselineDeltaWindowMs) + " ms"
-                        + " | Sample Length " + format(state.baselineSampleLengthSeconds) + " s (read-only)"
-                        + " | Fast Callback " + fast + " (read-only)"
-                        + pendingText(state));
-            } else {
-                current.setText("Working tune baseline unavailable. Use Read Working Tune.");
-            }
-        } finally {
-            updating = false;
-        }
-    }
+    public void refreshFromSelection() { }
 
-    private void clearLive() {
-        liveTps.setText("TPS: n/a");
-        liveRpm.setText("RPM: n/a");
-        liveDelta.setText("Fuel: TPS AE change: n/a");
-        liveWindow.setText("Window / stride: n/a");
-        newestCheck.setText("Dual Stride / Newest check: n/a");
-        detectedSignal.setValue(0);
-        detectedSignal.setString("n/a");
-        eventProgress.setMinimum(0);
-        eventProgress.setMaximum(1);
-        eventProgress.setValue(0);
-        eventProgress.setString("No capture events yet");
-        dataProgress.setValue(0);
-        dataProgress.setString("No capture samples yet");
-    }
-
-    private static JProgressBar signalBar() {
-        JProgressBar bar = new JProgressBar(0, 200);
-        bar.setStringPainted(true);
-        return bar;
-    }
-
-    private static void updateRatioBar(JProgressBar bar, double value, double threshold) {
-        if (!Double.isFinite(value) || !Double.isFinite(threshold) || threshold <= 0.000001) {
-            bar.setValue(0);
-            bar.setString("n/a");
-            return;
-        }
-        int percent = (int) Math.round(100.0 * value / threshold);
-        bar.setValue(Math.max(0, Math.min(200, percent)));
-        bar.setString(fmt(value) + " / " + fmt(threshold) + " = " + percent + "%");
-    }
-
-    private static JPanel wrap(String title, JTextArea area) {
+    private static JPanel titled(String title, JComponent component) {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createTitledBorder(title));
-        panel.add(area, BorderLayout.CENTER);
+        panel.add(component);
         return panel;
     }
 
-    private static JTextArea text(String value, int rows, float size, int style) {
-        JTextArea area = new JTextArea(value, rows, 1);
+    private static JTextArea area(String text, int rows, float size, int style) {
+        JTextArea area = new JTextArea(text, rows, 1);
         area.setEditable(false);
         area.setLineWrap(true);
         area.setWrapStyleWord(true);
         area.setFocusable(false);
         area.setFont(area.getFont().deriveFont(style, size));
-        area.setMargin(new java.awt.Insets(6, 7, 6, 7));
         return area;
     }
 
-    private static String pendingText(EngagementDetectionWriteSelection.Snapshot state) {
-        if (!state.hasRequestedDeltaWindowChange()) return " | no test change selected";
-        return " | DELTA WINDOW TEST PENDING: " + format(state.baselineDeltaWindowMs)
-                + " -> " + format(state.requestedDeltaWindowMs) + " ms";
+    private static JProgressBar bar(int min, int max) {
+        JProgressBar bar = new JProgressBar(min, max);
+        bar.setStringPainted(true);
+        return bar;
     }
 
-    private static String defaultManeuverPlan() {
-        return "Baseline: normal opening -> quick stab/hold -> partial lift/reapply -> stacked short stabs. Review first. If evidence justifies it, change Delta Window only and repeat the same set at similar RPM/load.";
+    private static JSpinner spinner(double value, double min, double max, double step) {
+        return new JSpinner(new SpinnerNumberModel(Double.valueOf(value), Double.valueOf(min),
+                Double.valueOf(max), Double.valueOf(step)));
     }
 
-    private static String defaultAudioPlan() {
-        return "READY = data present/below threshold. TARGET = detected TPS change crossed AccelThreshold. RETURN = detected change cleared. COMPLETE = review set finished.";
+    private static void setTextIfChanged(JTextArea area, String text) {
+        String safe = text == null ? "" : text;
+        if (!safe.equals(area.getText())) area.setText(safe);
     }
 
-    private static String differenceText(double a, double b) {
-        if (!Double.isFinite(a) || !Double.isFinite(b)) return "n/a";
-        return fmt(Math.abs(a - b));
+    private static String fmt0(double value) {
+        return Double.isFinite(value) ? String.format(java.util.Locale.ROOT, "%.0f", value) : "n/a";
+    }
+    private static String fmt1(double value) {
+        return Double.isFinite(value) ? String.format(java.util.Locale.ROOT, "%.1f", value) : "n/a";
+    }
+    private static String fmt3(double value) {
+        return Double.isFinite(value) ? String.format(java.util.Locale.ROOT, "%.3f", value) : "n/a";
     }
 
-    private static String fmt(double value) {
-        return Double.isFinite(value)
-                ? String.format(java.util.Locale.ROOT, "%.3f", value)
-                : "n/a";
-    }
-
-    private static String format(double value) {
-        if (!Double.isFinite(value)) return "n/a";
-        return String.format(java.util.Locale.ROOT, "%.3f", value)
-                .replaceAll("0+$", "").replaceAll("\\.$", "");
-    }
-
-    // Test helpers intentionally describe product behavior, not Swing internals.
-    boolean settingsToggleVisibleForTest() { return settingsToggle.isVisible(); }
-    boolean settingsPanelVisibleForTest() { return settingsPanel.isVisible(); }
+    boolean settingsToggleVisibleForTest() { return false; }
+    boolean settingsPanelVisibleForTest() { return false; }
     int selectedSignalPercentForTest() { return detectedSignal.getValue(); }
     String detectorStateForTest() { return detectorState.getText(); }
     String currentTextForTest() { return current.getText(); }
-    String actionTextForTest() { return nextAction.getText(); }
+    String actionTextForTest() { return driverView ? driverInstruction.getText() : nextAction.getText(); }
     String maneuverTextForTest() { return maneuverPlan.getText(); }
     boolean hasRootScrollForTest() { return false; }
     String guidanceTextForTest() { return nextAction.getText() + "\n" + maneuverPlan.getText() + "\n" + audioPlan.getText(); }
-    boolean deltaWindowEnabledForTest() { return requestedDeltaWindow.isEnabled(); }
-    void setDeltaWindowForTest(double value) { requestedDeltaWindow.setValue(Double.valueOf(value)); }
-
-    // Compatibility names retained for the Delta Window routing regression.
-    boolean requestedDeltaWindowEnabledForTest() { return deltaWindowEnabledForTest(); }
-    double requestedDeltaWindowForTest() {
-        return ((Number) requestedDeltaWindow.getValue()).doubleValue();
-    }
+    boolean deltaWindowEnabledForTest() { return false; }
+    void setDeltaWindowForTest(double value) { requestedDeltaWindow.setValue(value); }
+    boolean requestedDeltaWindowEnabledForTest() { return false; }
+    double requestedDeltaWindowForTest() { return ((Number) requestedDeltaWindow.getValue()).doubleValue(); }
     void setRequestedDeltaWindowForTest(double value) { setDeltaWindowForTest(value); }
+    void setSweepRpmForTest(double value) { rpmStartingPoint.setValue(value); }
+    double sweepRpmForTest() { return ((Number) rpmStartingPoint.getValue()).doubleValue(); }
+    int sweepEventsForTest() { return ((Number) sweepEvents.getValue()).intValue(); }
+    String sweepCandidateTextForTest() { return sweepCandidate.getText(); }
+    String sweepTargetTextForTest() { return sweepTarget.getText(); }
+    String driverInstructionForTest() { return driverInstruction.getText(); }
+    String driverRpmTextForTest() { return driverRpmText.getText(); }
+    String driverTpsTextForTest() { return driverTpsText.getText(); }
+    boolean driverCardVisibleForTest() { return driverCard.isVisible(); }
+    double driverReferenceMarkerForTest() { return tpsGauge.referenceForTest(); }
+    int driverRepeatMarkerCountForTest() { return tpsGauge.repeatCountForTest(); }
+    double driverReturnMarkerForTest() { return tpsGauge.returnReferenceForTest(); }
+    EngagementQuietCalibrationPanel quietCalibrationDetailsForTest() { return quietCalibrationDetails; }
+
+    private static final class BandGauge extends JComponent {
+        private double min = Double.NaN;
+        private double max = Double.NaN;
+        private double value = Double.NaN;
+        private double reference = Double.NaN;
+        private double[] repeats = new double[0];
+        private double returnReference = Double.NaN;
+
+        void setValues(double min, double max, double value) {
+            setValues(min, max, value, Double.NaN, new double[0], Double.NaN);
+        }
+
+        void setValues(double min, double max, double value,
+                       double reference, double[] repeats) {
+            setValues(min, max, value, reference, repeats, Double.NaN);
+        }
+
+        void setValues(double min, double max, double value,
+                       double reference, double[] repeats,
+                       double returnReference) {
+            this.min = min;
+            this.max = max;
+            this.value = value;
+            this.reference = reference;
+            this.repeats = repeats == null ? new double[0] : repeats.clone();
+            this.returnReference = returnReference;
+            repaint();
+        }
+
+        double referenceForTest() { return reference; }
+        int repeatCountForTest() { return repeats.length; }
+        double returnReferenceForTest() { return returnReference; }
+
+        private int pixel(double point, int x, int width) {
+            double clamped = Math.max(min, Math.min(max, point));
+            return x + (int) Math.round(((clamped - min) / (max - min)) * width);
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
+            if (!Double.isFinite(min) || !Double.isFinite(max) || max <= min) return;
+            Graphics2D g = (Graphics2D) graphics.create();
+            try {
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                int x = 12, y = 10, w = Math.max(1, getWidth() - 24), h = Math.max(12, getHeight() - 20);
+                Color bg = UIManager.getColor("ProgressBar.background");
+                if (bg == null) bg = getBackground().darker();
+                Color fg = UIManager.getColor("ProgressBar.foreground");
+                if (fg == null) fg = getForeground();
+                Color live = UIManager.getColor("Label.foreground");
+                if (live == null) live = getForeground();
+                g.setColor(bg);
+                g.fillRoundRect(x, y, w, h, 10, 10);
+
+                // SETTLING only: dashed pre-event TPS return reference. It is
+                // deliberately distinct from the solid opening-reference marker.
+                if (Double.isFinite(returnReference)) {
+                    int px = pixel(returnReference, x, w);
+                    Color settle = UIManager.getColor("Label.disabledForeground");
+                    if (settle == null) settle = fg;
+                    g.setColor(settle);
+                    g.setStroke(new BasicStroke(3f, BasicStroke.CAP_BUTT,
+                            BasicStroke.JOIN_MITER, 10f,
+                            new float[]{7f, 4f}, 0f));
+                    g.drawLine(px, y, px, y + h);
+                }
+
+                // First usable movement: dominant full-height reference marker.
+                if (Double.isFinite(reference)) {
+                    int px = pixel(reference, x, w);
+                    g.setColor(fg);
+                    g.setStroke(new BasicStroke(5f));
+                    g.drawLine(px, y, px, y + h);
+                }
+
+                // Later completed movements: shorter lower-half markers so they
+                // cannot be mistaken for the reference the driver is repeating.
+                g.setColor(fg);
+                g.setStroke(new BasicStroke(2.5f));
+                for (double repeat : repeats) {
+                    if (!Double.isFinite(repeat)) continue;
+                    int px = pixel(repeat, x, w);
+                    g.drawLine(px, y + h / 2, px, y + h);
+                }
+
+                // Live TPS/RPM cursor stays thin and is not a stored target.
+                if (Double.isFinite(value)) {
+                    int px = pixel(value, x, w);
+                    g.setColor(live);
+                    g.setStroke(new BasicStroke(1.5f));
+                    g.drawLine(px, y - 2, px, y + h + 2);
+                }
+                g.setColor(live);
+                g.setStroke(new BasicStroke(2f));
+                g.drawRoundRect(x, y, Math.max(0, w - 1), Math.max(0, h - 1), 10, 10);
+            } finally {
+                g.dispose();
+            }
+        }
+    }
 }

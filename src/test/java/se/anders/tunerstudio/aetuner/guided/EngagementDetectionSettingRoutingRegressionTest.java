@@ -3,93 +3,67 @@ package se.anders.tunerstudio.aetuner.guided;
 import se.anders.tunerstudio.aetuner.guided.method.GuidedAeMethodModule;
 import se.anders.tunerstudio.aetuner.guided.method.GuidedAeMethodModules;
 import se.anders.tunerstudio.aetuner.model.AeProjectSnapshot;
-import se.anders.tunerstudio.aetuner.proposal.ProposalWritePlan;
 
-/** UI/routing checks for the first explicit detector-setting proposal. */
+/** UI/routing regression for passive Foundation 1 setting authority. */
 public final class EngagementDetectionSettingRoutingRegressionTest {
     private EngagementDetectionSettingRoutingRegressionTest() { }
 
     public static void main(String[] args) {
-        focusStartsAtWorkingTuneAndDoesNotInventChange();
-        repeatedRefreshPreservesPendingChoiceButFreshReadResetsIt();
-        explicitFocusSelectionCreatesDirectPlanWithoutCapture();
+        focusStartsReadOnlyWithoutManualDeltaControl();
+        productionModuleHasNoDirectRoadWritePlan();
+        contextExplainsInternalRecommendationBoundary();
         System.out.println("EngagementDetectionSettingRoutingRegressionTest passed");
     }
 
-    private static void focusStartsAtWorkingTuneAndDoesNotInventChange() {
+    private static void focusStartsReadOnlyWithoutManualDeltaControl() {
         EngagementDetectionWriteSelection.resetForTest();
         AeProjectSnapshot snapshot = snapshot(25.0);
         EngagementDetectionWriteSelection.observeWorkingTune(snapshot);
-        EngagementDetectionGuidedFocusPanel focus =
-                new EngagementDetectionGuidedFocusPanel();
+        EngagementDetectionGuidedFocusPanel focus = new EngagementDetectionGuidedFocusPanel();
+        focus.updateModel(EngagementFocusModel.build(snapshot, null,
+                GuidedCaptureState.IDLE, 0, 6, 0, 0));
 
-        require(focus.requestedDeltaWindowEnabledForTest(),
-                "Delta Window proposal control did not enable after working-tune read");
-        requireClose(25.0, focus.requestedDeltaWindowForTest(),
-                "focus did not initialize at the exact working-tune Delta Window");
-        require(focus.currentTextForTest().contains("Dual stride, newest")
-                        && focus.currentTextForTest().contains("Delta Window 25 ms")
-                        && focus.currentTextForTest().contains("no test change selected"),
-                "focus did not expose detector baseline/no-test-change state");
+        require(!focus.requestedDeltaWindowEnabledForTest(),
+                "passive Foundation 1 exposed the retired manual Delta Window road control");
+        require(!focus.settingsToggleVisibleForTest()
+                        && !focus.settingsPanelVisibleForTest(),
+                "passive Foundation 1 exposed retired sweep/settings UI");
+        require(focus.currentTextForTest().contains("capture is read-only"),
+                "Focus did not expose the passive read-only road boundary");
         require(!EngagementDetectionWriteSelection.snapshot().hasRequestedChange(),
-                "opening the setting surface invented an ECU change");
+                "opening passive Foundation 1 invented an ECU change");
     }
 
-    private static void repeatedRefreshPreservesPendingChoiceButFreshReadResetsIt() {
-        EngagementDetectionWriteSelection.resetForTest();
-        AeProjectSnapshot firstRead = snapshot(25.0);
-        EngagementDetectionWriteSelection.observeWorkingTune(firstRead);
-        EngagementDetectionWriteSelection.requestDeltaWindowMs(24.0);
-
-        EngagementDetectionWriteSelection.observeWorkingTune(firstRead);
-        require(EngagementDetectionWriteSelection.snapshot().hasRequestedChange(),
-                "same-snapshot UI refresh erased the pending detector choice");
-        requireClose(24.0,
-                EngagementDetectionWriteSelection.snapshot().requestedDeltaWindowMs,
-                "same-snapshot refresh changed the requested value");
-
-        AeProjectSnapshot afterRestoreRead = snapshot(25.0);
-        EngagementDetectionWriteSelection.observeWorkingTune(afterRestoreRead);
-        require(!EngagementDetectionWriteSelection.snapshot().hasRequestedChange(),
-                "fresh working-tune read retained a stale temporary request");
-        requireClose(25.0,
-                EngagementDetectionWriteSelection.snapshot().requestedDeltaWindowMs,
-                "fresh working-tune read did not reset request to restored baseline");
-    }
-
-    private static void explicitFocusSelectionCreatesDirectPlanWithoutCapture() {
-        EngagementDetectionWriteSelection.resetForTest();
+    private static void productionModuleHasNoDirectRoadWritePlan() {
         AeProjectSnapshot snapshot = snapshot(25.0);
-        GuidedAeMethodModule module =
-                GuidedAeMethodModules.forRecipe(GuidedTuningRecipe.ENGAGEMENT_DETECTION);
+        GuidedAeMethodModule module = GuidedAeMethodModules.forRecipe(
+                GuidedTuningRecipe.ENGAGEMENT_DETECTION);
         module.currentTuneContext(snapshot);
+        require(module.explicitSettingWritePlan(snapshot) == null,
+                "passive Foundation 1 still exposes a direct setting plan before evidence");
+        require(module.setupGuidance().contains("No temporary timing write occurs during capture")
+                        && module.accumulationPlan().contains("No controller writes occur during capture")
+                        && module.setupGuidance().contains("presentation-only")
+                        && module.setupGuidance().contains("guarded Apply is withheld"),
+                "production route lost the no-write/reference/provisional-operating-range contract");
+    }
 
-        EngagementDetectionGuidedFocusPanel focus =
-                new EngagementDetectionGuidedFocusPanel();
-        focus.setRequestedDeltaWindowForTest(24.0);
-        require(EngagementDetectionWriteSelection.snapshot().hasRequestedChange(),
-                "explicit focus selection was not retained as a pending setting change");
+    private static void contextExplainsInternalRecommendationBoundary() {
+        GuidedAeMethodModule module = GuidedAeMethodModules.forRecipe(
+                GuidedTuningRecipe.ENGAGEMENT_DETECTION);
+        AeProjectSnapshot snapshot = snapshot(25.0);
+        String context = module.currentTuneContext(snapshot);
+        String review = module.reviewOutputs();
 
-        ProposalWritePlan plan = module.explicitSettingWritePlan(snapshot);
-        require(plan != null && plan.changeCount() == 1,
-                "explicit detector setting did not produce a direct plan before capture");
-        require(plan.reviewText().contains("Delta Window: 25 ms -> 24 ms"),
-                "direct detector diff did not expose exact before/after values");
-
-        GuidedCapturePanel panel = new GuidedCapturePanel();
-        try {
-            panel.setProjectSnapshotForTest(snapshot);
-            panel.selectTuningTaskForTest(GuidedTuningRecipe.ENGAGEMENT_DETECTION);
-            focus.setRequestedDeltaWindowForTest(24.0);
-            require(panel.workflowStageTextForTest().contains("REVIEW CHANGE")
-                            && !panel.workflowStageTextForTest().contains("CAPTURE"),
-                    "direct setting route still requires a capture stage before Apply");
-            require(panel.proposalTextForTest().contains("DIRECT SETTING REVIEW")
-                            && panel.proposalTextForTest().contains("No capture is required"),
-                    "Guided review did not explain the direct setting route");
-        } finally {
-            panel.disposePanel();
-        }
+        require(context.contains("Capture is read-only")
+                        && context.contains("Delta Window is estimated after a comparable natural-movement set")
+                        && context.contains("Sample Length remains history capacity")
+                        && context.contains("representative pre-event operating RPM coverage confirms it")
+                        && context.contains("No burn"),
+                "working-tune context does not describe the passive Foundation 1 authority boundary");
+        require(review.contains("PASSIVE TPS MOVEMENT ANALYSIS")
+                        && review.contains("No controller settings were changed during capture"),
+                "review output does not expose plugin-internal passive analysis");
     }
 
     private static AeProjectSnapshot snapshot(double deltaWindowMs) {
@@ -104,13 +78,6 @@ public final class EngagementDetectionSettingRoutingRegressionTest {
                 new double[0], new double[0], new double[0][0],
                 new double[0], new double[0],
                 "Dual stride, newest", deltaWindowMs, 0.050, true, 0.10);
-    }
-
-    private static void requireClose(double expected, double actual, String message) {
-        if (Math.abs(expected - actual) > 0.000001) {
-            throw new AssertionError(message + ": expected " + expected
-                    + " but was " + actual);
-        }
     }
 
     private static void require(boolean condition, String message) {

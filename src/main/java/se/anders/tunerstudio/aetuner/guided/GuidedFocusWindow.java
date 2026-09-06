@@ -2,23 +2,35 @@ package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateFocusModel;
 import se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateGuidedFocusPanel;
+import se.anders.tunerstudio.aetuner.guided.method.FoundationThresholdFocusModel;
 
 import javax.swing.BorderFactory;
 import javax.swing.JCheckBox;
+import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JProgressBar;
+import javax.swing.JScrollPane;
+import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
+import javax.swing.border.TitledBorder;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Insets;
+import java.awt.Rectangle;
 import java.awt.Window;
 
 /** Modeless driver-facing Guided Focus pop-out. */
 public final class GuidedFocusWindow extends JDialog {
+    private static final String CARD_BLEND_DURATION = "blend-duration";
     private static final String CARD_MAP_ESTIMATE = "map-estimate";
     private static final String CARD_ENGAGEMENT = "engagement";
+    private static final String CARD_FOUNDATION_THRESHOLD = "foundation-threshold";
     private static final String CARD_COACH_PROPOSAL = "coach-proposal";
 
     private final JLabel method = new JLabel("Guided Focus", SwingConstants.LEFT);
@@ -26,11 +38,19 @@ public final class GuidedFocusWindow extends JDialog {
     private final JCheckBox driverView = new JCheckBox("Driver view", true);
     private final CardLayout cardsLayout = new CardLayout();
     private final JPanel cards = new JPanel(cardsLayout);
+    private final BlendDurationGuidedFocusPanel blendDuration = new BlendDurationGuidedFocusPanel();
     private final MapEstimateGuidedFocusPanel mapEstimate = new MapEstimateGuidedFocusPanel();
-    private final EngagementDetectionGuidedFocusPanel engagement =
-            new EngagementDetectionGuidedFocusPanel();
-    private final GuidedCoachProposalPanel coachProposal =
-            new GuidedCoachProposalPanel();
+    private final EngagementDetectionGuidedFocusPanel engagement = new EngagementDetectionGuidedFocusPanel();
+    private final EngagementScrollHost engagementHost = new EngagementScrollHost();
+    private final JScrollPane engagementScroll = new JScrollPane(
+            engagementHost, JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+    // Compatibility-only object retained for existing test/source hooks. It is
+    // no longer attached to the Foundation 1 card hierarchy or refreshed live.
+    private final EngagementQuietCalibrationPanel engagementCalibrationDriver = new EngagementQuietCalibrationPanel(true);
+    private final FoundationThresholdGuidedFocusPanel foundationThreshold = new FoundationThresholdGuidedFocusPanel();
+    private final GuidedCoachProposalPanel coachProposal = new GuidedCoachProposalPanel();
+    private GuidedTuningRecipe currentRecipe = GuidedTuningRecipe.BLEND_DURATION;
+    private String visibleCard = "";
     private boolean locatedOnce;
 
     public GuidedFocusWindow(Window owner) {
@@ -44,6 +64,7 @@ public final class GuidedFocusWindow extends JDialog {
         setMinimumSize(new Dimension(760, 480));
         setPreferredSize(new Dimension(1180, 720));
         mapEstimate.setConfigurationListener(mapEstimateListener);
+        engagementCalibrationDriver.setVisible(false);
         buildUi();
         pack();
     }
@@ -59,8 +80,15 @@ public final class GuidedFocusWindow extends JDialog {
         header.setBorder(BorderFactory.createEmptyBorder(7, 8, 5, 8));
         add(header, BorderLayout.NORTH);
 
+        engagementHost.add(engagement, BorderLayout.CENTER);
+        engagementScroll.setBorder(BorderFactory.createEmptyBorder());
+        engagementScroll.getVerticalScrollBar().setUnitIncrement(24);
+        engagementScroll.getViewport().setBackground(engagement.getBackground());
+
+        cards.add(blendDuration, CARD_BLEND_DURATION);
         cards.add(mapEstimate, CARD_MAP_ESTIMATE);
-        cards.add(engagement, CARD_ENGAGEMENT);
+        cards.add(engagementScroll, CARD_ENGAGEMENT);
+        cards.add(foundationThreshold, CARD_FOUNDATION_THRESHOLD);
         cards.add(coachProposal, CARD_COACH_PROPOSAL);
         add(cards, BorderLayout.CENTER);
 
@@ -69,35 +97,51 @@ public final class GuidedFocusWindow extends JDialog {
         applyDriverView();
     }
 
-    /** Compatibility overload for older callers/tests without an engagement model. */
-    public void update(GuidedTuningRecipe recipe,
-                       GuidedCaptureState state,
-                       MapEstimateFocusModel mapEstimateModel,
-                       String fallbackGuidance) {
-        update(recipe, state, mapEstimateModel, null, fallbackGuidance);
+    public void update(GuidedTuningRecipe recipe, GuidedCaptureState state,
+                       MapEstimateFocusModel mapEstimateModel, String fallbackGuidance) {
+        update(recipe, state, mapEstimateModel, null, null, null, fallbackGuidance);
     }
 
-    public void update(GuidedTuningRecipe recipe,
-                       GuidedCaptureState state,
+    public void update(GuidedTuningRecipe recipe, GuidedCaptureState state,
+                       MapEstimateFocusModel mapEstimateModel,
+                       EngagementFocusModel engagementModel, String fallbackGuidance) {
+        update(recipe, state, mapEstimateModel, engagementModel, null, null, fallbackGuidance);
+    }
+
+    public void update(GuidedTuningRecipe recipe, GuidedCaptureState state,
                        MapEstimateFocusModel mapEstimateModel,
                        EngagementFocusModel engagementModel,
+                       FoundationThresholdFocusModel thresholdModel,
                        String fallbackGuidance) {
-        GuidedTuningRecipe safeRecipe = recipe == null
-                ? GuidedTuningRecipe.BLEND_DURATION : recipe;
-        GuidedCaptureState safeState = state == null
-                ? GuidedCaptureState.IDLE : state;
+        update(recipe, state, mapEstimateModel, engagementModel, thresholdModel, null, fallbackGuidance);
+    }
+
+    public void update(GuidedTuningRecipe recipe, GuidedCaptureState state,
+                       MapEstimateFocusModel mapEstimateModel,
+                       EngagementFocusModel engagementModel,
+                       FoundationThresholdFocusModel thresholdModel,
+                       BlendDurationFocusModel blendDurationModel,
+                       String fallbackGuidance) {
+        GuidedTuningRecipe safeRecipe = recipe == null ? GuidedTuningRecipe.BLEND_DURATION : recipe;
+        GuidedCaptureState safeState = state == null ? GuidedCaptureState.IDLE : state;
+        currentRecipe = safeRecipe;
         method.setText(safeRecipe.displayName + " — " + safeState.name());
-        if (safeRecipe == GuidedTuningRecipe.MAP_ESTIMATE) {
+        if (safeRecipe == GuidedTuningRecipe.BLEND_DURATION) {
+            blendDuration.updateModel(blendDurationModel, fallbackGuidance);
+            showCard(CARD_BLEND_DURATION);
+        } else if (safeRecipe == GuidedTuningRecipe.MAP_ESTIMATE) {
             mapEstimate.updateModel(mapEstimateModel);
-            cardsLayout.show(cards, CARD_MAP_ESTIMATE);
+            showCard(CARD_MAP_ESTIMATE);
         } else if (safeRecipe == GuidedTuningRecipe.ENGAGEMENT_DETECTION) {
             engagement.updateModel(engagementModel);
-            cardsLayout.show(cards, CARD_ENGAGEMENT);
+            refreshEngagementCard();
+        } else if (safeRecipe == GuidedTuningRecipe.FOUNDATION_THRESHOLD) {
+            foundationThreshold.updateModel(thresholdModel, fallbackGuidance);
+            showCard(CARD_FOUNDATION_THRESHOLD);
         } else {
             coachProposal.updateRecipe(safeRecipe);
-            cardsLayout.show(cards, CARD_COACH_PROPOSAL);
+            showCard(CARD_COACH_PROPOSAL);
         }
-        applyDriverView();
     }
 
     public void openWindow() {
@@ -114,27 +158,138 @@ public final class GuidedFocusWindow extends JDialog {
         dispose();
     }
 
+    public BlendDurationGuidedFocusPanel blendDurationPanelForTest() { return blendDuration; }
     public MapEstimateGuidedFocusPanel mapEstimatePanelForTest() { return mapEstimate; }
     public EngagementDetectionGuidedFocusPanel engagementPanelForTest() { return engagement; }
+    public FoundationThresholdGuidedFocusPanel foundationThresholdPanelForTest() { return foundationThreshold; }
+    public EngagementQuietCalibrationPanel engagementCalibrationDriverForTest() { return engagementCalibrationDriver; }
+    public EngagementQuietCalibrationPanel engagementCalibrationDetailsForTest() { return engagement.quietCalibrationDetailsForTest(); }
     public GuidedCoachProposalPanel coachProposalPanelForTest() { return coachProposal; }
     public boolean driverViewForTest() { return driverView.isSelected(); }
     public boolean alwaysOnTopForTest() { return alwaysOnTop.isSelected(); }
+    String visibleCardForTest() { return visibleCard; }
 
-    /** Compatibility helper retained for older UI regressions. */
+    boolean engagementDetailsScrollEnabledForTest() {
+        return engagementScroll.getHorizontalScrollBarPolicy() == JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+                && engagementScroll.getVerticalScrollBarPolicy() == JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+                && !engagementHost.getScrollableTracksViewportHeight();
+    }
+    boolean engagementDetailsNotCompressedForTest() { return engagement.getHeight() + 1 >= engagement.getPreferredSize().height; }
+    boolean engagementDetailsScrollbarVisibleForTest() { return engagementScroll.getVerticalScrollBar().isVisible(); }
+    boolean engagementDetailsAlignmentNormalizedForTest() {
+        return visiblePassiveDetailsFillWidth(engagement);
+    }
+
     String taskGuideTextForTest() {
-        return coachProposal.actionTextForTest() + "\n"
-                + coachProposal.visualTextForTest() + "\n"
-                + coachProposal.audioTextForTest() + "\n"
-                + coachProposal.evidenceTextForTest() + "\n"
-                + coachProposal.reviewTextForTest() + "\n"
-                + coachProposal.experimentTextForTest() + "\n"
+        return coachProposal.actionTextForTest() + "\n" + coachProposal.visualTextForTest() + "\n"
+                + coachProposal.audioTextForTest() + "\n" + coachProposal.evidenceTextForTest() + "\n"
+                + coachProposal.reviewTextForTest() + "\n" + coachProposal.experimentTextForTest() + "\n"
                 + coachProposal.futureTextForTest();
     }
 
     private void applyDriverView() {
         boolean driver = driverView.isSelected();
+        blendDuration.setDriverView(driver);
         mapEstimate.setDriverView(driver);
         engagement.setDriverView(driver);
+        foundationThreshold.setDriverView(driver);
+        engagementHost.setTrackViewportHeight(driver);
+        engagementScroll.setVerticalScrollBarPolicy(driver
+                ? JScrollPane.VERTICAL_SCROLLBAR_NEVER : JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        engagementScroll.getVerticalScrollBar().setValue(0);
+        engagementHost.revalidate();
+        engagementScroll.revalidate();
         coachProposal.setDriverView(driver);
+        refreshEngagementCard();
+    }
+
+    private void refreshEngagementCard() {
+        if (currentRecipe != GuidedTuningRecipe.ENGAGEMENT_DETECTION) return;
+        showCard(CARD_ENGAGEMENT);
+    }
+
+    private void showCard(String card) {
+        if (card == null || card.equals(visibleCard)) return;
+        cardsLayout.show(cards, card);
+        visibleCard = card;
+    }
+
+    private static boolean visiblePassiveDetailsFillWidth(Container root) {
+        if (root == null || root.getWidth() <= 0) return false;
+        boolean found = false;
+        for (Component child : root.getComponents()) {
+            if (!child.isVisible()) continue;
+            if (child instanceof JPanel && ((JPanel) child).getBorder() instanceof TitledBorder) {
+                found = true;
+                if (child.getWidth() + 8 < root.getWidth()) return false;
+            }
+            if (child instanceof Container && visiblePassiveDetailsFillWidth((Container) child)) {
+                found = true;
+            }
+        }
+        return found;
+    }
+
+    // Legacy helpers retained for source compatibility with older tests/tools.
+    private static JPanel findTitledPanel(Container root, String title) {
+        if (root == null || title == null) return null;
+        for (Component child : root.getComponents()) {
+            if (child instanceof JPanel) {
+                JPanel panel = (JPanel) child;
+                if (panel.getBorder() instanceof TitledBorder
+                        && title.equals(((TitledBorder) panel.getBorder()).getTitle())) return panel;
+            }
+            if (child instanceof Container) {
+                JPanel nested = findTitledPanel((Container) child, title);
+                if (nested != null) return nested;
+            }
+        }
+        return null;
+    }
+
+    private static boolean childrenShareLeftEdge(JPanel panel) {
+        if (panel == null || panel.getWidth() <= 0) return false;
+        Insets insets = panel.getInsets();
+        int expected = insets.left;
+        for (Component child : panel.getComponents()) {
+            if (!child.isVisible()) continue;
+            if (Math.abs(child.getX() - expected) > 3) return false;
+        }
+        return true;
+    }
+
+    private static boolean wideChildrenFillInnerWidth(JPanel panel) {
+        if (panel == null || panel.getWidth() <= 0) return false;
+        Insets insets = panel.getInsets();
+        int available = panel.getWidth() - insets.left - insets.right;
+        if (available <= 0) return false;
+        boolean checked = false;
+        for (Component child : panel.getComponents()) {
+            if (!child.isVisible()) continue;
+            boolean wide = child instanceof JProgressBar
+                    || child instanceof EngagementQuietCalibrationPanel || child instanceof JPanel;
+            if (!wide) continue;
+            checked = true;
+            if (child.getWidth() + 4 < available) return false;
+        }
+        return checked;
+    }
+
+    private static final class EngagementScrollHost extends JPanel implements Scrollable {
+        private boolean trackViewportHeight = true;
+        EngagementScrollHost() { super(new BorderLayout()); }
+        void setTrackViewportHeight(boolean trackViewportHeight) {
+            if (this.trackViewportHeight == trackViewportHeight) return;
+            this.trackViewportHeight = trackViewportHeight;
+            revalidate();
+        }
+        @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        @Override public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) { return 24; }
+        @Override public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            int extent = orientation == SwingConstants.VERTICAL ? visibleRect.height : visibleRect.width;
+            return Math.max(24, extent - 24);
+        }
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() { return trackViewportHeight; }
     }
 }

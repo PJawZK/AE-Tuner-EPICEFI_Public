@@ -6,11 +6,12 @@ cd "$ROOT"
 
 JAVA_RELEASE="${JAVA_RELEASE:-8}"
 PLUGIN_CLASS="se.anders.tunerstudio.aetuner.AeTunerPlugin"
-VERSION="$(sed -n 's/.*public static final String VERSION = "\([^"]*\)".*/\1/p' src/main/java/se/anders/tunerstudio/aetuner/AeTunerPlugin.java)"
+VERSION_SOURCE="src/main/java/se/anders/tunerstudio/aetuner/host/BuildIdentity.java"
+VERSION="$(sed -n 's/.*public static final String VERSION = "\([^"]*\)".*/\1/p' "$VERSION_SOURCE")"
 REPRODUCIBLE_JAR_DATE="${REPRODUCIBLE_JAR_DATE:-2000-01-01T00:00:00Z}"
 
 if [[ -z "$VERSION" ]]; then
-  echo "Could not determine plugin version from AeTunerPlugin.java" >&2
+  echo "Could not determine plugin version from BuildIdentity.java" >&2
   exit 1
 fi
 
@@ -44,7 +45,7 @@ Implementation-Version: ${VERSION}
 MANIFEST
 
 OUTPUT="dist/ae-tuner-epicefi-${VERSION}.jar"
-rm -f "$OUTPUT"
+rm -f dist/ae-tuner-epicefi-*.jar
 
 # Modern JDKs can assign one fixed ZIP timestamp to every entry, making the
 # canonical CI artifact reproducible across independent workflow jobs.

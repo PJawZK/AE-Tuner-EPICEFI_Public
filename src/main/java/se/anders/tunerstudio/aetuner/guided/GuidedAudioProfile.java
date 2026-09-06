@@ -93,25 +93,29 @@ final class GuidedAudioProfile {
                         520, 520, 120, 1, 70, 0.45));
         profile.put(GuidedAudioCueController.Cue.READY,
                 new Setting(true, Pattern.RISING_CHIRP,
-                        750, 1050, 180, 1, 70, 0.55));
+                        760, 1020, 160, 1, 70, 0.55));
         profile.put(GuidedAudioCueController.Cue.OPENING_PENDING,
                 new Setting(false, Pattern.SINGLE,
-                        1100, 1100, 70, 1, 60, 0.45));
+                        900, 900, 60, 1, 60, 0.40));
+        // Detector crossing is intentionally neutral. It means only that the
+        // detector reacted, not that the completed physical maneuver counted.
         profile.put(GuidedAudioCueController.Cue.TARGET_ACQUIRED,
-                new Setting(true, Pattern.DOUBLE,
-                        1250, 1250, 90, 2, 70, 0.55));
+                new Setting(true, Pattern.SINGLE,
+                        850, 850, 70, 1, 60, 0.45));
+        // Counted physical maneuver: high, melodic and unmistakably positive.
         profile.put(GuidedAudioCueController.Cue.ACCEPTED,
-                new Setting(true, Pattern.DOUBLE,
-                        900, 900, 130, 2, 80, 0.55));
+                new Setting(true, Pattern.THREE_ASCENDING,
+                        1200, 1750, 100, 3, 55, 0.65));
+        // Diagnostic-only or rejected maneuver: low and falling.
         profile.put(GuidedAudioCueController.Cue.EXCLUDED,
                 new Setting(true, Pattern.FALLING_CHIRP,
-                        650, 380, 150, 2, 70, 0.60));
+                        620, 320, 170, 2, 80, 0.65));
         profile.put(GuidedAudioCueController.Cue.RETURN_TO_BASELINE,
                 new Setting(true, Pattern.FALLING_CHIRP,
-                        700, 450, 180, 1, 70, 0.55));
+                        600, 420, 150, 1, 70, 0.50));
         profile.put(GuidedAudioCueController.Cue.COMPLETE,
                 new Setting(true, Pattern.THREE_ASCENDING,
-                        650, 1200, 130, 3, 60, 0.55));
+                        900, 1500, 120, 3, 60, 0.60));
         return profile;
     }
 

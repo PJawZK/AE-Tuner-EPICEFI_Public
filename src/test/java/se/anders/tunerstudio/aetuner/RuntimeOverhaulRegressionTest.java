@@ -16,11 +16,12 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Regression coverage for the two physical vehicle-test.9 runtime failures.
+ * Regression coverage for the physical Guided/runtime lifecycle failures.
  *
  * These cases deliberately exercise the plugin host shell rather than only
  * testing Guided/audio/recovery components in isolation.
@@ -31,6 +32,8 @@ public final class RuntimeOverhaulRegressionTest {
     public static void main(String[] args) throws Exception {
         hiddenHostAttachmentCannotDestroyInitializedLifecycle();
         edtCloseCannotWaitOnDeferredRecoveryCheckpoint();
+        controlledSweepRestorePrecedesHideAndControllerTeardown();
+        validationLabIsExplicitAndRestoreGuarded();
         System.out.println("RuntimeOverhaulRegressionTest passed");
     }
 
@@ -40,9 +43,11 @@ public final class RuntimeOverhaulRegressionTest {
         System.setProperty("ae.tuner.recovery.dir", recovery.toString());
         AeTunerPlugin plugin = new AeTunerPlugin();
         try {
-            // Model the point immediately after ApplicationPlugin.initialize()
-            // without requiring a TunerStudio ControllerAccess mock. The .9 bug
-            // lived in the Swing hierarchy listener after lifecycle activation.
+            require("Apply/Restore Validation Lab (TEMP)".equals(
+                            plugin.validationLabButtonTextForTest()),
+                    "temporary physical validation Lab is not explicitly visible in Guided header");
+            require(plugin.validationLabButtonToolTipForTest().contains("no burn"),
+                    "validation Lab launcher does not visibly preserve no-burn safety boundary");
             setBoolean(plugin, "lifecycleActive", true);
 
             JTabbedPane tabs = (JTabbedPane) field(plugin, "rootTabs");
@@ -53,9 +58,6 @@ public final class RuntimeOverhaulRegressionTest {
             require(!plugin.guidedControllerPreparedForTest(),
                     "Guided controller must not be prepared before Guided is selected");
 
-            // Ordinary parent/displayability hierarchy churn while hidden is
-            // normal during TunerStudio persistent-dialog attachment. .9 treated
-            // this as a close and destroyed the controller subscription.
             fire(tabs, HierarchyEvent.PARENT_CHANGED);
             require(plugin.lifecycleActiveForTest(),
                     "non-visibility hierarchy event destroyed active lifecycle");
@@ -64,8 +66,6 @@ public final class RuntimeOverhaulRegressionTest {
             require(!plugin.guidedControllerPreparedForTest(),
                     "hidden attachment unexpectedly activated Guided controller work");
 
-            // Even a hidden SHOWING_CHANGED before the first real display must
-            // not be interpreted as the user closing the plugin.
             fire(tabs, HierarchyEvent.SHOWING_CHANGED);
             require(plugin.lifecycleActiveForTest(),
                     "pre-first-show hidden transition destroyed active lifecycle");
@@ -74,9 +74,6 @@ public final class RuntimeOverhaulRegressionTest {
             require(!plugin.shownOnceForTest(),
                     "hidden attachment incorrectly counted as first display");
 
-            // After a real display has occurred, hide is reversible: Guided and
-            // audio presentation work remain suspended, but the host lifecycle
-            // and passive controller ownership stay active.
             setBoolean(plugin, "shownOnce", true);
             fire(tabs, HierarchyEvent.SHOWING_CHANGED);
             require(plugin.lifecycleActiveForTest(),
@@ -108,8 +105,6 @@ public final class RuntimeOverhaulRegressionTest {
                 new EvidenceRecoveryManager(passive, guided, root);
         manager.resume();
 
-        // Reproduce the .9 ordering: Guided close marked recovery dirty, then
-        // final recovery shutdown began before the two-second task fired.
         manager.requestCheckpoint();
 
         final AtomicLong elapsedMillis = new AtomicLong(Long.MAX_VALUE);
@@ -141,6 +136,68 @@ public final class RuntimeOverhaulRegressionTest {
             guided.disposePanel();
             passive.disposePanel();
         }
+    }
+
+    private static void controlledSweepRestorePrecedesHideAndControllerTeardown()
+            throws Exception {
+        String source = new String(Files.readAllBytes(Paths.get(
+                "src/main/java/se/anders/tunerstudio/aetuner/AeTunerPlugin.java")), "UTF-8");
+
+        int hide = source.indexOf("private synchronized void suspendForHide()");
+        int hideGuard = source.indexOf(
+                "EngagementDeltaWindowLifecycleGuard.finishBeforeExternalLifecycleEnd()", hide);
+        int hideSuspend = source.indexOf("guidedPanel.suspendPanel()", hide);
+        int hideTerminate = source.indexOf("guidedPanel.terminateForClose()", hide);
+        require(hide >= 0 && hideGuard > hide
+                        && hideSuspend > hideGuard && hideTerminate > hideGuard,
+                "presentation hide can suspend/terminate Guided before the controlled-sweep restore guard");
+
+        int close = source.indexOf("private synchronized boolean beginFinalClose()");
+        int closeGuard = source.indexOf(
+                "EngagementDeltaWindowLifecycleGuard.finishBeforeExternalLifecycleEnd()", close);
+        int closeSuspend = source.indexOf("guidedPanel.suspendPanel()", close);
+        int disconnect = source.indexOf("panel.disconnectController()", close);
+        int closeTerminate = source.indexOf("guidedPanel.terminateForClose()", close);
+        require(close >= 0 && closeGuard > close
+                        && closeSuspend > closeGuard
+                        && disconnect > closeGuard
+                        && closeTerminate > closeGuard,
+                "plugin close can tear down sample/controller ownership before verified Delta Window restore");
+
+        String guardSource = new String(Files.readAllBytes(Paths.get(
+                "src/main/java/se/anders/tunerstudio/aetuner/guided/EngagementDeltaWindowLifecycleGuard.java")), "UTF-8");
+        require(guardSource.contains("return EngagementDeltaWindowSweepRuntime.finishForLifecycle();"),
+                "external lifecycle guard no longer delegates to the verified sweep finish/restore boundary");
+    }
+
+    private static void validationLabIsExplicitAndRestoreGuarded() throws Exception {
+        String source = new String(Files.readAllBytes(Paths.get(
+                "src/main/java/se/anders/tunerstudio/aetuner/AeTunerPlugin.java")), "UTF-8");
+        require(source.contains("new JButton(\"Apply/Restore Validation Lab (TEMP)\")"),
+                "physical validation Lab launcher is no longer explicitly visible/temporary");
+        require(!source.contains("ae.tuner.validation.lab")
+                        && !source.contains("System.getenv(\"AE_TUNER_VALIDATION"),
+                "physical validation Lab became hidden behind a property/environment flag");
+
+        int hide = source.indexOf("private synchronized void suspendForHide()");
+        int hideValidation = source.indexOf(
+                "validationLabWindow.prepareForExternalLifecycleEnd()", hide);
+        int hideSweep = source.indexOf(
+                "EngagementDeltaWindowLifecycleGuard.finishBeforeExternalLifecycleEnd()", hide);
+        int hideSuspend = source.indexOf("guidedPanel.suspendPanel()", hide);
+        require(hide >= 0 && hideValidation > hide
+                        && hideSweep > hideValidation && hideSuspend > hideSweep,
+                "plugin hide does not restore Validation Lab before other teardown guards/resources");
+
+        int close = source.indexOf("private synchronized boolean beginFinalClose()");
+        int closeValidation = source.indexOf(
+                "validationLabWindow.prepareForExternalLifecycleEnd()", close);
+        int closeSweep = source.indexOf(
+                "EngagementDeltaWindowLifecycleGuard.finishBeforeExternalLifecycleEnd()", close);
+        int disconnect = source.indexOf("panel.disconnectController()", close);
+        require(close >= 0 && closeValidation > close
+                        && closeSweep > closeValidation && disconnect > closeSweep,
+                "plugin close can disconnect controller before Validation Lab exact Restore");
     }
 
     private static void fire(JTabbedPane tabs, long flags) {

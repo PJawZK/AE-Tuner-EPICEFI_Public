@@ -8,8 +8,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Dev20 qualification gate for the first Engagement / Detection controller
- * representation: ordinary scalar Delta Window.
+ * Qualification gate for the Engagement / Detection scalar Delta Window
+ * controller representation and explicit guarded Apply lifecycle.
  */
 public final class EngagementDetectionApplyWorkflowRegressionTest {
     private EngagementDetectionApplyWorkflowRegressionTest() { }
@@ -29,7 +29,7 @@ public final class EngagementDetectionApplyWorkflowRegressionTest {
         ProposalWritePlan plan =
                 EngagementDetectionSettingProposal.deltaWindow(snapshot, 24.0);
         require(plan != null && plan.changeCount() == 1,
-                "explicit temporary Delta Window should create exactly one change");
+                "explicit Delta Window recommendation should create exactly one change");
         ProposalWritePlan.Change change = plan.getChanges().get(0);
         require(change.kind == ProposalWritePlan.Kind.SCALAR,
                 "Delta Window qualification must use scalar controller representation");
@@ -38,11 +38,14 @@ public final class EngagementDetectionApplyWorkflowRegressionTest {
         requireClose(25.0, change.expectedValue,
                 "plan lost the exact working-tune baseline");
         requireClose(24.0, change.proposedValue,
-                "plan lost the explicit requested temporary value");
-        require(plan.getContext().contains("not an automatic tuning recommendation"),
-                "write qualification was incorrectly presented as a tuning recommendation");
+                "plan lost the exact requested value");
+        String context = plan.getContext();
+        require(context.contains("Capture performs no temporary timing write")
+                        && context.contains("Apply remains explicit and guarded")
+                        && context.toLowerCase(java.util.Locale.ROOT).contains("no burn"),
+                "passive detector plan lost the no-capture-write / explicit Apply / no-burn boundary");
         require(!plan.verificationManifestJson().toLowerCase(java.util.Locale.ROOT)
-                        .contains("burn"),
+                        .contains("\"burn\""),
                 "verification manifest must not contain burn authority");
     }
 

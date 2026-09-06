@@ -42,7 +42,7 @@ public final class TpsAeMethodModule extends AbstractProbeMethodModule {
         return "Collect repeatable pedal openings that exercise the actual TPS-to rows and cycle-duration shape in the working tune. Lambda/target lambda and the ECU's TPS AE contribution must be captured together so early amount and late duration can be separated.";
     }
     @Override public String captureGoal() {
-        return "Accumulate repeated TPS AE fuel-proved events across useful TPS-to rows with complete detector, cycle and lambda evidence. Completed event windows feed the conservative TPS AE table draft; no ECU write is authorized.";
+        return "Accumulate repeated TPS AE fuel-proved events across useful TPS-to rows with complete detector, cycle and lambda evidence. Completed event windows feed the conservative TPS AE table draft. Capture itself never writes; after Review, all changed draft cells may be explicitly applied together through the guarded Apply/Restore path.";
     }
     @Override public ChannelRole[] requiredRoles() { return REQUIRED.clone(); }
     @Override public ChannelRole[] contextRoles() { return CONTEXT.clone(); }
@@ -53,7 +53,7 @@ public final class TpsAeMethodModule extends AbstractProbeMethodModule {
         return "Count clean TPS AE-active/fuel-visible bursts after quiet intervals. Guided retains a short pre/post event window, then reuses the existing TransientEvent attribution and conservative AeTableSuggestion logic. Capture TPS from/to/change, smoothedDeltaTps versus AccelThreshold, add-fuel/extraFuel, cycle multiplier/count, injector PW and lambda response. Preserve Wall Wetting, Instant Fuel and MAP Predict context so mixed events can be excluded or down-weighted rather than attributed entirely to TPS AE.";
     }
     @Override public String reviewOutputs() {
-        return "Event-count progress, required-channel readiness, trigger-ratio peak, TPS-from/to coverage, maximum TPS AE fuel, cycle multiplier/count behavior, lambda-minus-target shape and overlap with other AE paths. When at least 3.0 effective fuel-proved events support a TPS-to row, the existing bounded TPS AE table generator can expose a reviewed paste-ready draft for Copy/Export only.";
+        return "Event-count progress, required-channel readiness, trigger-ratio peak, TPS-from/to coverage, maximum TPS AE fuel, cycle multiplier/count behavior, lambda-minus-target shape and overlap with other AE paths. When at least 3.0 effective fuel-proved events support a TPS-to row, the existing bounded TPS AE table generator exposes a reviewed draft for Copy/Export and one explicit guarded multi-cell Apply/Restore plan containing only changed table cells.";
     }
     @Override public String currentTuneContext(AeProjectSnapshot snapshot) {
         if (snapshot == null) return "Working tune not read yet; TPS AE draft generation requires the current TPS-to/cycle table baseline.";

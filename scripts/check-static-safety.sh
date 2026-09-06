@@ -4,16 +4,27 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-SOURCE_VERSION="$(sed -n 's/.*public static final String VERSION = "\([^"]*\)".*/\1/p' src/main/java/se/anders/tunerstudio/aetuner/AeTunerPlugin.java)"
+VERSION_SOURCE="src/main/java/se/anders/tunerstudio/aetuner/host/BuildIdentity.java"
+SOURCE_VERSION="$(sed -n 's/.*public static final String VERSION = "\([^"]*\)".*/\1/p' "$VERSION_SOURCE")"
 POM_VERSION="$(sed -n '0,/<version>/{s/.*<version>\([^<]*\)<\/version>.*/\1/p}' pom.xml)"
 JAR="dist/ae-tuner-epicefi-${SOURCE_VERSION}.jar"
 
+[[ -n "$SOURCE_VERSION" ]] || {
+  echo "Could not determine source version from BuildIdentity.java" >&2
+  exit 1
+}
 [[ "$SOURCE_VERSION" == "$POM_VERSION" ]] || {
   echo "Version mismatch: source=$SOURCE_VERSION pom=$POM_VERSION" >&2
   exit 1
 }
 [[ -f "$JAR" ]] || {
   echo "Expected deterministic JAR is missing: $JAR" >&2
+  exit 1
+}
+
+grep -q 'public static final String VERSION = BuildIdentity.VERSION;' \
+  src/main/java/se/anders/tunerstudio/aetuner/AeTunerPlugin.java || {
+  echo "AeTunerPlugin VERSION must delegate to BuildIdentity.VERSION" >&2
   exit 1
 }
 

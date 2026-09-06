@@ -213,6 +213,8 @@ public final class AeProjectSnapshot {
     public double[] getCycleBins() { return cloneArray(cycleBins); }
     public double[] getTpsToBins() { return cloneArray(tpsToBins); }
     public double[][] getCycleValues() { return cloneTable(cycleValues); }
+    public double[] getThresholdRpmBins() { return cloneArray(thresholdRpmBins); }
+    public double[] getThresholdValues() { return cloneArray(thresholdValues); }
     public double[] getMapEstimateRpmBins() { return cloneArray(mapEstimateRpmBins); }
     public double[] getMapEstimateTpsBins() { return cloneArray(mapEstimateTpsBins); }
     public double[][] getMapEstimateTable() { return cloneTable(mapEstimateTable); }

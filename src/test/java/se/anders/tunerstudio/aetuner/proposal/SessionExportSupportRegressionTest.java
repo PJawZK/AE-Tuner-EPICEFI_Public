@@ -9,6 +9,7 @@ public final class SessionExportSupportRegressionTest {
 
     public static void main(String[] args) throws Exception {
         visibleFolderLayoutIsSharedByAllSessionEvidence();
+        guidedSessionAndMethodEvidenceShareOneRoot();
         finalFolderAppearsOnlyAfterSuccessfulFinish();
         cleanupNeverPublishesAnIncompleteFolder();
         System.out.println("SessionExportSupportRegressionTest passed");
@@ -21,17 +22,38 @@ public final class SessionExportSupportRegressionTest {
             File root = SessionExportSupport.exportRootUnder(selectedParent);
             require("AE Tuner Export".equals(root.getName()),
                     "selected parent did not resolve to the visible AE Tuner Export root");
-            require(new File(root, "Guided Session").equals(
+            require(new File(root, "Guided Evidence").equals(
                             SessionExportSupport.systemDirectory(root, "guided")),
-                    "Guided exports no longer have their own folder");
+                    "Guided exports no longer have their own evidence folder");
             require(new File(root, "Passive Session").equals(
                             SessionExportSupport.systemDirectory(root, "passive")),
                     "Passive exports no longer have their own folder");
+            require(new File(root, "Apply Restore Validation").equals(
+                            SessionExportSupport.systemDirectory(root, "validation")),
+                    "physical Apply/Restore validation evidence does not have a visible dedicated folder");
             require(new File(root, "Last Session").equals(
                             SessionExportSupport.lastSessionDirectory(root)),
                     "automatic previous-session evidence does not share the visible export root");
             require(root.equals(SessionExportSupport.exportRootUnder(root)),
                     "choosing the AE Tuner Export folder itself created a duplicate nested root");
+        } finally {
+            deleteRecursively(selectedParent);
+        }
+    }
+
+    private static void guidedSessionAndMethodEvidenceShareOneRoot() throws Exception {
+        File selectedParent = Files.createTempDirectory("ae-guided-export-layout-").toFile();
+        try {
+            File root = SessionExportSupport.exportRootUnder(selectedParent);
+            File expected = new File(root, "Guided Evidence");
+            require(expected.equals(SessionExportSupport.systemDirectory(root, "guided")),
+                    "controlled Guided session did not resolve to Guided Evidence");
+            require(expected.equals(SessionExportSupport.systemDirectory(root, "Guided Session")),
+                    "legacy Guided Session name did not resolve to Guided Evidence");
+            require(expected.equals(SessionExportSupport.systemDirectory(root, "Guided method evidence")),
+                    "Guided method evidence still routes to a parallel Session folder");
+            require(expected.equals(SessionExportSupport.systemDirectory(root, "Guided Evidence")),
+                    "canonical Guided Evidence name did not resolve to its own root");
         } finally {
             deleteRecursively(selectedParent);
         }

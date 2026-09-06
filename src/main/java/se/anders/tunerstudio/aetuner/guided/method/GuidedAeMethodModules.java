@@ -13,6 +13,7 @@ public final class GuidedAeMethodModules {
     static {
         register(new BlendDurationMethodModule());
         register(new EngagementDetectionMethodModule());
+        register(new FoundationThresholdMethodModule());
         register(new MapPredictMethodModule());
         register(new MapEstimateMethodModule());
         register(new WallWettingMethodModule());

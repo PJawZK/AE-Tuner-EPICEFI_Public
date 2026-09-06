@@ -93,6 +93,7 @@ final class BlendDurationGuidedSession {
         instruction = baselineInstruction();
         state = GuidedCaptureState.SETTLING;
         emit(GuidedWorkflowEvent.SESSION_STARTED, latestResult, System.nanoTime());
+        publishFocus(null);
     }
 
     synchronized void reset() {
@@ -132,6 +133,7 @@ final class BlendDurationGuidedSession {
             instruction = "Guided capture paused. Passive logging remains active.";
             emit(GuidedWorkflowEvent.PAUSED, instruction, System.nanoTime());
         }
+        publishFocus(null);
     }
 
     synchronized void finish() {
@@ -142,6 +144,7 @@ final class BlendDurationGuidedSession {
         instruction = "Review the comparable measurement groups. No ECU value was written.";
         GuidedVehicleTestLimits.endSession();
         emit(GuidedWorkflowEvent.SESSION_ENDED, instruction, System.nanoTime());
+        publishFocus(null);
     }
 
     synchronized void terminateForClose() {
@@ -163,79 +166,84 @@ final class BlendDurationGuidedSession {
             state = GuidedCaptureState.SETTLING;
             GuidedVehicleTestLimits.beginSession();
         }
+        publishFocus(null);
     }
 
     synchronized void accept(LiveSample sample) {
         if (sample == null) return;
         roadBaseline.add(sample);
-        if (state == GuidedCaptureState.IDLE
-                || state == GuidedCaptureState.PAUSED
-                || state == GuidedCaptureState.COMPLETE) return;
+        try {
+            if (state == GuidedCaptureState.IDLE
+                    || state == GuidedCaptureState.PAUSED
+                    || state == GuidedCaptureState.COMPLETE) return;
 
-        if (isOutcomeState(state)) {
-            if (seconds(lastOutcome, sample.getNanoTime())
-                    < OUTCOME_DISPLAY_SECONDS) return;
-            clearReadyAndCapture();
-            state = GuidedCaptureState.RECOVERING;
-            instruction = "Return to normal light throttle; the next rolling baseline will establish automatically.";
-        }
-
-        if (state == GuidedCaptureState.RECOVERING) {
-            RoadBaselineTracker.AcquireCheck check = roadBaseline.acquireCheck(
-                    sample, settings.startRpm, lastOutcome, RECOVERY_SECONDS);
-            checkText = check.text;
-            if (!check.recovered) return;
-            state = GuidedCaptureState.SETTLING;
-            instruction = baselineInstruction();
-        }
-
-        if (state == GuidedCaptureState.SETTLING) {
-            RoadBaselineTracker.AcquireCheck check = roadBaseline.acquireCheck(
-                    sample, settings.startRpm, lastOutcome, RECOVERY_SECONDS);
-            checkText = check.text;
-            if (check.ready) {
-                rollingBaseline = roadBaseline.baseline(false);
-                state = GuidedCaptureState.READY;
-                instruction = readyInstruction();
-                emit(GuidedWorkflowEvent.READY_ENTERED,
-                        instruction, sample.getNanoTime());
+            if (isOutcomeState(state)) {
+                if (seconds(lastOutcome, sample.getNanoTime())
+                        < OUTCOME_DISPLAY_SECONDS) return;
+                clearReadyAndCapture();
+                state = GuidedCaptureState.RECOVERING;
+                instruction = "Return to normal light throttle; the next rolling baseline will establish automatically.";
             }
-            return;
-        }
 
-        if (state == GuidedCaptureState.READY) {
-            if (triggered(sample) || openingDetector.localTipInStarted(
-                    sample, rollingBaseline == null ? Double.NaN : rollingBaseline.tps,
-                    limits.localTpsOnsetRise)) {
-                beginConfirmed(sample);
-                return;
-            }
-            if (openingDetector.movementStarted(
-                    sample, rollingBaseline == null ? Double.NaN : rollingBaseline.tps)) {
-                beginOpeningPending(sample);
-                return;
-            }
-            RoadBaselineTracker.ReadyCheck ready =
-                    roadBaseline.readyCheck(sample, settings.startRpm);
-            checkText = ready.text;
-            if (!ready.ready) {
-                rollingBaseline = null;
+            if (state == GuidedCaptureState.RECOVERING) {
+                RoadBaselineTracker.AcquireCheck check = roadBaseline.acquireCheck(
+                        sample, settings.startRpm, lastOutcome, RECOVERY_SECONDS);
+                checkText = check.text;
+                if (!check.recovered) return;
                 state = GuidedCaptureState.SETTLING;
-                instruction = ready.instruction;
-            } else {
-                RoadBaselineTracker.Baseline next = roadBaseline.baseline(true);
-                if (next.valid()) rollingBaseline = next;
+                instruction = baselineInstruction();
             }
-            return;
-        }
 
-        if (state == GuidedCaptureState.OPENING_PENDING) {
-            monitorOpeningPending(sample);
-            return;
-        }
+            if (state == GuidedCaptureState.SETTLING) {
+                RoadBaselineTracker.AcquireCheck check = roadBaseline.acquireCheck(
+                        sample, settings.startRpm, lastOutcome, RECOVERY_SECONDS);
+                checkText = check.text;
+                if (check.ready) {
+                    rollingBaseline = roadBaseline.baseline(false);
+                    state = GuidedCaptureState.READY;
+                    instruction = readyInstruction();
+                    emit(GuidedWorkflowEvent.READY_ENTERED,
+                            instruction, sample.getNanoTime());
+                }
+                return;
+            }
 
-        if (state == GuidedCaptureState.CAPTURING) {
-            capture(sample);
+            if (state == GuidedCaptureState.READY) {
+                if (triggered(sample) || openingDetector.localTipInStarted(
+                        sample, rollingBaseline == null ? Double.NaN : rollingBaseline.tps,
+                        limits.localTpsOnsetRise)) {
+                    beginConfirmed(sample);
+                    return;
+                }
+                if (openingDetector.movementStarted(
+                        sample, rollingBaseline == null ? Double.NaN : rollingBaseline.tps)) {
+                    beginOpeningPending(sample);
+                    return;
+                }
+                RoadBaselineTracker.ReadyCheck ready =
+                        roadBaseline.readyCheck(sample, settings.startRpm);
+                checkText = ready.text;
+                if (!ready.ready) {
+                    rollingBaseline = null;
+                    state = GuidedCaptureState.SETTLING;
+                    instruction = ready.instruction;
+                } else {
+                    RoadBaselineTracker.Baseline next = roadBaseline.baseline(true);
+                    if (next.valid()) rollingBaseline = next;
+                }
+                return;
+            }
+
+            if (state == GuidedCaptureState.OPENING_PENDING) {
+                monitorOpeningPending(sample);
+                return;
+            }
+
+            if (state == GuidedCaptureState.CAPTURING) {
+                capture(sample);
+            }
+        } finally {
+            publishFocus(sample);
         }
     }
 
@@ -665,6 +673,16 @@ final class BlendDurationGuidedSession {
                 gearStatusForDisplay() + "\n" + checkText, latestResult,
                 settings, validAttempts.size(), excluded, returnedToBaseline,
                 attempts, groups, lastAttemptTrace);
+    }
+
+    private void publishFocus(LiveSample latest) {
+        GuidedFocusHub.publishBlendDuration(state,
+                BlendDurationFocusModel.build(state, settings, latest,
+                        rollingBaseline, baseline, holdAnchor, plateauAcquired,
+                        mapCatchup, groups, validAttempts,
+                        excluded, returnedToBaseline,
+                        instruction, checkText, latestResult),
+                "Blend Duration measurement follows EPICEFI's final upward-latched fallbackMap target and exact measured-MAP catch-up. Follow only the Driver instruction; Details retains the engineering checks, comparability groups and firmware replay. Numerical Apply is intentionally withheld.");
     }
 
     private static boolean isOutcomeState(GuidedCaptureState state) {

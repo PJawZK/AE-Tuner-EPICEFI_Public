@@ -66,8 +66,6 @@ public final class EvidenceRecoveryManager {
                 "yyyyMMdd-HHmmss", Locale.US).format(new Date())
                 + "-" + Long.toHexString(System.nanoTime());
         this.store = new EvidenceRecoveryStore(root, runId);
-        // Discovery is intentionally read-only. Potentially expensive retention
-        // deletion is deferred to the worker in resume().
         this.startupRecovery = EvidenceRecoveryStore.newestUndismissedRecovery(
                 root, store.runDirectory());
     }
@@ -80,8 +78,7 @@ public final class EvidenceRecoveryManager {
             cleanupScheduled = true;
             final Path root = store.root();
             executor.submit(new Runnable() {
-                @Override
-                public void run() {
+                @Override public void run() {
                     EvidenceRecoveryStore.cleanup(root, RETAIN_RUNS);
                 }
             });
@@ -92,36 +89,27 @@ public final class EvidenceRecoveryManager {
             final Path recovered = startupRecovery;
             status = "Finalizing evidence recovered from the previous plugin session.";
             executor.submit(new Runnable() {
-                @Override
-                public void run() {
+                @Override public void run() {
                     try {
                         EvidenceRecoveryStore.finalizeRun(recovered);
                         status = "Previous recovery is ready; open or dismiss the notice.";
                     } catch (IOException ex) {
-                        status = "Previous recovery finalization failed: "
-                                + safeMessage(ex);
+                        status = "Previous recovery finalization failed: " + safeMessage(ex);
                     }
                 }
             });
         }
 
         executor.scheduleWithFixedDelay(new Runnable() {
-            @Override
-            public void run() {
-                checkpoint("periodic");
-            }
+            @Override public void run() { checkpoint("periodic"); }
         }, PERIOD_SECONDS, PERIOD_SECONDS, TimeUnit.SECONDS);
-        if (startupRecovery == null) {
-            status = "Automatic recovery waiting for evidence.";
-        }
+        if (startupRecovery == null) status = "Automatic recovery waiting for evidence.";
     }
 
     private ScheduledExecutorService newExecutor() {
         return Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
-            @Override
-            public Thread newThread(Runnable runnable) {
-                Thread thread = new Thread(runnable,
-                        "ae-tuner-evidence-recovery");
+            @Override public Thread newThread(Runnable runnable) {
+                Thread thread = new Thread(runnable, "ae-tuner-evidence-recovery");
                 thread.setDaemon(true);
                 thread.setPriority(Thread.MIN_PRIORITY);
                 return thread;
@@ -135,19 +123,14 @@ public final class EvidenceRecoveryManager {
             if (active == null || active.isShutdown()) return;
             if (dirtyFuture != null && !dirtyFuture.isDone()) return;
             dirtyFuture = active.schedule(new Runnable() {
-                @Override
-                public void run() {
-                    checkpoint("evidence changed");
-                }
+                @Override public void run() { checkpoint("evidence changed"); }
             }, DIRTY_DELAY_SECONDS, TimeUnit.SECONDS);
         }
     }
 
     private void cancelDirtyCheckpoint() {
         synchronized (scheduleLock) {
-            if (dirtyFuture != null && !dirtyFuture.isDone()) {
-                dirtyFuture.cancel(false);
-            }
+            if (dirtyFuture != null && !dirtyFuture.isDone()) dirtyFuture.cancel(false);
             dirtyFuture = null;
         }
     }
@@ -200,21 +183,10 @@ public final class EvidenceRecoveryManager {
         }
     }
 
-    /**
-     * Final recovery shutdown.
-     *
-     * The old vehicle-test.9 path could leave a two-second dirty checkpoint in
-     * the scheduled executor, then block the Swing EDT in awaitTermination().
-     * That dirty task used invokeAndWait() to get back to the same EDT, forming
-     * a wait cycle until the 12-second timeout. We cancel the deferred task
-     * first, capture the final model snapshot before shutdown, and never block
-     * the EDT waiting for the worker.
-     */
+    /** Final recovery shutdown without an EDT<->worker wait cycle. */
     public void flushAndClose() {
         final ScheduledExecutorService active;
-        synchronized (this) {
-            active = executor;
-        }
+        synchronized (this) { active = executor; }
         if (active == null || active.isShutdown()) return;
 
         cancelDirtyCheckpoint();
@@ -227,8 +199,7 @@ public final class EvidenceRecoveryManager {
         }
         final EvidenceRecoverySnapshot captured = finalSnapshot;
         active.submit(new Runnable() {
-            @Override
-            public void run() {
+            @Override public void run() {
                 writeSnapshot(captured, "plugin close");
                 try {
                     store.finalizePassiveCsvFiles();
@@ -239,13 +210,9 @@ public final class EvidenceRecoveryManager {
         });
         active.shutdown();
 
-        // ApplicationPlugin.close() and Swing hierarchy callbacks can run on
-        // the EDT. Never wait there: the recovery worker must be free to finish
-        // without creating an EDT<->worker dependency.
         if (!SwingUtilities.isEventDispatchThread()) {
             try {
-                if (!active.awaitTermination(
-                        NON_EDT_CLOSE_WAIT_SECONDS, TimeUnit.SECONDS)) {
+                if (!active.awaitTermination(NON_EDT_CLOSE_WAIT_SECONDS, TimeUnit.SECONDS)) {
                     active.shutdownNow();
                 }
             } catch (InterruptedException ex) {
@@ -263,17 +230,9 @@ public final class EvidenceRecoveryManager {
         return executor != null && !executor.isShutdown();
     }
 
-    public Path startupRecoveryDirectory() {
-        return startupRecovery;
-    }
-
-    public Path activeRecoveryDirectory() {
-        return store.runDirectory();
-    }
-
-    public String statusText() {
-        return status;
-    }
+    public Path startupRecoveryDirectory() { return startupRecovery; }
+    public Path activeRecoveryDirectory() { return store.runDirectory(); }
+    public String statusText() { return status; }
 
     public void dismissStartupRecovery() {
         Path recovery = startupRecovery;
@@ -286,30 +245,31 @@ public final class EvidenceRecoveryManager {
         }
     }
 
+    /**
+     * Capture only Swing-owned passive state on the EDT. Guided recovery is
+     * model/synchronized state and can build its potentially large report/CSV
+     * on the low-priority recovery caller instead of freezing Swing.
+     */
     private EvidenceRecoverySnapshot captureSnapshot() throws Exception {
-        final AtomicReference<EvidenceRecoverySnapshot> result =
-                new AtomicReference<EvidenceRecoverySnapshot>();
+        final AtomicReference<EvidenceRecoverySnapshot.Passive> passive =
+                new AtomicReference<EvidenceRecoverySnapshot.Passive>();
         final AtomicReference<RuntimeException> failure =
                 new AtomicReference<RuntimeException>();
-        Runnable capture = new Runnable() {
-            @Override
-            public void run() {
+        Runnable capturePassive = new Runnable() {
+            @Override public void run() {
                 try {
-                    result.set(new EvidenceRecoverySnapshot(
-                            passivePanel.recoverySnapshot(),
-                            guidedPanel.recoverySnapshot()));
+                    passive.set(passivePanel.recoverySnapshot());
                 } catch (RuntimeException ex) {
                     failure.set(ex);
                 }
             }
         };
-        if (SwingUtilities.isEventDispatchThread()) {
-            capture.run();
-        } else {
-            SwingUtilities.invokeAndWait(capture);
-        }
+        if (SwingUtilities.isEventDispatchThread()) capturePassive.run();
+        else SwingUtilities.invokeAndWait(capturePassive);
         if (failure.get() != null) throw failure.get();
-        return result.get();
+
+        EvidenceRecoverySnapshot.Guided guided = guidedPanel.recoverySnapshot();
+        return new EvidenceRecoverySnapshot(passive.get(), guided);
     }
 
     private static Path recoveryRoot() {

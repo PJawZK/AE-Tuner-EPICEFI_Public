@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.3 — 2026-09-06
+
+Status: **PUBLIC RELEASE**. Replaces `v0.4.2-rc.2`.
+
+### AE Foundation
+- Foundation 1 TPS Movement / Timing matured with the retained 40 ms Delta Window / 60 ms Sample Length workflow, passive capture/re-anchor behavior and driving-range evidence.
+- Foundation 2 now uses Normal Correction / Acceleration Opening terminology and physical maneuver-quality rejection.
+- Quiet calibration requires 80 qualifying samples and at least 1.5 continuous seconds.
+- Event-count completion is separate from effective-threshold separation validity.
+- Post-Apply validation guards the full relevant controller context and compares the same fresh B events under OLD vs APPLIED effective threshold behavior.
+- Operator abort/restore provenance is separated from algorithmic RESTORE.
+- Archive46 physically accepted the complete guarded lifecycle and retained 0.570 / 0.597 / 0.623 / 0.650 at 800 / 1600 / 2400 / 3200 RPM.
+
+### MAP Predict / Blend Duration
+- Retired the old largest-gap/T90 numerical Blend Duration conversion.
+- Measurement now follows the final/upward-latched prediction-active `fallbackMap` target; later higher targets restart the measurement anchor.
+- Physical MAP catch-up is measured to the exact final target and checked against current-curve Effective MAP replay.
+- Physically valid events are retained and grouped by comparable RPM/load/TPS-step/gear conditions.
+- Added dedicated Driver Focus: GET STEADY -> OPEN & SETTLE -> HOLD FOR MAP -> RESULT / REPEAT.
+- Numerical Blend Duration proposal/write generation remains withheld pending physical validation of the corrected conversion.
+
+### Safety, validation and UI
+- Expanded firmware-authoritative AE setting inventory and guarded Apply/Restore validation coverage.
+- Production mutation remains explicit, readback-verified and reversible; no automatic Burn path exists.
+- Expanded recovery/export diagnostics, guided audio-cue verification and real Swing synthetic coverage at practical viewport widths.
+
+---
+
 ## 0.4.2-rc.2 — release candidate — 2026-08-28
 
 Status: **RELEASE CANDIDATE / PUBLIC TEST**.

@@ -24,6 +24,12 @@ import java.util.Iterator;
 public final class GuidedSampleDispatcher implements AutoCloseable {
     interface Listener {
         GuidedCaptureState onGuidedSample(LiveSample sample);
+
+        /**
+         * Dedicated transient-critical ownership. Generic session lifecycle
+         * states such as CAPTURING must not be interpreted as transient state.
+         */
+        default boolean transientCritical() { return false; }
     }
 
     static final int CAPACITY = 96;
@@ -234,10 +240,10 @@ public final class GuidedSampleDispatcher implements AutoCloseable {
 
             if (entry == null) continue;
             try {
-                GuidedCaptureState next = listener.onGuidedSample(entry.sample);
-                criticalMode = next == GuidedCaptureState.OPENING_PENDING
-                        || next == GuidedCaptureState.CAPTURING;
+                listener.onGuidedSample(entry.sample);
+                criticalMode = listener.transientCritical();
             } catch (RuntimeException ex) {
+                criticalMode = false;
                 synchronized (lock) {
                     listenerFailures++;
                 }

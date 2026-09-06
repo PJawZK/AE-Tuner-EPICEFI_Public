@@ -21,13 +21,42 @@ xvfb-run -a -s '-screen 0 1440x1000x24' \
   -cp 'target/classes:target/test-classes:lib/TunerStudioPluginAPI.jar' \
   se.anders.tunerstudio.aetuner.passive.SyntheticPluginIntegrationEntryPoint
 
+xvfb-run -a -s '-screen 0 1440x1000x24' \
+  java -Djava.awt.headless=false \
+  -cp 'target/classes:target/test-classes:lib/TunerStudioPluginAPI.jar' \
+  se.anders.tunerstudio.aetuner.guided.EngagementDriverViewSyntheticTest
+
+xvfb-run -a -s '-screen 0 1440x1000x24' \
+  java -Djava.awt.headless=false \
+  -cp 'target/classes:target/test-classes:lib/TunerStudioPluginAPI.jar' \
+  se.anders.tunerstudio.aetuner.guided.EngagementDetailsScrollSyntheticTest
+
+xvfb-run -a -s '-screen 0 1440x1000x24' \
+  java -Djava.awt.headless=false \
+  -cp 'target/classes:target/test-classes:lib/TunerStudioPluginAPI.jar' \
+  se.anders.tunerstudio.aetuner.guided.FoundationThresholdFocusSyntheticTest
+
+xvfb-run -a -s '-screen 0 1440x1000x24' \
+  java -Djava.awt.headless=false \
+  -cp 'target/classes:target/test-classes:lib/TunerStudioPluginAPI.jar' \
+  se.anders.tunerstudio.aetuner.guided.BlendDurationFocusSyntheticTest
+
 for required in \
   result.txt \
   workspace-overview-1366.png \
   workspace-passive-setup-1366.png \
   workspace-evidence-audio-1366.png \
   workspace-guided-1366.png \
-  workspace-guided-focus-map-estimate.png
+  workspace-guided-focus-map-estimate.png \
+  workspace-guided-focus-engagement-driver-1180.png \
+  workspace-guided-focus-engagement-driver-1024.png \
+  workspace-guided-focus-engagement-driver-820.png \
+  workspace-guided-focus-engagement-details-scroll-1366.png \
+  workspace-guided-focus-foundation-threshold-driver-1180.png \
+  workspace-guided-focus-foundation-threshold-details-1180.png \
+  workspace-guided-focus-blend-duration-driver-1180.png \
+  workspace-guided-focus-blend-duration-driver-820.png \
+  workspace-guided-focus-blend-duration-details-1180.png
 do
   test -s "$OUT/$required" || {
     echo "Synthetic workspace integration output missing or empty: $required" >&2
@@ -48,6 +77,15 @@ sha256sum \
   "$OUT/workspace-evidence-audio-1366.png" \
   "$OUT/workspace-guided-1366.png" \
   "$OUT/workspace-guided-focus-map-estimate.png" \
+  "$OUT/workspace-guided-focus-engagement-driver-1180.png" \
+  "$OUT/workspace-guided-focus-engagement-driver-1024.png" \
+  "$OUT/workspace-guided-focus-engagement-driver-820.png" \
+  "$OUT/workspace-guided-focus-engagement-details-scroll-1366.png" \
+  "$OUT/workspace-guided-focus-foundation-threshold-driver-1180.png" \
+  "$OUT/workspace-guided-focus-foundation-threshold-details-1180.png" \
+  "$OUT/workspace-guided-focus-blend-duration-driver-1180.png" \
+  "$OUT/workspace-guided-focus-blend-duration-driver-820.png" \
+  "$OUT/workspace-guided-focus-blend-duration-details-1180.png" \
   > "$OUT/evidence.sha256"
 
 echo "Synthetic workspace integration evidence written to $OUT"

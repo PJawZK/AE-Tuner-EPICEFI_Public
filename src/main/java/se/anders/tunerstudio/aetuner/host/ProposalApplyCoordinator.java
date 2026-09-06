@@ -21,6 +21,8 @@ import java.util.Map;
  * - every write must be declared by an immutable ProposalWritePlan;
  * - all targets are pre-read and stale-checked before the first write;
  * - array shape is preserved and only declared cells are changed;
+ * - canonical TunerStudio bit/enum settings are read and written through their
+ *   option-selection representation rather than the shared-word scalar value;
  * - all written parameters are read back and compared against the exact
  *   expected post-write state;
  * - partial failures trigger best-effort rollback;
@@ -353,8 +355,6 @@ public final class ProposalApplyCoordinator {
         String configurationName = plan.getConfigurationName();
         List<String> written = new ArrayList<String>();
         try {
-            // A second full preflight immediately before the first write keeps
-            // the stale-value guard close to the mutation boundary.
             verifyCurrentMatches(configurationName, expectedCurrent,
                     restore ? "Restore blocked by stale working tune"
                             : "Apply blocked by stale working tune");
@@ -430,76 +430,102 @@ public final class ProposalApplyCoordinator {
     /** Normalize controller representations before stale/readback comparison. */
     private double readScalarForComparison(String configurationName,
                                            String parameterName) throws Exception {
-        if (AeParameterNames.TPS_AE_DETECT_MODE.equals(parameterName)) {
-            return readEngagementModelForComparison(configurationName, parameterName);
-        }
-        if (AeParameterNames.TPS_AE_FAST_CALLBACK.equals(parameterName)) {
-            return readBooleanBitForComparison(configurationName, parameterName);
+        if (isCanonicalBitSelection(parameterName)) {
+            return readBitSelectionForComparison(configurationName, parameterName);
         }
         return backend.readScalar(configurationName, parameterName);
     }
 
-    private double readEngagementModelForComparison(String configurationName,
-                                                     String parameterName) throws Exception {
-        // tpsAeDetectMode is PARAM_CLASS_BITS. TunerStudio's plugin API exposes
-        // bit selections by option description; getScalarValue()/the numeric
-        // update overload is not the contract for this representation.
+    private double readBitSelectionForComparison(String configurationName,
+                                                  String parameterName) throws Exception {
+        AeControllerDefinitionCatalog.Definition definition =
+                requireBitDefinition(parameterName);
         String rawOption = backend.readOption(configurationName, parameterName);
         List<String> liveOptions = backend.readOptionDescriptions(configurationName, parameterName);
         int liveIndex = matchingOptionIndex(rawOption, liveOptions);
         if (liveIndex >= 0) {
-            EngagementModelOption live = EngagementModelOption.fromControllerValue(liveIndex);
-            if (live == null) {
-                throw new IllegalStateException(parameterName + " current live option index "
-                        + liveIndex + " is not a supported Engagement Model; options=" + liveOptions);
-            }
-            return live.controllerValue();
-        }
-        EngagementModelOption option = EngagementModelOption.fromControllerText(rawOption);
-        if (option == null) {
-            throw new IllegalStateException(parameterName
-                    + " returned current option '" + rawOption
-                    + "' which is absent from live TunerStudio options " + liveOptions);
-        }
-        return option.controllerValue();
-    }
-
-    private double readBooleanBitForComparison(String configurationName,
-                                               String parameterName) throws Exception {
-        String rawOption = backend.readOption(configurationName, parameterName);
-        List<String> liveOptions = backend.readOptionDescriptions(configurationName, parameterName);
-        int liveIndex = matchingOptionIndex(rawOption, liveOptions);
-        if (liveIndex == 0 || liveIndex == 1) {
+            requireValidBitOptionIndex(definition, liveIndex, parameterName);
             return liveIndex;
         }
-        if (liveIndex > 1) {
-            throw new IllegalStateException(parameterName + " one-bit selection resolved to option index "
-                    + liveIndex + "; expected only 0/1; options=" + liveOptions);
+
+        // Preserve the established Engagement Model compatibility with API
+        // builds that report either the enum text or an integral controller code.
+        if (AeParameterNames.TPS_AE_DETECT_MODE.equals(parameterName)) {
+            EngagementModelOption option = EngagementModelOption.fromControllerText(rawOption);
+            if (option != null) {
+                requireValidBitOptionIndex(definition, option.controllerValue(), parameterName);
+                return option.controllerValue();
+            }
         }
-        Boolean parsed = booleanOptionText(rawOption);
-        if (parsed == null) {
-            throw new IllegalStateException(parameterName
-                    + " returned current option '" + rawOption
-                    + "' which is absent from live TunerStudio options " + liveOptions);
+
+        // Some API builds expose one-bit settings as generic boolean text rather
+        // than the exact option-description object. Preserve that compatibility
+        // for every canonical two-state bit field, not just Fast Callback.
+        if (definition.getOptionLabels().length == 2) {
+            Boolean parsed = booleanOptionText(rawOption);
+            if (parsed != null) return parsed.booleanValue() ? 1.0 : 0.0;
         }
-        return parsed.booleanValue() ? 1.0 : 0.0;
+
+        Integer numeric = integralOptionText(rawOption);
+        if (numeric != null) {
+            requireValidBitOptionIndex(definition, numeric.intValue(), parameterName);
+            return numeric.intValue();
+        }
+
+        throw new IllegalStateException(parameterName
+                + " returned current option '" + rawOption
+                + "' which is absent from live TunerStudio options " + liveOptions);
     }
 
     private void writeState(String configurationName, ParameterState state)
             throws Exception {
         if (state.kind == ProposalWritePlan.Kind.SCALAR) {
-            if (AeParameterNames.TPS_AE_DETECT_MODE.equals(state.parameterName)) {
-                EngagementModelOption option = engagementModelForCode(state.scalar);
-                backend.writeOptionIndex(configurationName, state.parameterName,
-                        option.controllerValue());
-            } else if (AeParameterNames.TPS_AE_FAST_CALLBACK.equals(state.parameterName)) {
-                backend.writeOptionIndex(configurationName, state.parameterName,
-                        booleanBitIndex(state.scalar, state.parameterName));
+            if (isCanonicalBitSelection(state.parameterName)) {
+                AeControllerDefinitionCatalog.Definition definition =
+                        requireBitDefinition(state.parameterName);
+                int optionIndex = integralCode(state.scalar,
+                        state.parameterName + " option index");
+                requireValidBitOptionIndex(definition, optionIndex, state.parameterName);
+                backend.writeOptionIndex(configurationName, state.parameterName, optionIndex);
             } else {
                 backend.writeScalar(configurationName, state.parameterName, state.scalar);
             }
         } else {
             backend.writeArray(configurationName, state.parameterName, state.array);
+        }
+    }
+
+    private static boolean isCanonicalBitSelection(String parameterName) {
+        AeControllerDefinitionCatalog.Definition definition =
+                AeControllerDefinitionCatalog.find(parameterName);
+        return definition != null
+                && definition.getKind() == AeControllerDefinitionCatalog.Kind.BITS;
+    }
+
+    private static AeControllerDefinitionCatalog.Definition requireBitDefinition(
+            String parameterName) {
+        AeControllerDefinitionCatalog.Definition definition =
+                AeControllerDefinitionCatalog.find(parameterName);
+        if (definition == null
+                || definition.getKind() != AeControllerDefinitionCatalog.Kind.BITS) {
+            throw new IllegalArgumentException(
+                    parameterName + " is not a canonical TunerStudio bit selection");
+        }
+        return definition;
+    }
+
+    private static void requireValidBitOptionIndex(
+            AeControllerDefinitionCatalog.Definition definition,
+            int optionIndex, String parameterName) {
+        String[] labels = definition.getOptionLabels();
+        if (optionIndex < 0 || optionIndex >= labels.length) {
+            throw new IllegalArgumentException(parameterName + " option index " + optionIndex
+                    + " is outside frozen controller options 0.." + (labels.length - 1));
+        }
+        String label = labels[optionIndex] == null ? "" : labels[optionIndex].trim();
+        if (label.length() == 0 || "INVALID".equalsIgnoreCase(label)) {
+            throw new IllegalArgumentException(parameterName + " option index " + optionIndex
+                    + " is not a valid frozen controller state");
         }
     }
 
@@ -534,32 +560,25 @@ public final class ProposalApplyCoordinator {
         return null;
     }
 
-    private static int booleanBitIndex(double value, String parameterName) {
-        if (!Double.isFinite(value)) {
-            throw new IllegalArgumentException(parameterName + " logical bit value must be finite");
+    private static Integer integralOptionText(String value) {
+        if (value == null) return null;
+        try {
+            double numeric = Double.parseDouble(normalizeOptionText(value));
+            return Integer.valueOf(integralCode(numeric, "option index"));
+        } catch (RuntimeException ex) {
+            return null;
         }
-        if (Math.abs(value) <= VALUE_EPSILON) return 0;
-        if (Math.abs(value - 1.0) <= VALUE_EPSILON) return 1;
-        throw new IllegalArgumentException(parameterName
-                + " logical bit value must be exactly 0 or 1, not " + value);
     }
 
-    private static EngagementModelOption engagementModelForCode(double value) {
+    private static int integralCode(double value, String label) {
         if (!Double.isFinite(value)) {
-            throw new IllegalArgumentException(
-                    "Engagement Model code must be finite: " + value);
+            throw new IllegalArgumentException(label + " must be finite: " + value);
         }
         int code = (int) Math.rint(value);
         if (Math.abs(value - code) > VALUE_EPSILON) {
-            throw new IllegalArgumentException(
-                    "Engagement Model code must be integral: " + value);
+            throw new IllegalArgumentException(label + " must be integral: " + value);
         }
-        EngagementModelOption option = EngagementModelOption.fromControllerValue(code);
-        if (option == null) {
-            throw new IllegalArgumentException(
-                    "Unsupported Engagement Model code " + code);
-        }
-        return option;
+        return code;
     }
 
     private static LinkedHashMap<String, List<ProposalWritePlan.Change>> groupChanges(

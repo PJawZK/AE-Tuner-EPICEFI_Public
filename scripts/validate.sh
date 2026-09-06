@@ -4,6 +4,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+while IFS= read -r -d '' source; do
+  first_line="$(head -n 1 "$source")"
+  if [[ "$first_line" == *'\n'* ]]; then
+    echo "Serialized Java source line boundaries detected in $source" >&2
+    echo "The file contains literal \\n separators on its first physical line instead of real line breaks." >&2
+    exit 1
+  fi
+done < <(find src/main/java src/test/java -type f -name '*.java' -print0)
+
 bash scripts/build.sh
 bash scripts/check-static-safety.sh
 bash scripts/compile-tests.sh
@@ -19,10 +28,20 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.proposal.ProposalWritePlanRegressionTest \
     se.anders.tunerstudio.aetuner.proposal.SessionExportSupportRegressionTest \
     se.anders.tunerstudio.aetuner.host.AeTuningParameterCatalogRegressionTest \
+    se.anders.tunerstudio.aetuner.host.AeApplyRestoreValidationTargetsRegressionTest \
+    se.anders.tunerstudio.aetuner.host.GuidedWriteCapabilityMaturityRegressionTest \
     se.anders.tunerstudio.aetuner.host.ProposalApplyCoordinatorRegressionTest \
+    se.anders.tunerstudio.aetuner.host.ProposalApplyCoordinatorMultiCellRegressionTest \
+    se.anders.tunerstudio.aetuner.host.ProposalApplyCoordinatorBitSelectionRegressionTest \
+    se.anders.tunerstudio.aetuner.host.AeApplyRestoreValidationEngineRegressionTest \
+    se.anders.tunerstudio.aetuner.host.AeApplyRestoreValidationLabModelRegressionTest \
+    se.anders.tunerstudio.aetuner.host.AeApplyRestoreValidationAutomationRegressionTest \
+    se.anders.tunerstudio.aetuner.host.AeValidationAutomaticAxisSafetyRegressionTest \
+    se.anders.tunerstudio.aetuner.host.AeApplyRestoreValidationReportRegressionTest \
     se.anders.tunerstudio.aetuner.host.EngagementDetectionApplyWorkflowRegressionTest \
     se.anders.tunerstudio.aetuner.host.MapEstimateApplyResolutionRegressionTest \
     se.anders.tunerstudio.aetuner.host.GuidedBlendApplyWorkflowRegressionTest \
+    se.anders.tunerstudio.aetuner.host.GuidedTaskSettingsPanelIntegrationRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedVehicleTestLimitsRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedVehicleTest9RegressionTest \
     se.anders.tunerstudio.aetuner.guided.PhaseA3LegacyInvariantMigrationTest \
@@ -38,16 +57,25 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.guided.BlendDurationComparabilityGroupsRegressionTest \
     se.anders.tunerstudio.aetuner.guided.PhaseBGuidedArchitectureRegressionTest \
     se.anders.tunerstudio.aetuner.guided.BlendDurationGuidedSummaryRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.BlendDurationFocusCoachingRegressionTest \
     se.anders.tunerstudio.aetuner.guided.PhaseA2AdaptiveTypeMigrationTest \
     se.anders.tunerstudio.aetuner.guided.GuidedMethodProbeSessionRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedTpsAeMultiCellProposalRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedTaskSettingsDraftRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedProbeLongSessionRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedProbeExportThreadingRegressionTest \
     se.anders.tunerstudio.aetuner.guided.EngagementDetectionRoutingRegressionTest \
     se.anders.tunerstudio.aetuner.guided.EngagementDetectionSettingRoutingRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.EngagementPassiveCaptureRegressionTest \
     se.anders.tunerstudio.aetuner.guided.EngagementFocusCoachingRegressionTest \
-    se.anders.tunerstudio.aetuner.guided.GuidedCoachBlueprintRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedTuningNavigationRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedMapEstimateExperimentRoutingRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedFocusRegressionTest \
     se.anders.tunerstudio.aetuner.guided.method.GuidedAeMethodModulesRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.method.FoundationThresholdRecommendationRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.method.FoundationThresholdValidationRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.FoundationTimingValidationRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedProposalValidationSessionRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedMethodRoutingUiRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedLifecycleRegressionTest \
     se.anders.tunerstudio.aetuner.RuntimeOverhaulRegressionTest \
@@ -69,6 +97,7 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.PhaseFPackageArchitectureTest \
     se.anders.tunerstudio.aetuner.guided.GuidedEvidenceRecorderRegressionTest \
     se.anders.tunerstudio.aetuner.recovery.EvidenceRecoveryStoreRegressionTest \
+    se.anders.tunerstudio.aetuner.recovery.EvidenceRecoveryThreadingRegressionTest \
     se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateDev16RegressionTest \
     se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateDev17RegressionTest \
     se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateDev18RegressionTest \
@@ -87,5 +116,6 @@ if [[ -d src/test/java ]]; then
 fi
 
 bash scripts/validation-tooling-regression.sh
+bash scripts/package-dev-plugin.sh
 
 echo "Full validation passed for AE Tuner (EPICEFI)"

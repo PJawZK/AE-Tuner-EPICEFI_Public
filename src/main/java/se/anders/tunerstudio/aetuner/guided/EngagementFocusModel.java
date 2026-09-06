@@ -5,15 +5,16 @@ import se.anders.tunerstudio.aetuner.model.ChannelRole;
 import se.anders.tunerstudio.aetuner.model.EngagementModelOption;
 import se.anders.tunerstudio.aetuner.model.LiveSample;
 
-/**
- * Read-only live presentation model for AE Foundation TPS Movement / Timing.
- *
- * The normal tuning question is TPS movement -> production detected TPS change
- * -> AccelThreshold. Dual Stride / Newest is expected controller context, not a
- * user-selectable AE Tuner algorithm. Sample Length and Fast Callback are also
- * read-only context here. Delta Window is the one current A/B setting.
- */
+/** Lightweight presentation model for passive TPS Movement / Timing capture. */
 public final class EngagementFocusModel {
+    private static final long PRESENTATION_INTERVAL_NS = 100000000L;
+    private static AeProjectSnapshot cachedSnapshot;
+    private static GuidedCaptureState cachedState;
+    private static long cachedSampleNano = Long.MIN_VALUE;
+    private static long cachedPassiveRevision = Long.MIN_VALUE;
+    private static EngagementFocusModel cachedLiveModel;
+    private static long presentationBuildCount;
+
     public final GuidedCaptureState captureState;
     public final EngagementModelOption workingModel;
     public final double rpm;
@@ -21,32 +22,45 @@ public final class EngagementFocusModel {
     public final double productionDeltaTps;
     public final double threshold;
     public final double newestPair;
-    /** Compatibility alias: the production detector output being coached. */
     public final double selectedOutput;
     public final double windowMs;
     public final double windowSamples;
     public final double stride;
     public final double sampleLengthSeconds;
+    public final EngagementPassiveCapture.TimingStatus timingStatus;
     public final boolean fastCallback;
     public final boolean fastCallbackAvailable;
     public final boolean expectedModel;
+    public final boolean channelsReady;
     public final boolean liveReady;
     public final boolean selectedAboveThreshold;
+    public final boolean noiseCalibrationReady;
+    public final boolean incidentalThresholdCrossing;
+    public final int quietCalibrationSamples;
+    public final double quietTpsRateP99;
+    public final double intentTpsRateFloor;
+    public final double rawTpsRate;
     public final int activityEvents;
     public final int targetEvents;
     public final int observedSamples;
     public final int completeRequiredSamples;
+    public final EngagementDeltaWindowSweepRuntime.Snapshot sweep;
 
-    private EngagementFocusModel(GuidedCaptureState captureState,
+    private EngagementFocusModel(AeProjectSnapshot timingSnapshot,
+                             GuidedCaptureState captureState,
                                  EngagementModelOption workingModel,
                                  double rpm, double tps,
                                  double productionDeltaTps, double threshold,
-                                 double newestPair,
-                                 double windowMs, double windowSamples, double stride,
-                                 double sampleLengthSeconds,
-                                 boolean fastCallback, boolean fastCallbackAvailable,
-                                 boolean expectedModel, boolean liveReady,
+                                 double newestPair, double selectedOutput,
+                                 double windowMs, double windowSamples,
+                                 double stride, double sampleLengthSeconds,
+                                 boolean fastCallback,
+                                 boolean fastCallbackAvailable,
+                                 boolean expectedModel,
+                                 boolean channelsReady,
+                                 boolean liveReady,
                                  boolean selectedAboveThreshold,
+                                 double rawTpsRate,
                                  int activityEvents, int targetEvents,
                                  int observedSamples, int completeRequiredSamples) {
         this.captureState = captureState == null ? GuidedCaptureState.IDLE : captureState;
@@ -56,44 +70,62 @@ public final class EngagementFocusModel {
         this.productionDeltaTps = productionDeltaTps;
         this.threshold = threshold;
         this.newestPair = newestPair;
-        this.selectedOutput = productionDeltaTps;
+        this.selectedOutput = selectedOutput;
         this.windowMs = windowMs;
         this.windowSamples = windowSamples;
         this.stride = stride;
         this.sampleLengthSeconds = sampleLengthSeconds;
+        this.timingStatus = EngagementPassiveCapture.timingStatus(timingSnapshot);
         this.fastCallback = fastCallback;
         this.fastCallbackAvailable = fastCallbackAvailable;
         this.expectedModel = expectedModel;
+        this.channelsReady = channelsReady;
         this.liveReady = liveReady;
         this.selectedAboveThreshold = selectedAboveThreshold;
+        this.noiseCalibrationReady = true;
+        this.incidentalThresholdCrossing = false;
+        this.quietCalibrationSamples = 0;
+        this.quietTpsRateP99 = Double.NaN;
+        this.intentTpsRateFloor = EngagementPassiveCapture.snapshot().onsetRateFloor;
+        this.rawTpsRate = rawTpsRate;
         this.activityEvents = Math.max(0, activityEvents);
         this.targetEvents = Math.max(1, targetEvents);
         this.observedSamples = Math.max(0, observedSamples);
         this.completeRequiredSamples = Math.max(0, completeRequiredSamples);
+        this.sweep = null;
     }
 
-    /** Setup-only Focus state after Read Working Tune and before capture begins. */
     public static EngagementFocusModel setupFromWorkingTune(GuidedCaptureState state) {
-        EngagementDetectionWriteSelection.Snapshot settings =
-                EngagementDetectionWriteSelection.snapshot();
+        EngagementDetectionWriteSelection.Snapshot settings = EngagementDetectionWriteSelection.snapshot();
         EngagementModelOption model = settings.modelBaselineAvailable
                 ? settings.baselineEngagementModel : null;
-        return new EngagementFocusModel(state, model,
-                Double.NaN, Double.NaN, Double.NaN, Double.NaN, Double.NaN,
-                Double.NaN, Double.NaN, Double.NaN,
-                settings.baselineSampleLengthSeconds,
+        return new EngagementFocusModel(null, state, model,
+                Double.NaN, Double.NaN, Double.NaN, Double.NaN,
+                Double.NaN, Double.NaN, Double.NaN, Double.NaN,
+                Double.NaN, settings.baselineSampleLengthSeconds,
                 settings.baselineFastCallback, settings.fastCallbackBaselineAvailable,
                 model == EngagementModelOption.DUAL_STRIDE_NEWEST,
-                false, false, 0, 5, 0, 0);
+                false, false, false, Double.NaN,
+                0, 6, 0, 0);
     }
 
-    public static EngagementFocusModel build(AeProjectSnapshot snapshot,
-                                             LiveSample sample,
-                                             GuidedCaptureState state,
-                                             int activityEvents,
-                                             int targetEvents,
-                                             int observedSamples,
-                                             int completeRequiredSamples) {
+    public static synchronized EngagementFocusModel build(
+            AeProjectSnapshot snapshot, LiveSample sample,
+            GuidedCaptureState state, int activityEvents,
+            int targetEvents, int observedSamples,
+            int completeRequiredSamples) {
+        long sampleNano = sample == null ? Long.MIN_VALUE : sample.getNanoTime();
+        long passiveRevision = EngagementPassiveCapture.snapshot().revision;
+        if (sample != null && cachedLiveModel != null
+                && cachedSnapshot == snapshot
+                && cachedState == state
+                && cachedSampleNano != Long.MIN_VALUE
+                && sampleNano > cachedSampleNano
+                && sampleNano - cachedSampleNano < PRESENTATION_INTERVAL_NS
+                && cachedPassiveRevision == passiveRevision) {
+            return cachedLiveModel;
+        }
+
         EngagementModelOption model = snapshot == null ? null
                 : EngagementModelOption.fromControllerText(snapshot.getEngagementModel());
         double rpm = value(sample, ChannelRole.RPM);
@@ -104,117 +136,129 @@ public final class EngagementFocusModel {
         double windowMs = value(sample, ChannelRole.AE_WINDOW_MS);
         double windowSamples = value(sample, ChannelRole.AE_WINDOW_SAMPLES);
         double stride = value(sample, ChannelRole.AE_DELTA_STRIDE);
-        double sampleLength = snapshot == null
-                ? Double.NaN : snapshot.getEngagementSampleLengthSeconds();
+        double sampleLength = snapshot == null ? Double.NaN : snapshot.getEngagementSampleLengthSeconds();
         boolean fastAvailable = snapshot != null && snapshot.hasEngagementFastCallback();
         boolean fast = snapshot != null && snapshot.isEngagementFastCallback();
         boolean expected = model == EngagementModelOption.DUAL_STRIDE_NEWEST;
-        boolean ready = expected && finite(rpm, tps, delta, threshold, newest, windowMs, stride);
-        boolean active = ready && delta > threshold;
-        return new EngagementFocusModel(state, model,
-                rpm, tps, delta, threshold, newest,
-                windowMs, windowSamples, stride,
-                sampleLength, fast, fastAvailable,
-                expected, ready, active,
-                activityEvents, targetEvents, observedSamples, completeRequiredSamples);
+        boolean channels = expected && finite(rpm, tps, threshold);
+        double selected = selectedDetectorOutput(snapshot, sample);
+        boolean active = channels && sample != null && sample.bool(ChannelRole.AE_ABOVE_THRESHOLD);
+
+        EngagementFocusModel built = new EngagementFocusModel(
+                snapshot, state, model, rpm, tps, delta, threshold, newest, selected,
+                windowMs, windowSamples, stride, sampleLength,
+                fast, fastAvailable, expected, channels, channels, active,
+                sample == null ? Double.NaN : sample.getTpsDot(),
+                activityEvents, targetEvents, observedSamples,
+                completeRequiredSamples);
+
+        cachedSnapshot = snapshot;
+        cachedState = state;
+        cachedSampleNano = sampleNano;
+        cachedPassiveRevision = passiveRevision;
+        cachedLiveModel = built;
+        presentationBuildCount++;
+        return built;
     }
 
-    /** Production TPS movement signal used by the Guided cue state machine. */
-    public static double selectedDetectorOutput(AeProjectSnapshot snapshot,
-                                                LiveSample sample) {
-        return value(sample, ChannelRole.DELTA_TPS);
+    public static double selectedDetectorOutput(AeProjectSnapshot snapshot, LiveSample sample) {
+        if (sample == null) return Double.NaN;
+        double production = sample.get(ChannelRole.DELTA_TPS);
+        if (Double.isFinite(production)) return production;
+        return sample.get(ChannelRole.AE_DELTA_NEWEST_PAIR);
     }
 
     public double selectedThresholdRatio() {
-        return Double.isFinite(productionDeltaTps) && Double.isFinite(threshold)
-                && threshold > 0.000001 ? productionDeltaTps / threshold : Double.NaN;
+        return Double.isFinite(productionDeltaTps)
+                && Double.isFinite(threshold) && threshold > 0.000001
+                ? productionDeltaTps / threshold : Double.NaN;
     }
 
     public String detectorStatusText() {
-        if (!expectedModel) return "SETUP — Dual Stride / Newest is required for this Guided workflow";
-        if (!liveReady) return "WAIT — TPS movement / threshold data incomplete";
-        if (selectedAboveThreshold) return "TRIGGERED — detected TPS change is above AccelThreshold";
-        if (productionDeltaTps > 0.0) {
-            return "OPENING / BELOW THRESHOLD — TPS is moving but the event threshold has not been crossed";
+        EngagementPassiveCapture.Snapshot passive = EngagementPassiveCapture.snapshot();
+        if (!expectedModel) return "SETUP — Dual Stride / Newest is required for passive timing estimation";
+        if (!channelsReady) return "WAIT — RPM/TPS/AccelThreshold data incomplete";
+        if (passive.complete()) {
+            if (timingStatus.deltaResolved) {
+                return "TIMING PAIR COMPLETE — Delta Window and Sample Length resolved";
+            }
+            return timingStatus.sampleResolved
+                    ? "DELTA WINDOW AMBIGUOUS — Sample Length capacity already assessed"
+                    : "SET COMPLETE — timing evidence still incomplete";
         }
-        return "READY / BELOW THRESHOLD — make the next deliberate opening when safe";
+        if (passive.moving) return "CAPTURING — let this pedal opening peak naturally";
+        if (passive.settling) return "SETTLING — TPS must return and stabilize before re-arm";
+        return "READY — " + passive.comparableEvents + "/"
+                + passive.targetComparable + " comparable movements";
     }
 
     public String nextActionText() {
-        if (workingModel == null) {
-            return "READ WORKING TUNE\nLoad the current TPS Movement / Timing baseline before testing.";
+        EngagementPassiveCapture.Snapshot passive = EngagementPassiveCapture.snapshot();
+        if (workingModel == null) return "READ WORKING TUNE\nLoad the current TPS Movement / Timing baseline before capture.";
+        if (!expectedModel) return "CHECK ECU SETUP\nPassive timing estimation expects Dual Stride / Newest.";
+        if (captureState == GuidedCaptureState.COMPLETE || passive.complete()) {
+            if (!timingStatus.deltaResolved) {
+                String sample = timingStatus.sampleResolved
+                        ? "\n2/2 SAMPLE LENGTH — " + fmt1(timingStatus.sampleLengthMs)
+                            + " ms — " + (timingStatus.sampleChangeNeeded ? "INCREASE" : "RETAIN")
+                        : "\n2/2 SAMPLE LENGTH — WAITING FOR CAPACITY BOUND";
+                return "1/2 DELTA WINDOW — AMBIGUOUS\n" + timingStatus.reason
+                        + sample + "\nNEXT — " + timingStatus.coaching;
+            }
+            return "TIMING PAIR COMPLETE\n1/2 Delta Window and 2/2 Sample Length are both resolved from accumulated evidence.";
         }
-        if (!expectedModel) {
-            return "CHECK ECU SETUP\nThis Guided workflow expects Dual Stride / Newest. AE Tuner does not change Engagement Model.";
+        if (captureState == GuidedCaptureState.PAUSED) return "PAUSED\nResume when safe.";
+        if (captureState == GuidedCaptureState.IDLE) return "START PASSIVE CAPTURE\nThe first usable opening will set a visual TPS reference marker.";
+        if (passive.moving) return "LET IT PEAK NATURALLY\nNo exact TPS target and no hold are required.";
+        if (passive.settling) return "LET TPS SETTLE\nRelease the pedal and wait for the physical event to re-arm before the next opening.";
+        if (!Double.isFinite(passive.referencePeakTps)) {
+            return "MAKE ONE COMFORTABLE PEDAL OPENING\nIts peak becomes a visual reference only, not a hard acceptance target.";
         }
-        if (captureState == GuidedCaptureState.COMPLETE) {
-            return "REVIEW THIS SET\nCompare TPS movement, detected change and threshold timing. If testing Delta Window, change only that value, Apply/verify, Read Working Tune, then repeat the same maneuvers.";
-        }
-        if (captureState == GuidedCaptureState.PAUSED) {
-            return "PAUSED\nResume only when you are ready to continue the same comparison set.";
-        }
-        if (captureState == GuidedCaptureState.IDLE) {
-            return "START A BASELINE CAPTURE\nDrive normally first. When safe, follow the maneuver sequence below.";
-        }
-        if (!liveReady) {
-            return "WAIT FOR LIVE DATA\nKeep the ECU connected until TPS, RPM, Fuel: TPS AE change, AccelThreshold and timing diagnostics are present.";
-        }
-        if (selectedAboveThreshold) {
-            return "HOLD / OBSERVE\nThe detected TPS change crossed AccelThreshold. Stop adding pedal briefly and watch that it falls back below threshold when movement stops.";
-        }
-        return maneuverInstruction(activityEvents);
+        return "REPEAT APPROXIMATELY THE REFERENCE MOVEMENT\nAE Tuner decides comparability from the measured event data.";
     }
 
     public String maneuverPlanText() {
-        return "BASELINE / DELTA WINDOW A-B SET\n"
-                + "1. Normal moderate opening — observe TPS movement and threshold crossing.\n"
-                + "2. Quick stab -> brief hold — detected change should cross promptly, then clear when movement stops.\n"
-                + "3. Partial lift -> reapply — the reapply should become a fresh event.\n"
-                + "4. Two or three stacked short stabs — genuine reapplications should remain separable.\n\n"
-                + "After Review, change only Delta Window if the evidence justifies an A/B test, Apply/verify, Read Working Tune, then repeat the same maneuver set at similar RPM/load.";
+        return "PASSIVE FOUNDATION 1\n"
+                + "1. The first usable opening sets a full-height visual TPS reference marker; later peaks use shorter lower-half markers.\n"
+                + "2. The marker is presentation-only. AE Tuner captures each physical opening and learns the repeatable TPS-step cluster from measured data.\n"
+                + "3. SETTLING/READY only separates physical events: TPS must return and become quiet before another opening can be accepted. It is not target choreography.\n"
+                + "4. No controller writes are performed while driving. Idle/no-load evidence is provisional; representative pre-event operating RPM coverage is required before Apply; VSS is context, not a prerequisite.\n"
+                + "5. Sample Length is retained unless it is too short to contain the selected Delta Window history.";
     }
 
     public String audioPlanText() {
-        return "AUDIO DURING TPS MOVEMENT CAPTURE\n"
-                + "READY: required data is present and detected TPS change is below threshold.\n"
-                + "TARGET: detected TPS change crosses AccelThreshold.\n"
-                + "RETURN: detected TPS change has cleared below threshold long enough to separate the event.\n"
-                + "COMPLETE: Finish/Review completed the current set.\n"
-                + "Audio is guidance only; recorded channels remain the evidence.";
+        return "FOUNDATION 1 AUDIO\n"
+                + "One optional accepted-event cue confirms that a comparable pedal movement was stored.\n"
+                + "SETTLING/READY is visual event-separation status only; there are no exact-target, hold or candidate-transition cues.";
     }
 
     public String prerequisiteText() {
+        EngagementPassiveCapture.Snapshot passive = EngagementPassiveCapture.snapshot();
         StringBuilder text = new StringBuilder();
-        text.append("Detector: ")
-                .append(workingModel == null ? "unknown" : workingModel.displayName())
-                .append(" (read-only)");
-        text.append(" | Sample Length: ")
-                .append(Double.isFinite(sampleLengthSeconds)
-                        ? String.format(java.util.Locale.ROOT, "%.3f s", sampleLengthSeconds)
-                        : "unknown")
-                .append(" (read-only)");
+        text.append("Detector: ").append(workingModel == null ? "unknown" : workingModel.displayName()).append(" (read-only)");
+        text.append(" | Sample Length: ").append(Double.isFinite(sampleLengthSeconds)
+                ? String.format(java.util.Locale.ROOT, "%.0f ms", sampleLengthSeconds * 1000.0) : "unknown")
+                .append(" (history capacity)");
         text.append(" | Fast Callback: ");
-        if (!fastCallbackAvailable) text.append("unknown");
-        else text.append(fastCallback ? "ON (~200 Hz)" : "OFF — ~200 Hz recommended");
-        text.append(" (read-only)");
+        if (!fastCallbackAvailable) text.append("unknown"); else text.append(fastCallback ? "ON" : "OFF");
+        text.append(" | passive onset floor: ").append(fmt1(passive.onsetRateFloor)).append(" %TPS/s");
+        text.append(" | VSS-road context: ").append(passive.roadComparableEvents)
+                .append(" | pre-event RPM span: ").append(fmt1(passive.roadRpmSpan)).append(" RPM");
+        text.append(" | capture writes: NONE | Burn: unavailable");
         return text.toString();
     }
 
-    private static String maneuverInstruction(int events) {
-        if (events <= 0) return "DO THIS NOW — NORMAL OPENING\nMake one ordinary moderate throttle opening when safe.";
-        if (events == 1) return "DO THIS NOW — QUICK STAB -> HOLD\nGive one quick opening, then hold the pedal briefly.";
-        if (events == 2) return "DO THIS NOW — PARTIAL LIFT -> REAPPLY\nOpen, lift part-way, then reapply.";
-        if (events == 3) return "DO THIS NOW — STACKED SHORT STABS\nUse two or three short genuine reapplications.";
-        return "CONTINUE COMPARABLE EVENTS\nRepeat the same maneuver types at similar RPM/load, then Finish/Review.";
+    static synchronized void resetPresentationCacheForTest() {
+        cachedSnapshot = null;
+        cachedState = null;
+        cachedSampleNano = Long.MIN_VALUE;
+        cachedPassiveRevision = Long.MIN_VALUE;
+        cachedLiveModel = null;
+        presentationBuildCount = 0L;
     }
 
-    private static double value(LiveSample sample, ChannelRole role) {
-        return sample == null ? Double.NaN : sample.get(role);
-    }
-
-    private static boolean finite(double... values) {
-        if (values == null) return false;
-        for (double value : values) if (!Double.isFinite(value)) return false;
-        return true;
-    }
+    static synchronized long presentationBuildCountForTest() { return presentationBuildCount; }
+    private static double value(LiveSample sample, ChannelRole role) { return sample == null ? Double.NaN : sample.get(role); }
+    private static boolean finite(double... values) { if (values == null) return false; for (double value : values) if (!Double.isFinite(value)) return false; return true; }
+    private static String fmt1(double value) { return Double.isFinite(value) ? String.format(java.util.Locale.ROOT, "%.1f", value) : "n/a"; }
 }

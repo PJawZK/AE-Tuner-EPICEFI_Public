@@ -44,6 +44,14 @@ public final class AeControllerBridge {
     private static final String PARAM_ENGAGEMENT_FAST_CALLBACK = AeParameterNames.TPS_AE_FAST_CALLBACK;
     private static final String PARAM_DELTA_TPS_AVERAGE_ALPHA = AeParameterNames.DELTA_TPS_AVERAGE_ALPHA;
 
+    /*
+     * Latest controller handle observed through a normal working-tune bridge.
+     * The controlled Foundation sweep uses this only to construct its own
+     * guarded ProposalApplyCoordinator. It never exposes raw updateParameter
+     * access outside the existing write gateway.
+     */
+    private static volatile ControllerAccess latestControllerAccess;
+
     private final ControllerAccess controllerAccess;
 
     public AeControllerBridge(ControllerAccess controllerAccess) {
@@ -51,6 +59,11 @@ public final class AeControllerBridge {
             throw new IllegalArgumentException("Controller access is required");
         }
         this.controllerAccess = controllerAccess;
+        latestControllerAccess = controllerAccess;
+    }
+
+    public static ControllerAccess latestControllerAccess() {
+        return latestControllerAccess;
     }
 
     public AeProjectSnapshot readSnapshot() throws ControllerException {
