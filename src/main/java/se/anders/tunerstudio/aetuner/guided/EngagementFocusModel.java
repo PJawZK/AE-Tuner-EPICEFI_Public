@@ -44,7 +44,6 @@ public final class EngagementFocusModel {
     public final int targetEvents;
     public final int observedSamples;
     public final int completeRequiredSamples;
-    public final EngagementDeltaWindowSweepRuntime.Snapshot sweep;
 
     private EngagementFocusModel(AeProjectSnapshot timingSnapshot,
                              GuidedCaptureState captureState,
@@ -92,7 +91,6 @@ public final class EngagementFocusModel {
         this.targetEvents = Math.max(1, targetEvents);
         this.observedSamples = Math.max(0, observedSamples);
         this.completeRequiredSamples = Math.max(0, completeRequiredSamples);
-        this.sweep = null;
     }
 
     public static EngagementFocusModel setupFromWorkingTune(GuidedCaptureState state) {

@@ -9,11 +9,24 @@ import se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateGuidedFocusPa
 import se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateProposalLimitPolicy;
 import se.anders.tunerstudio.aetuner.guided.method.FoundationThresholdFocusBridge;
 import se.anders.tunerstudio.aetuner.guided.method.FoundationThresholdFocusModel;
+import se.anders.tunerstudio.aetuner.model.AeProjectSnapshot;
 
 import java.io.IOException;
 
 /** Presentation/configuration bus for the modeless Guided Focus window. */
 public final class GuidedFocusHub {
+    public interface CaptureControl {
+        GuidedCaptureState finishCapture();
+        GuidedCaptureState togglePause();
+        GuidedCaptureState continueCapture();
+        GuidedCaptureState captureState();
+        GuidedTuningRecipe activeRecipe();
+        boolean reviewReady();
+        boolean canContinueCapture();
+        boolean canExportEvidence();
+        void exportEvidence();
+    }
+
     public static final class State {
         public final GuidedTuningRecipe recipe;
         public final GuidedCaptureState captureState;
@@ -45,20 +58,106 @@ public final class GuidedFocusHub {
         }
     }
 
-    private static volatile State latest = new State(
-            GuidedTuningRecipe.MAP_ESTIMATE, GuidedCaptureState.IDLE,
-            null, null, null, null,
+    private static volatile State latest = idleState(
             "Read Working Tune and select MAP Estimate Table to initialize learned coverage.");
     private static volatile MapEstimateGuidedFocusPanel.ConfigurationListener mapEstimateListener;
+    private static volatile CaptureControl captureControl;
 
     private GuidedFocusHub() { }
 
+    private static State idleState(String guidance) {
+        return new State(GuidedTuningRecipe.MAP_ESTIMATE, GuidedCaptureState.IDLE,
+                null, null, null, null, guidance);
+    }
+
     public static State snapshot() { return latest; }
 
-    public static void setMapEstimateConfigurationListener(MapEstimateGuidedFocusPanel.ConfigurationListener listener) {
+    public static void setCaptureControl(CaptureControl control) {
+        captureControl = control;
+    }
+
+    public static GuidedCaptureState activeCaptureState() {
+        CaptureControl control = captureControl;
+        if (control != null) {
+            GuidedCaptureState state = control.captureState();
+            if (state != null) return state;
+        }
+        return latest == null ? GuidedCaptureState.IDLE : latest.captureState;
+    }
+
+    public static GuidedTuningRecipe activeCaptureRecipe() {
+        CaptureControl control = captureControl;
+        if (control != null) {
+            GuidedTuningRecipe recipe = control.activeRecipe();
+            if (recipe != null) return recipe;
+        }
+        return latest == null ? null : latest.recipe;
+    }
+
+    public static boolean canFinishCapture() {
+        CaptureControl control = captureControl;
+        GuidedCaptureState state = activeCaptureState();
+        return control != null && (state == GuidedCaptureState.CAPTURING
+                || state == GuidedCaptureState.PAUSED);
+    }
+
+    /**
+     * COMPLETE is only a lifecycle state. Review/export authority is granted by
+     * the production evidence model separately so an early manual Finish cannot
+     * be presented as accepted evidence.
+     */
+    public static boolean isActiveEvidenceReviewReady() {
+        CaptureControl control = captureControl;
+        return control != null
+                && activeCaptureState() == GuidedCaptureState.COMPLETE
+                && control.reviewReady();
+    }
+
+    /** Continue only an explicitly stopped, still-incomplete capture. */
+    public static boolean canContinueActiveCapture() {
+        CaptureControl control = captureControl;
+        return control != null
+                && activeCaptureState() == GuidedCaptureState.COMPLETE
+                && !control.reviewReady()
+                && control.canContinueCapture();
+    }
+
+    public static GuidedCaptureState finishActiveCapture() {
+        CaptureControl control = captureControl;
+        return control == null ? activeCaptureState() : control.finishCapture();
+    }
+
+    public static GuidedCaptureState toggleActiveCapturePause() {
+        CaptureControl control = captureControl;
+        return control == null ? activeCaptureState() : control.togglePause();
+    }
+
+    public static GuidedCaptureState continueActiveCapture() {
+        CaptureControl control = captureControl;
+        return control == null || !canContinueActiveCapture()
+                ? activeCaptureState() : control.continueCapture();
+    }
+
+    public static boolean canExportActiveEvidence() {
+        CaptureControl control = captureControl;
+        return control != null && isActiveEvidenceReviewReady()
+                && control.canExportEvidence();
+    }
+
+    public static void exportActiveEvidence() {
+        CaptureControl control = captureControl;
+        if (control != null && isActiveEvidenceReviewReady()
+                && control.canExportEvidence()) control.exportEvidence();
+    }
+
+    public static void setMapEstimateConfigurationListener(
+            MapEstimateGuidedFocusPanel.ConfigurationListener listener) {
         mapEstimateListener = listener;
     }
-    static MapEstimateGuidedFocusPanel.ConfigurationListener mapEstimateConfigurationListener() { return mapEstimateListener; }
+
+    static MapEstimateGuidedFocusPanel.ConfigurationListener mapEstimateConfigurationListener() {
+        return mapEstimateListener;
+    }
 
     public static void publish(GuidedTuningRecipe recipe, GuidedCaptureState captureState,
                                MapEstimateFocusModel mapEstimate, String guidance) {
@@ -96,59 +195,69 @@ public final class GuidedFocusHub {
                 guidance);
     }
 
-    public static void publish(GuidedTuningRecipe recipe, GuidedCaptureState captureState,
-                               MapEstimateFocusSnapshot legacySnapshot, String guidance) {
-        if (recipe == GuidedTuningRecipe.ENGAGEMENT_DETECTION) {
-            latest = new State(recipe, captureState, null,
-                    EngagementFocusModel.setupFromWorkingTune(captureState), null, null, guidance);
-            return;
-        }
-        if (recipe == GuidedTuningRecipe.FOUNDATION_THRESHOLD) {
-            latest = new State(recipe, captureState, null, null,
-                    FoundationThresholdFocusBridge.snapshot(captureState), null, guidance);
-            return;
-        }
-        if (recipe == GuidedTuningRecipe.BLEND_DURATION) {
-            BlendDurationFocusModel model = latest.blendDuration == null
-                    ? BlendDurationFocusModel.setup() : latest.blendDuration;
-            latest = new State(recipe, captureState, null, null, null, model, guidance);
-            return;
-        }
-        MapEstimateFocusModel model = legacySetupModel(legacySnapshot);
-        latest = new State(recipe, captureState,
-                model == null ? latest.mapEstimate : model, null, null, null, guidance);
+    public static void publishMapEstimateSetup(MapEstimateFocusModel mapEstimate,
+                                               String guidance) {
+        publish(GuidedTuningRecipe.MAP_ESTIMATE, GuidedCaptureState.IDLE,
+                mapEstimate, guidance);
     }
 
-    public static void publishMapEstimateSetup(MapEstimateFocusModel mapEstimate, String guidance) {
-        publish(GuidedTuningRecipe.MAP_ESTIMATE, GuidedCaptureState.IDLE, mapEstimate, guidance);
-    }
-
-    public static void publishMapEstimateSetup(MapEstimateFocusSnapshot legacySnapshot, String guidance) {
-        MapEstimateFocusModel model = legacySetupModel(legacySnapshot);
-        latest = new State(GuidedTuningRecipe.MAP_ESTIMATE,
-                GuidedCaptureState.IDLE, model == null ? latest.mapEstimate : model,
-                null, null, null, guidance);
-    }
-
-    private static MapEstimateFocusModel legacySetupModel(MapEstimateFocusSnapshot legacy) {
-        if (legacy == null || legacy.tpsBins.length == 0 || legacy.rpmBins.length == 0) return null;
+    /**
+     * Initialize idle MAP Estimate Focus directly from the current Working Tune.
+     * This setup view intentionally has no learned-memory authority; the real
+     * GuidedMethodProbeSession loads persistent memory when MAP Estimate capture
+     * is configured.
+     */
+    public static void publishMapEstimateSetup(AeProjectSnapshot snapshot,
+                                               int minimumSamples,
+                                               double capKpa,
+                                               String guidance) {
+        if (snapshot == null || !snapshot.hasMapEstimateTable()) {
+            latest = new State(GuidedTuningRecipe.MAP_ESTIMATE,
+                    GuidedCaptureState.IDLE, null, null, null, null, guidance);
+            return;
+        }
         try {
+            double[] tps = snapshot.getMapEstimateTpsBins();
+            double[] rpm = snapshot.getMapEstimateRpmBins();
             MapEstimateEvidenceSession empty = new MapEstimateEvidenceSession(
-                    null, "guided-focus-setup", legacy.tpsBins, legacy.rpmBins);
-            return MapEstimateFocusModel.build(empty, null, legacy.minimumSamples, 115.0,
-                    legacy.liveTps, legacy.liveRpm, legacy.eligibility.getDisplayText(),
+                    null, snapshot.getConfigurationName(), tps, rpm);
+            MapEstimateFocusModel model = MapEstimateFocusModel.build(
+                    empty, snapshot.getMapEstimateTable(), minimumSamples, capKpa,
+                    Double.NaN, Double.NaN, "Waiting for capture",
                     MapEstimateCoverageStrategy.INTERPOLATED_COVERAGE,
-                    MapEstimateCellScope.all(legacy.tpsBins.length, legacy.rpmBins.length));
+                    MapEstimateCellScope.all(tps.length, rpm.length),
+                    MapEstimateEvidenceBasis.LEARNED_MEMORY,
+                    MapEstimateProposalLimitPolicy.HIGH_TPS_CAP);
+            publishMapEstimateSetup(model, guidance);
         } catch (IOException impossibleWithoutStore) {
-            throw new IllegalStateException("Could not initialize in-memory MAP Estimate Focus axes",
+            throw new IllegalStateException(
+                    "Could not initialize in-memory MAP Estimate Focus axes",
                     impossibleWithoutStore);
         }
     }
 
+    /**
+     * Reset presentation state during a normal Guided session reset. Listener and
+     * capture-control ownership deliberately survives this operation because the
+     * same live plugin instance still owns the next capture.
+     */
     public static void clear() {
         FoundationThresholdFocusBridge.reset();
-        latest = new State(GuidedTuningRecipe.MAP_ESTIMATE,
-                GuidedCaptureState.IDLE, null, null, null, null,
+        latest = idleState(
                 "No active Guided Focus session. Read Working Tune and select a Guided method.");
     }
+
+    /**
+     * Final plugin/classloader retirement. Unlike clear(), this releases static
+     * callbacks that otherwise retain the previous production bridge/session.
+     */
+    public static void dispose() {
+        FoundationThresholdFocusBridge.reset();
+        captureControl = null;
+        mapEstimateListener = null;
+        latest = idleState("No active Guided Focus plugin instance.");
+    }
+
+    static boolean hasCaptureControlForTest() { return captureControl != null; }
+    static boolean hasMapEstimateListenerForTest() { return mapEstimateListener != null; }
 }

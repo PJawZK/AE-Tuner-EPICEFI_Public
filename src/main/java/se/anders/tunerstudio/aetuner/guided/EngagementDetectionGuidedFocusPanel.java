@@ -7,9 +7,7 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
-import javax.swing.JSpinner;
 import javax.swing.JTextArea;
-import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingConstants;
 import javax.swing.UIManager;
 import java.awt.BasicStroke;
@@ -44,8 +42,8 @@ public final class EngagementDetectionGuidedFocusPanel extends JPanel {
 
     private final JLabel current = new JLabel("Working tune not read");
     private final JLabel detectorState = new JLabel("Passive capture idle");
-    private final JLabel sweepCandidate = new JLabel("No comparable cluster yet");
-    private final JLabel sweepTarget = new JLabel("No exact TPS target");
+    private final JLabel passiveCluster = new JLabel("No comparable cluster yet");
+    private final JLabel referenceSummary = new JLabel("No exact TPS target");
     private final JProgressBar eventProgress = bar(0, 6);
     private final JProgressBar detectedSignal = bar(0, 100);
     private final JTextArea nextAction = area(
@@ -57,13 +55,6 @@ public final class EngagementDetectionGuidedFocusPanel extends JPanel {
     private final JTextArea audioPlan = area(
             "Foundation 1 uses one optional accepted-event cue only. SETTLING is a physical event-separation state, not target choreography. There are no exact-target, hold or candidate-transition cues.",
             4, 13f, Font.PLAIN);
-
-    private final EngagementQuietCalibrationPanel quietCalibrationDetails =
-            new EngagementQuietCalibrationPanel(false);
-    private final JPanel settingsPanel = new JPanel();
-    private final JSpinner requestedDeltaWindow = spinner(25, 1, 500, 1);
-    private final JSpinner rpmStartingPoint = spinner(1800, 600, 6500, 50);
-    private final JSpinner sweepEvents = new JSpinner(new SpinnerNumberModel(6, 3, 12, 1));
 
     private boolean driverView = true;
 
@@ -124,8 +115,8 @@ public final class EngagementDetectionGuidedFocusPanel extends JPanel {
         detectorState.setFont(detectorState.getFont().deriveFont(Font.BOLD, 16f));
         center.add(detectorState);
         center.add(Box.createVerticalStrut(6));
-        center.add(sweepCandidate);
-        center.add(sweepTarget);
+        center.add(passiveCluster);
+        center.add(referenceSummary);
         eventProgress.setBorder(BorderFactory.createTitledBorder("Comparable movements"));
         center.add(eventProgress);
         detectedSignal.setBorder(BorderFactory.createTitledBorder("Set completion"));
@@ -133,8 +124,6 @@ public final class EngagementDetectionGuidedFocusPanel extends JPanel {
         center.add(titled("CURRENT INSTRUCTION", nextAction));
         center.add(titled("CAPTURE LOGIC", maneuverPlan));
         center.add(titled("AUDIO", audioPlan));
-        quietCalibrationDetails.setVisible(false);
-        center.add(quietCalibrationDetails);
         detailsCard.add(center, BorderLayout.CENTER);
     }
 
@@ -264,13 +253,13 @@ public final class EngagementDetectionGuidedFocusPanel extends JPanel {
         }
 
         if (Double.isFinite(passive.medianStep)) {
-            sweepCandidate.setText("Natural cluster: median +" + fmt1(passive.medianStep)
+            passiveCluster.setText("Natural cluster: median +" + fmt1(passive.medianStep)
                     + " TPS | MAD " + fmt1(passive.madStep)
                     + " | tolerance +/-" + fmt1(passive.tolerance));
         } else {
-            sweepCandidate.setText("Natural cluster: collecting first movements");
+            passiveCluster.setText("Natural cluster: collecting first movements");
         }
-        sweepTarget.setText("Visual reference " + fmt1(passive.referencePeakTps)
+        referenceSummary.setText("Visual reference " + fmt1(passive.referencePeakTps)
                 + "% TPS | not a hard target | onset floor " + fmt1(passive.onsetRateFloor)
                 + " %TPS/s | prior sets " + passive.completedSets);
     }
@@ -313,11 +302,6 @@ public final class EngagementDetectionGuidedFocusPanel extends JPanel {
         return bar;
     }
 
-    private static JSpinner spinner(double value, double min, double max, double step) {
-        return new JSpinner(new SpinnerNumberModel(Double.valueOf(value), Double.valueOf(min),
-                Double.valueOf(max), Double.valueOf(step)));
-    }
-
     private static void setTextIfChanged(JTextArea area, String text) {
         String safe = text == null ? "" : text;
         if (!safe.equals(area.getText())) area.setText(safe);
@@ -343,15 +327,8 @@ public final class EngagementDetectionGuidedFocusPanel extends JPanel {
     boolean hasRootScrollForTest() { return false; }
     String guidanceTextForTest() { return nextAction.getText() + "\n" + maneuverPlan.getText() + "\n" + audioPlan.getText(); }
     boolean deltaWindowEnabledForTest() { return false; }
-    void setDeltaWindowForTest(double value) { requestedDeltaWindow.setValue(value); }
-    boolean requestedDeltaWindowEnabledForTest() { return false; }
-    double requestedDeltaWindowForTest() { return ((Number) requestedDeltaWindow.getValue()).doubleValue(); }
-    void setRequestedDeltaWindowForTest(double value) { setDeltaWindowForTest(value); }
-    void setSweepRpmForTest(double value) { rpmStartingPoint.setValue(value); }
-    double sweepRpmForTest() { return ((Number) rpmStartingPoint.getValue()).doubleValue(); }
-    int sweepEventsForTest() { return ((Number) sweepEvents.getValue()).intValue(); }
-    String sweepCandidateTextForTest() { return sweepCandidate.getText(); }
-    String sweepTargetTextForTest() { return sweepTarget.getText(); }
+    String passiveClusterTextForTest() { return passiveCluster.getText(); }
+    String referenceSummaryTextForTest() { return referenceSummary.getText(); }
     String driverInstructionForTest() { return driverInstruction.getText(); }
     String driverRpmTextForTest() { return driverRpmText.getText(); }
     String driverTpsTextForTest() { return driverTpsText.getText(); }
@@ -359,7 +336,6 @@ public final class EngagementDetectionGuidedFocusPanel extends JPanel {
     double driverReferenceMarkerForTest() { return tpsGauge.referenceForTest(); }
     int driverRepeatMarkerCountForTest() { return tpsGauge.repeatCountForTest(); }
     double driverReturnMarkerForTest() { return tpsGauge.returnReferenceForTest(); }
-    EngagementQuietCalibrationPanel quietCalibrationDetailsForTest() { return quietCalibrationDetails; }
 
     private static final class BandGauge extends JComponent {
         private double min = Double.NaN;

@@ -17,9 +17,14 @@ import java.util.Iterator;
  *
  * offer() never invokes Guided code and never waits for the worker. Under
  * backlog, ordinary SETTLING/READY samples may be coalesced while samples that
- * belong to an active/potential acceleration opening are retained in order as
- * far as the bounded queue permits. Exhaustion is visible in diagnostics
- * rather than turning into an unbounded queue or blocking the ECU callback.
+ * belong to an active/potential acceleration or deceleration transient are
+ * retained in order as far as the bounded queue permits. Exhaustion is visible
+ * in diagnostics rather than turning into an unbounded queue or blocking the
+ * ECU callback.
+ *
+ * The worker is intentionally created lazily on first resume(). Constructing a
+ * plugin instance must not itself create a GC root that can retain a complete
+ * stale plugin/classloader graph during TunerStudio hot replacement.
  */
 public final class GuidedSampleDispatcher implements AutoCloseable {
     interface Listener {
@@ -93,7 +98,7 @@ public final class GuidedSampleDispatcher implements AutoCloseable {
     private final Object lock = new Object();
     private final ArrayDeque<Entry> queue = new ArrayDeque<Entry>();
     private final Listener listener;
-    private final Thread worker;
+    private Thread worker;
 
     private volatile boolean criticalMode;
     private long transientProtectUntilNano;
@@ -113,6 +118,19 @@ public final class GuidedSampleDispatcher implements AutoCloseable {
             throw new IllegalArgumentException("listener must not be null");
         }
         this.listener = listener;
+    }
+
+    void resume() {
+        synchronized (lock) {
+            if (closed) return;
+            ensureWorkerLocked();
+            accepting = true;
+            lock.notifyAll();
+        }
+    }
+
+    private void ensureWorkerLocked() {
+        if (worker != null && worker.isAlive()) return;
         worker = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -121,14 +139,6 @@ public final class GuidedSampleDispatcher implements AutoCloseable {
         }, "AE-Tuner-Guided-worker");
         worker.setDaemon(true);
         worker.start();
-    }
-
-    void resume() {
-        synchronized (lock) {
-            if (closed) return;
-            accepting = true;
-            lock.notifyAll();
-        }
     }
 
     void suspend() {
@@ -193,11 +203,14 @@ public final class GuidedSampleDispatcher implements AutoCloseable {
     }
 
     boolean workerAliveForTest() {
-        return worker.isAlive();
+        synchronized (lock) {
+            return worker != null && worker.isAlive();
+        }
     }
 
     @Override
     public void close() {
+        Thread workerToInterrupt;
         synchronized (lock) {
             if (closed) return;
             accepting = false;
@@ -206,9 +219,10 @@ public final class GuidedSampleDispatcher implements AutoCloseable {
             transientProtectUntilNano = 0L;
             suspendedCleared += queue.size();
             queue.clear();
+            workerToInterrupt = worker;
             lock.notifyAll();
         }
-        worker.interrupt();
+        if (workerToInterrupt != null) workerToInterrupt.interrupt();
     }
 
     private boolean removeOldestNonCritical() {
@@ -259,15 +273,16 @@ public final class GuidedSampleDispatcher implements AutoCloseable {
 
     private static boolean looksTransient(LiveSample sample) {
         if (sample.bool(ChannelRole.MAP_PRED_ACTIVE)
-                || sample.bool(ChannelRole.AE_ABOVE_THRESHOLD)) {
+                || sample.bool(ChannelRole.AE_ABOVE_THRESHOLD)
+                || sample.bool(ChannelRole.TPS_DECEL_ACTIVE)) {
             return true;
         }
         double change = sample.get(ChannelRole.SMOOTHED_DELTA_TPS);
         double limit = sample.get(ChannelRole.ACCEL_THRESHOLD);
         if (Double.isFinite(change) && Double.isFinite(limit)
-                && limit > 0.0 && change > limit) {
+                && limit > 0.0 && Math.abs(change) > Math.abs(limit)) {
             return true;
         }
-        return Double.isFinite(sample.getTpsDot()) && sample.getTpsDot() >= 5.0;
+        return Double.isFinite(sample.getTpsDot()) && Math.abs(sample.getTpsDot()) >= 5.0;
     }
 }

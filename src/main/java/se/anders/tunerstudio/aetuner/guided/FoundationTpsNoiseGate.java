@@ -13,7 +13,7 @@ import java.util.List;
  *
  * The operator starts calibration while the pedal is untouched. Natural
  * vehicle-specific idle/DBW motion is treated as background evidence. The
- * resulting statistics freeze for the full comparable sweep until the user
+ * resulting statistics freeze for the full passive evidence set until the user
  * explicitly recalibrates or a new working-tune baseline is loaded.
  */
 public final class FoundationTpsNoiseGate {
