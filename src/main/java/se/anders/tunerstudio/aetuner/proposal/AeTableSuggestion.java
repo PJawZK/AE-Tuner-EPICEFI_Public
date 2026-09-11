@@ -8,8 +8,10 @@ import se.anders.tunerstudio.aetuner.recovery.*;
 import se.anders.tunerstudio.aetuner.ui.*;
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 
+import java.lang.ref.WeakReference;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -21,9 +23,23 @@ import java.util.Locale;
  * those exact cells. Execution remains solely in ProposalApplyCoordinator and
  * therefore preserves stale checks, readback verification, rollback, Restore
  * Previous Apply and the no-burn boundary.
+ *
+ * Review, clipboard and write-plan callers all ask for the same immutable
+ * suggestion after a capture is complete. The most recent result is therefore
+ * memoized by Working Tune identity plus the append-only completed-event
+ * revision. Weak source keys make the cache incapable of retaining a prior
+ * plugin/session snapshot or event graph across lifecycle retirement.
  */
 public final class AeTableSuggestion {
     private static final DecimalFormat F2 = new DecimalFormat("0.00");
+
+    private static WeakReference<AeProjectSnapshot> cachedSnapshot =
+            new WeakReference<AeProjectSnapshot>(null);
+    private static WeakReference<TransientEvent> cachedLastEvent =
+            new WeakReference<TransientEvent>(null);
+    private static int cachedEventCount = -1;
+    private static AeTableSuggestion cachedSuggestion;
+    private static long uncachedBuildCount;
 
     private final boolean available;
     private final String displayText;
@@ -41,7 +57,31 @@ public final class AeTableSuggestion {
         this.writePlan = writePlan;
     }
 
-    public static AeTableSuggestion build(AeProjectSnapshot snapshot, List<TransientEvent> events) {
+    public static synchronized AeTableSuggestion build(
+            AeProjectSnapshot snapshot, List<TransientEvent> events) {
+        List<TransientEvent> safeEvents = events == null
+                ? Collections.<TransientEvent>emptyList() : events;
+        int eventCount = safeEvents.size();
+        TransientEvent lastEvent = eventCount == 0
+                ? null : safeEvents.get(eventCount - 1);
+        if (cachedSuggestion != null
+                && cachedSnapshot.get() == snapshot
+                && cachedEventCount == eventCount
+                && cachedLastEvent.get() == lastEvent) {
+            return cachedSuggestion;
+        }
+
+        AeTableSuggestion next = buildUncached(snapshot, safeEvents);
+        cachedSnapshot = new WeakReference<AeProjectSnapshot>(snapshot);
+        cachedLastEvent = new WeakReference<TransientEvent>(lastEvent);
+        cachedEventCount = eventCount;
+        cachedSuggestion = next;
+        uncachedBuildCount++;
+        return next;
+    }
+
+    private static AeTableSuggestion buildUncached(
+            AeProjectSnapshot snapshot, List<TransientEvent> events) {
         if (snapshot == null) {
             return unavailable("Read AE project data first, then collect TPS AE fuel-proved events.");
         }
@@ -228,6 +268,16 @@ public final class AeTableSuggestion {
     public ProposalWritePlan getWritePlan() { return writePlan; }
 
     int getChangedCells() { return changedCells; }
+
+    static synchronized long uncachedBuildCountForTest() { return uncachedBuildCount; }
+
+    static synchronized void clearMemoizedForTest() {
+        cachedSnapshot = new WeakReference<AeProjectSnapshot>(null);
+        cachedLastEvent = new WeakReference<TransientEvent>(null);
+        cachedEventCount = -1;
+        cachedSuggestion = null;
+        uncachedBuildCount = 0L;
+    }
 
     private static ProposalWritePlan buildWritePlan(
             AeProjectSnapshot snapshot,

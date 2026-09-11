@@ -1,12 +1,9 @@
 package se.anders.tunerstudio.aetuner.passive;
 
-import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.guided.*;
-import se.anders.tunerstudio.aetuner.model.*;
-import se.anders.tunerstudio.aetuner.proposal.*;
-import se.anders.tunerstudio.aetuner.recovery.*;
-import se.anders.tunerstudio.aetuner.ui.*;
-import se.anders.tunerstudio.aetuner.AeTunerPlugin;
+import se.anders.tunerstudio.aetuner.ui.AeUiTheme;
+import se.anders.tunerstudio.aetuner.ui.AeUtilityWorkspacePanel;
+import se.anders.tunerstudio.aetuner.ui.WrapLayout;
+import se.anders.tunerstudio.aetuner.ui.WrappingColumnPanel;
 
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -14,7 +11,6 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import javax.swing.BorderFactory;
-import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
@@ -26,16 +22,22 @@ import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.ScrollPaneConstants;
+import javax.swing.border.CompoundBorder;
+import javax.swing.border.LineBorder;
 
 /**
  * Pure Swing composition for the passive AE Tuner surface.
  *
- * AeTunerPanel deliberately remains the owner of every component and listener;
- * this collaborator only arranges those existing objects. That keeps the host
- * lifecycle and synthetic integration ownership contract unchanged while the
- * large layout implementation no longer lives beside sampling/runtime logic.
+ * AeTunerPanel remains the owner of every component and listener. This class
+ * only arranges those production-owned objects into the v0.19 utility shell.
  */
 final class PassivePanelLayout {
+    private static final String OVERVIEW = "overview";
+    private static final String EVENT_PREVIEW = "event-preview";
+    private static final String NOTES = "notes";
+    private static final String GUIDANCE = "guidance";
+    private static final String SETUP = "setup";
+
     private PassivePanelLayout() { }
 
     static final class Controls {
@@ -86,6 +88,8 @@ final class PassivePanelLayout {
     }
 
     static final class Content {
+        // Retained component ownership fields. mainScroll/lowerTabs/technicalScroll
+        // are no longer part of the visible v0.19 Passive hierarchy.
         final JScrollPane mainScroll;
         final JScrollPane channelScroll;
         final JTable channelTable;
@@ -211,84 +215,97 @@ final class PassivePanelLayout {
         }
     }
 
-    static void install(JPanel host,
-                        Controls controls,
-                        Content content,
-                        Overview overview,
-                        Technical technical) {
-        host.add(ControlPanelBuilder.build(
+    static final class Navigation {
+        private final AeUtilityWorkspacePanel workspace;
+        Navigation(AeUtilityWorkspacePanel workspace) { this.workspace = workspace; }
+        void showOverview() { workspace.selectSection(OVERVIEW); }
+        void showEventPreview() { workspace.selectSection(EVENT_PREVIEW); }
+        void showNotes() { workspace.selectSection(NOTES); }
+        void showGuidance() { workspace.selectSection(GUIDANCE); }
+        void showSetup() { workspace.selectSection(SETUP); }
+        String selectedSectionForTest() { return workspace.selectedSectionId(); }
+        int sectionCountForTest() { return workspace.sectionCount(); }
+        String sectionTitleForTest(int index) { return workspace.sectionTitleAt(index); }
+        AeUtilityWorkspacePanel workspaceForTest() { return workspace; }
+    }
+
+    static Navigation install(JPanel host,
+                              Controls controls,
+                              Content content,
+                              Overview overview,
+                              Technical technical) {
+        host.removeAll();
+        host.setBorder(BorderFactory.createEmptyBorder());
+
+        AeUtilityWorkspacePanel workspace = new AeUtilityWorkspacePanel(
+                "Passive Analysis",
+                "Read-only transient observation, Passive detector calibration and retained session evidence. No ECU writes.");
+        workspace.setToolbar(ControlPanelBuilder.build(
                 controls.reconnect, controls.readProject, controls.saveCsv,
                 controls.suggestTable, controls.suggestMapEstimate,
                 controls.suggestBlend, controls.sessionReview, controls.reset,
                 controls.threshold, controls.calibrationSeconds,
                 controls.calibrate, controls.applyCalibration,
-                controls.mapMinimumSamples, controls.mapCap), BorderLayout.NORTH);
+                controls.mapMinimumSamples, controls.mapCap));
 
-        JComponent status = buildStatusPanel(content, overview, technical, controls);
-        MainContentBuilder.configure(content.mainScroll, content.channelScroll,
-                content.channelTable, content.latestEventText,
-                content.recommendationHistoryText, content.lowerTabs,
-                content.plotPanel, status);
-        host.add(content.mainScroll, BorderLayout.CENTER);
-    }
+        MainContentBuilder.Sections eventSections = MainContentBuilder.build(
+                content.channelScroll, content.channelTable,
+                content.latestEventText, content.recommendationHistoryText,
+                content.plotPanel);
 
-    private static JComponent buildStatusPanel(Content content,
-                                               Overview overview,
-                                               Technical technical,
-                                               Controls controls) {
-        JTabbedPane tabs = new StableTabbedPane();
-        JComponent overviewPanel = buildOverviewPanel(content, overview);
-        JComponent setupPanel = buildSetupCalibrationPanel(technical, controls);
-        NestedScrollWheelHandoff.install(content.overviewScroll, content.mainScroll);
+        workspace.addSection(OVERVIEW, "Overview",
+                "Current Passive state, method activity and session progress",
+                buildOverviewPanel(content, overview));
+        workspace.addSection(EVENT_PREVIEW, "Event Preview",
+                "Resolved Passive inputs and the latest captured transient plot",
+                eventSections.eventPreview);
+        workspace.addSection(NOTES, "Session Notes",
+                "Latest event detail, export status and generated advisory text",
+                eventSections.notes);
+        workspace.addSection(GUIDANCE, "Session Guidance",
+                "Session-local recommendation transitions and next-step history",
+                eventSections.guidance);
+        workspace.addSection(SETUP, "Setup / Calibration",
+                "Passive TPS noise calibration and analysis-only parameters",
+                buildSetupCalibrationPanel(technical, controls));
+        workspace.selectSection(OVERVIEW);
+        workspace.applyTheme();
 
-        tabs.addTab("Overview", overviewPanel);
-        tabs.addTab("Setup / Calibration", setupPanel);
-        tabs.setToolTipTextAt(0,
-                "Passive-analysis summary, live state, progress and recommendations.");
-        tabs.setToolTipTextAt(1,
-                "Passive detector calibration and Passive analysis parameters. These settings do not control Guided thresholds.");
-        tabs.setFocusable(false);
-        tabs.setRequestFocusEnabled(false);
-        setStatusTabsHeight(tabs, 500);
-        return tabs;
+        host.add(workspace, BorderLayout.CENTER);
+        return new Navigation(workspace);
     }
 
     private static JComponent buildOverviewPanel(Content content, Overview overview) {
         WrappingColumnPanel panel = new WrappingColumnPanel();
-        panel.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+        panel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
         JPanel header = new JPanel(new BorderLayout(8, 0));
-        overview.connection.setFont(
-                overview.connection.getFont().deriveFont(Font.BOLD));
+        header.setBorder(new CompoundBorder(
+                new LineBorder(AeUiTheme.border()),
+                BorderFactory.createEmptyBorder(7, 9, 7, 9)));
+        overview.connection.setFont(overview.connection.getFont().deriveFont(Font.BOLD));
         header.add(overview.connection, BorderLayout.CENTER);
         header.add(overview.rate, BorderLayout.EAST);
         header.setAlignmentX(JPanel.LEFT_ALIGNMENT);
-        setFixedHeight(header, 28);
-
-        JPanel configuration = buildCardRow("Configuration and tuning stage",
-                overview.workflow, overview.tpsCycle, overview.mapPredict,
-                overview.wallWetting, overview.instantFuel, overview.detector);
-        JPanel live = buildCardRow("Live transient state",
-                overview.predictionLive, overview.mapValues, overview.transientFuel);
-        JPanel progress = buildCardRow("Session progress",
-                overview.calibration, overview.eventProgress,
-                overview.mapCoverage, overview.nextAction);
-        JPanel review = buildCardRow("MAP Predict and safety review",
-                overview.contributionReview, overview.lowRpmReview,
-                overview.fullLoadSafety);
+        setFixedHeight(header, 34);
 
         panel.add(header);
-        panel.add(configuration);
-        panel.add(live);
-        panel.add(progress);
-        panel.add(review);
+        panel.add(buildCardRow("Configuration and tuning stage",
+                overview.workflow, overview.tpsCycle, overview.mapPredict,
+                overview.wallWetting, overview.instantFuel, overview.detector));
+        panel.add(buildCardRow("Live transient state",
+                overview.predictionLive, overview.mapValues, overview.transientFuel));
+        panel.add(buildCardRow("Session progress",
+                overview.calibration, overview.eventProgress,
+                overview.mapCoverage, overview.nextAction));
+        panel.add(buildCardRow("MAP Predict and safety review",
+                overview.contributionReview, overview.lowRpmReview,
+                overview.fullLoadSafety));
 
         content.overviewScroll.setViewportView(panel);
-        content.overviewScroll.setBorder(null);
-        content.overviewScroll.setHorizontalScrollBarPolicy(
-                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        content.overviewScroll.setVerticalScrollBarPolicy(
-                ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        content.overviewScroll.setBorder(new LineBorder(AeUiTheme.border()));
+        content.overviewScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        content.overviewScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
         content.overviewScroll.getVerticalScrollBar().setUnitIncrement(18);
         content.overviewScroll.getVerticalScrollBar().setBlockIncrement(90);
         return content.overviewScroll;
@@ -297,74 +314,76 @@ final class PassivePanelLayout {
     private static JComponent buildSetupCalibrationPanel(Technical technical,
                                                          Controls controls) {
         WrappingColumnPanel panel = new WrappingColumnPanel();
-        panel.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
         JTextArea scope = new JTextArea(
-                "TPS noise calibration belongs to Passive event detection. "
-                + "It calibrates AE Tuner's Passive TPS-movement threshold only; "
-                + "it does not alter ECU settings and does not set Guided Tuning opening thresholds.");
+                "TPS noise calibration belongs only to Passive event detection. "
+                + "It calibrates AE Tuner's Passive TPS-movement threshold; it does not alter ECU settings and does not set Guided Tuning opening thresholds.");
         scope.setEditable(false);
         scope.setLineWrap(true);
         scope.setWrapStyleWord(true);
         scope.setOpaque(false);
         scope.setFocusable(false);
-        scope.setAlignmentX(JPanel.LEFT_ALIGNMENT);
-        scope.setMaximumSize(new Dimension(Integer.MAX_VALUE, 70));
+        scope.setFont(scope.getFont().deriveFont(12f));
 
-        JPanel calibration = new JPanel(new WrapLayout(FlowLayout.LEFT, 8, 4));
-        calibration.setBorder(BorderFactory.createTitledBorder(
-                "Passive TPS noise calibration"));
-        calibration.add(settingGroup("Manual TPSdot threshold %/s:", controls.threshold));
-        calibration.add(settingGroup("Calibration seconds:", controls.calibrationSeconds));
+        JPanel calibration = new JPanel(new WrapLayout(FlowLayout.LEFT, 8, 5));
+        calibration.add(settingGroup("Manual TPSdot threshold %/s", controls.threshold));
+        calibration.add(settingGroup("Calibration seconds", controls.calibrationSeconds));
         calibration.add(controls.calibrate);
         calibration.add(controls.applyCalibration);
-        calibration.setAlignmentX(JPanel.LEFT_ALIGNMENT);
 
-        JPanel analysis = new JPanel(new WrapLayout(FlowLayout.LEFT, 8, 4));
-        analysis.setBorder(BorderFactory.createTitledBorder(
-                "Passive analysis parameters"));
-        analysis.add(settingGroup("MAP draft minimum samples/cell:", controls.mapMinimumSamples));
-        analysis.add(settingGroup("Turbo MAP cap kPa (TPS >=33.5%):", controls.mapCap));
-        analysis.setAlignmentX(JPanel.LEFT_ALIGNMENT);
+        JPanel analysis = new JPanel(new WrapLayout(FlowLayout.LEFT, 8, 5));
+        analysis.add(settingGroup("MAP draft minimum samples/cell", controls.mapMinimumSamples));
+        analysis.add(settingGroup("Turbo MAP cap kPa (TPS >=33.5%)", controls.mapCap));
 
-        JPanel status = new JPanel();
-        status.setLayout(new BoxLayout(status, BoxLayout.Y_AXIS));
-        status.setBorder(BorderFactory.createTitledBorder("Calibration status"));
-        technical.calibration.setAlignmentX(JPanel.LEFT_ALIGNMENT);
-        technical.calibration.setMaximumSize(
-                new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-        status.add(technical.calibration);
-        status.setAlignmentX(JPanel.LEFT_ALIGNMENT);
+        JPanel status = new JPanel(new BorderLayout());
+        technical.calibration.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        status.add(technical.calibration, BorderLayout.CENTER);
 
-        panel.add(scope);
-        panel.add(calibration);
-        panel.add(analysis);
-        panel.add(status);
+        panel.add(sectionCard("Scope", "What these settings can and cannot change", scope));
+        panel.add(sectionCard("Passive TPS noise calibration",
+                "Stationary calibration for Passive event classification only", calibration));
+        panel.add(sectionCard("Passive analysis parameters",
+                "Evidence/draft parameters; not Guided controller settings", analysis));
+        panel.add(sectionCard("Calibration status",
+                "Current calibration state and recommendation", status));
         return panel;
     }
 
     private static JPanel settingGroup(String label, Component editor) {
-        JPanel group = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        group.add(new JLabel(label));
+        JPanel group = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        JLabel text = new JLabel(label + ":");
+        text.setFont(text.getFont().deriveFont(Font.PLAIN, 11f));
+        group.add(text);
         group.add(editor);
         return group;
     }
 
     private static JPanel buildCardRow(String title, StatusCard... cards) {
-        JPanel row = new JPanel(new WrapLayout(FlowLayout.LEFT, 6, 3));
-        row.setBorder(BorderFactory.createTitledBorder(title));
-        for (StatusCard card : cards) {
-            row.add(card);
-        }
-        row.setAlignmentX(JPanel.LEFT_ALIGNMENT);
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-        return row;
+        JPanel body = new JPanel(new WrapLayout(FlowLayout.LEFT, 7, 5));
+        for (StatusCard card : cards) body.add(card);
+        return sectionCard(title, "", body);
     }
 
-    private static void setStatusTabsHeight(JTabbedPane tabs, int height) {
-        tabs.setPreferredSize(new Dimension(1000, height));
-        tabs.setMinimumSize(new Dimension(700, height));
-        tabs.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
+    private static JPanel sectionCard(String title, String detail, JComponent body) {
+        JPanel card = new JPanel(new BorderLayout(0, 7));
+        card.setBorder(new CompoundBorder(
+                new LineBorder(AeUiTheme.border()),
+                BorderFactory.createEmptyBorder(8, 9, 8, 9)));
+        JPanel head = new JPanel(new BorderLayout(0, 1));
+        JLabel heading = new JLabel(title);
+        heading.setFont(heading.getFont().deriveFont(Font.BOLD, 13f));
+        head.add(heading, BorderLayout.NORTH);
+        if (detail != null && !detail.isEmpty()) {
+            JLabel sub = new JLabel(detail);
+            sub.setFont(sub.getFont().deriveFont(Font.PLAIN, 10f));
+            head.add(sub, BorderLayout.SOUTH);
+        }
+        card.add(head, BorderLayout.NORTH);
+        card.add(body, BorderLayout.CENTER);
+        card.setAlignmentX(JPanel.LEFT_ALIGNMENT);
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        return card;
     }
 
     private static void setFixedHeight(JComponent component, int height) {

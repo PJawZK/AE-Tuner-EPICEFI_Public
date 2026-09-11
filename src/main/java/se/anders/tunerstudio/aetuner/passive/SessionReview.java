@@ -26,6 +26,9 @@ public final class SessionReview {
     private final int lowRpmRichLargeGapEvents;
     private final int lowRpmLeanSmallGapEvents;
     private final int resetDiscontinuityEvents;
+    private final int repeatedResetEvents;
+    private final int tpsAeFuelProvedEvents;
+    private final int triggerNearMissEvents;
     private final SessionMonitor.Snapshot fullLoad;
 
     private SessionReview(int predictionOnlyEvents, int predictionWithWallEvents,
@@ -33,7 +36,8 @@ public final class SessionReview {
                           int lowRpmPredictionEvents, int lowRpmLargeGapEvents,
                           int lowRpmMultipleBurstEvents, int lowRpmRichLargeGapEvents,
                           int lowRpmLeanSmallGapEvents, int resetDiscontinuityEvents,
-                          SessionMonitor.Snapshot fullLoad) {
+                          int repeatedResetEvents, int tpsAeFuelProvedEvents,
+                          int triggerNearMissEvents, SessionMonitor.Snapshot fullLoad) {
         this.predictionOnlyEvents = predictionOnlyEvents;
         this.predictionWithWallEvents = predictionWithWallEvents;
         this.wallOnlyEvents = wallOnlyEvents;
@@ -44,6 +48,9 @@ public final class SessionReview {
         this.lowRpmRichLargeGapEvents = lowRpmRichLargeGapEvents;
         this.lowRpmLeanSmallGapEvents = lowRpmLeanSmallGapEvents;
         this.resetDiscontinuityEvents = resetDiscontinuityEvents;
+        this.repeatedResetEvents = repeatedResetEvents;
+        this.tpsAeFuelProvedEvents = tpsAeFuelProvedEvents;
+        this.triggerNearMissEvents = triggerNearMissEvents;
         this.fullLoad = fullLoad;
     }
 
@@ -58,6 +65,9 @@ public final class SessionReview {
         int lowRpmRichLargeGap = 0;
         int lowRpmLeanSmallGap = 0;
         int resetDiscontinuity = 0;
+        int repeatedReset = 0;
+        int tpsAeFuelProved = 0;
+        int triggerNearMiss = 0;
 
         if (events != null) {
             for (TransientEvent event : events) {
@@ -71,6 +81,9 @@ public final class SessionReview {
 
                 CounterMath.Result resets = event.getPredictionResetMetrics();
                 if (resets.hasDiscontinuity()) resetDiscontinuity++;
+                if (resets.hasRepeatedResets()) repeatedReset++;
+                if (event.isTpsAeFuelProved()) tpsAeFuelProved++;
+                else if (event.isTriggerNearMiss()) triggerNearMiss++;
 
                 double rpm = event.getMedianPredictionRpm();
                 if (prediction && Double.isFinite(rpm) && rpm < 2200.0) {
@@ -88,6 +101,7 @@ public final class SessionReview {
         return new SessionReview(predictionOnly, predictionWithWall, wallOnly, instant,
                 lowRpm, lowRpmLargeGap, lowRpmMultipleBurst,
                 lowRpmRichLargeGap, lowRpmLeanSmallGap, resetDiscontinuity,
+                repeatedReset, tpsAeFuelProved, triggerNearMiss,
                 fullLoad == null ? new SessionMonitor().snapshot() : fullLoad);
     }
 
@@ -96,8 +110,21 @@ public final class SessionReview {
                 instantFuelEvents, lowRpmPredictionEvents, lowRpmLargeGapEvents,
                 lowRpmMultipleBurstEvents, lowRpmRichLargeGapEvents,
                 lowRpmLeanSmallGapEvents, resetDiscontinuityEvents,
+                repeatedResetEvents, tpsAeFuelProvedEvents, triggerNearMissEvents,
                 nextFullLoad == null ? new SessionMonitor().snapshot() : nextFullLoad);
     }
+
+    int predictionEvents() { return predictionOnlyEvents + predictionWithWallEvents; }
+
+    int repeatedResetEvents() { return repeatedResetEvents; }
+
+    int resetDiscontinuityEvents() { return resetDiscontinuityEvents; }
+
+    int wallActiveEvents() { return predictionWithWallEvents + wallOnlyEvents; }
+
+    int tpsAeFuelProvedEvents() { return tpsAeFuelProvedEvents; }
+
+    int triggerNearMissEvents() { return triggerNearMissEvents; }
 
     String contributionCardText() {
         return predictionOnlyEvents + " MAP-only • " + predictionWithWallEvents + " MAP+WW"

@@ -6,10 +6,11 @@ import javax.swing.BorderFactory;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
-import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.Timer;
+import javax.swing.border.CompoundBorder;
+import javax.swing.border.LineBorder;
 import javax.swing.text.DefaultCaret;
 import java.awt.BorderLayout;
 import java.awt.Font;
@@ -18,75 +19,96 @@ import java.util.function.Supplier;
 /**
  * Diagnostics workspace separated from tuning/capture surfaces.
  *
- * This panel intentionally owns presentation only. Runtime, recovery and audit
- * text are supplied by the existing subsystem owners so moving information out
- * of Passive Analysis does not create a second controller subscription.
+ * Runtime, recovery and audit text are still supplied by their existing
+ * subsystem owners. This class is presentation/navigation only and does not
+ * create a second controller subscription or write path.
  */
 public final class EvidenceDiagnosticsPanel extends JPanel {
-    private final JTabbedPane tabs = new StableTabbedPane();
-    private final JTextArea overview = textArea();
-    private final JTextArea runtime = textArea();
-    private final JTextArea recoveryAudit = textArea();
+    private static final String OVERVIEW = "overview";
+    private static final String RUNTIME = "runtime";
+    private static final String AUDIO = "audio";
+    private static final String RECOVERY = "recovery";
+
+    private final JTextArea overview = textArea(false);
+    private final JTextArea runtime = textArea(true);
+    private final JTextArea recoveryAudit = textArea(false);
     private final GuidedAudioCueLabPanel audioLab;
     private final Supplier<String> overviewSupplier;
     private final Supplier<String> runtimeSupplier;
     private final Supplier<String> recoveryAuditSupplier;
     private final Timer refreshTimer;
+    private final AeUtilityWorkspacePanel workspace;
 
     public EvidenceDiagnosticsPanel(GuidedAudioCueLabPanel audioLab,
                                     Supplier<String> overviewSupplier,
                                     Supplier<String> runtimeSupplier,
                                     Supplier<String> recoveryAuditSupplier) {
-        super(new BorderLayout(8, 8));
+        super(new BorderLayout());
         this.audioLab = audioLab;
         this.overviewSupplier = overviewSupplier;
         this.runtimeSupplier = runtimeSupplier;
         this.recoveryAuditSupplier = recoveryAuditSupplier;
-        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        setBorder(BorderFactory.createEmptyBorder());
 
-        tabs.addTab("Overview", scroll(overview));
-        tabs.addTab("Channels / Runtime", scroll(runtime));
-        tabs.addTab("Audio Cue Lab", audioLab);
-        tabs.addTab("Recovery / Audit", scroll(recoveryAudit));
-        tabs.setToolTipTextAt(0,
-                "High-level plugin health and evidence status.");
-        tabs.setToolTipTextAt(1,
-                "Controller/project state, resolved live channels and runtime diagnostics.");
-        tabs.setToolTipTextAt(2,
-                "Stationary generated-tone editor and Guided workflow cue demonstrations.");
-        tabs.setToolTipTextAt(3,
-                "Automatic recovery state plus the latest Guided Apply/Restore audit status.");
-        tabs.setFocusable(false);
-        tabs.setRequestFocusEnabled(false);
-        add(tabs, BorderLayout.CENTER);
+        workspace = new AeUtilityWorkspacePanel(
+                "Evidence / Diagnostics",
+                "Runtime health, channel resolution, audio verification and recovery audit. Read-only unless a tool explicitly states otherwise.");
+        workspace.addSection(OVERVIEW, "Overview",
+                "Plugin lifecycle, evidence and recovery status",
+                textCard(overview));
+        workspace.addSection(RUNTIME, "Channels / Runtime",
+                "Controller, project and resolved live-channel diagnostics",
+                textCard(runtime));
+        workspace.addSection(AUDIO, "Audio Cue Lab",
+                "Stationary cue profile editor and workflow demonstrations",
+                audioCard());
+        workspace.addSection(RECOVERY, "Recovery / Audit",
+                "Local evidence recovery and guarded Apply/Restore audit",
+                textCard(recoveryAudit));
+        workspace.addSelectionListener(new Runnable() {
+            @Override public void run() { updateAudioLifecycle(); }
+        });
+        add(workspace, BorderLayout.CENTER);
 
-        tabs.addChangeListener(event -> updateAudioLifecycle());
         refreshTimer = new Timer(500, event -> refreshText());
         refreshText();
     }
 
-    private static JTextArea textArea() {
+    private static JTextArea textArea(boolean monospace) {
         JTextArea area = new JTextArea();
         area.setEditable(false);
         area.setLineWrap(true);
         area.setWrapStyleWord(true);
-        area.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        area.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        area.setFont(new Font(monospace ? Font.MONOSPACED : Font.SANS_SERIF,
+                Font.PLAIN, monospace ? 11 : 12));
+        area.setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
         area.setFocusable(false);
         ((DefaultCaret) area.getCaret()).setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
         return area;
     }
 
-    private static JComponent scroll(JTextArea area) {
+    private static JComponent textCard(JTextArea area) {
+        JPanel card = new JPanel(new BorderLayout());
+        card.setBorder(new CompoundBorder(
+                new LineBorder(AeUiTheme.border()),
+                BorderFactory.createEmptyBorder(2, 2, 2, 2)));
         JScrollPane scroll = new JScrollPane(area);
         scroll.setBorder(null);
-        scroll.setHorizontalScrollBarPolicy(
-                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.setVerticalScrollBarPolicy(
-                ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
         scroll.getVerticalScrollBar().setUnitIncrement(18);
         scroll.getVerticalScrollBar().setBlockIncrement(90);
-        return scroll;
+        card.add(scroll, BorderLayout.CENTER);
+        return card;
+    }
+
+    private JComponent audioCard() {
+        JPanel card = new JPanel(new BorderLayout());
+        card.setBorder(new CompoundBorder(
+                new LineBorder(AeUiTheme.border()),
+                BorderFactory.createEmptyBorder(4, 4, 4, 4)));
+        card.add(audioLab, BorderLayout.CENTER);
+        return card;
     }
 
     private void refreshText() {
@@ -113,7 +135,7 @@ public final class EvidenceDiagnosticsPanel extends JPanel {
     }
 
     private void updateAudioLifecycle() {
-        if (tabs.getSelectedIndex() == 2) {
+        if (AUDIO.equals(workspace.selectedSectionId())) {
             audioLab.resumePanel();
         } else {
             audioLab.disposePanel();
@@ -121,13 +143,14 @@ public final class EvidenceDiagnosticsPanel extends JPanel {
     }
 
     public void selectAudioCueLab() {
-        tabs.setSelectedIndex(2);
+        workspace.selectSection(AUDIO);
         updateAudioLifecycle();
     }
 
     public void resumePanel() {
         if (!refreshTimer.isRunning()) refreshTimer.start();
         refreshText();
+        workspace.applyTheme();
         updateAudioLifecycle();
     }
 
@@ -137,10 +160,14 @@ public final class EvidenceDiagnosticsPanel extends JPanel {
     }
 
     public int tabCountForTest() {
-        return tabs.getTabCount();
+        return workspace.sectionCount();
     }
 
     public String tabTitleForTest(int index) {
-        return tabs.getTitleAt(index);
+        return workspace.sectionTitleAt(index);
+    }
+
+    String selectedSectionForTest() {
+        return workspace.selectedSectionId();
     }
 }
