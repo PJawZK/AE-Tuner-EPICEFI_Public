@@ -95,11 +95,11 @@ public final class EngagementDriverViewSyntheticTest {
                         && Math.abs(EngagementPassiveCapture.snapshot().settleBaselineTps - 6.2) < 0.25,
                 "passive collector snapshot did not expose the settling return reference to the UI");
         require(panel.selectedSignalPercentForTest() > 0
-                        && panel.sweepTargetTextForTest().contains("not a hard target"),
+                        && panel.referenceSummaryTextForTest().contains("not a hard target"),
                 "passive driver view did not expose comparable-set progress/reference-only contract");
         require(!panel.settingsToggleVisibleForTest()
                         && !panel.settingsPanelVisibleForTest()
-                        && !panel.requestedDeltaWindowEnabledForTest(),
+                        && !panel.deltaWindowEnabledForTest(),
                 "passive driver view exposed retired timing experiment controls");
 
         // This synthetic path chooses to hold the same TPS again, but .11 no
@@ -125,7 +125,7 @@ public final class EngagementDriverViewSyntheticTest {
         });
         require(panel.driverInstructionForTest().contains("REPEAT APPROXIMATELY THE REFERENCE MOVEMENT"),
                 "passive driver view did not return to the minimal natural-repeat instruction after settling");
-        require(panel.sweepTargetTextForTest().contains("not a hard target"),
+        require(panel.referenceSummaryTextForTest().contains("not a hard target"),
                 "re-armed passive driver view turned the visual reference into a hard target");
         require(Double.isFinite(panel.driverReferenceMarkerForTest()),
                 "re-armed passive driver view lost the first full-height TPS reference marker");
@@ -247,11 +247,10 @@ public final class EngagementDriverViewSyntheticTest {
                 w.validate();
                 EngagementDetectionGuidedFocusPanel engagement =
                         w.engagementPanelForTest();
-                passiveDetailsOk[0] = !w.engagementCalibrationDetailsForTest().isVisible()
-                        && !engagement.settingsToggleVisibleForTest()
+                passiveDetailsOk[0] = !engagement.settingsToggleVisibleForTest()
                         && !engagement.settingsPanelVisibleForTest()
-                        && !engagement.requestedDeltaWindowEnabledForTest()
-                        && engagement.sweepTargetTextForTest().contains("not a hard target");
+                        && !engagement.deltaWindowEnabledForTest()
+                        && engagement.referenceSummaryTextForTest().contains("not a hard target");
                 window[0] = w;
             }
         });

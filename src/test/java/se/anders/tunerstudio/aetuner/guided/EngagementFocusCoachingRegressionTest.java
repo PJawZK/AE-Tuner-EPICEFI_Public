@@ -48,13 +48,13 @@ public final class EngagementFocusCoachingRegressionTest {
         panel.setDriverView(true);
         require(!panel.settingsToggleVisibleForTest()
                         && !panel.settingsPanelVisibleForTest()
-                        && !panel.requestedDeltaWindowEnabledForTest(),
+                        && !panel.deltaWindowEnabledForTest(),
                 "passive driver view still exposes retired sweep/manual controls");
         require(!panel.hasRootScrollForTest(),
                 "Driver Focus regained a root scroll container");
         require(panel.driverInstructionForTest().contains("ONE COMFORTABLE PEDAL OPENING"),
                 "driver view does not establish the first-event visual reference flow");
-        require(panel.sweepTargetTextForTest().contains("not a hard target"),
+        require(panel.referenceSummaryTextForTest().contains("not a hard target"),
                 "driver/details contract implies the visual marker is an acceptance target");
         require(panel.currentTextForTest().contains("capture is read-only"),
                 "Focus does not expose its read-only capture boundary");
@@ -77,8 +77,12 @@ public final class EngagementFocusCoachingRegressionTest {
                 "presentation path rebuilt inside its 100 ms throttle without a passive-event revision");
         require(EngagementFocusModel.presentationBuildCountForTest() == 1,
                 "passive presentation throttle did not suppress redundant builds");
-        require(first.sweep == null,
-                "passive Focus still carries a production controlled-sweep snapshot");
+        try {
+            EngagementFocusModel.class.getDeclaredField("sweep");
+            throw new AssertionError("passive Focus still exposes a controlled-sweep field");
+        } catch (NoSuchFieldException expected) {
+            // The current model must not carry the retired controlled-sweep type.
+        }
     }
 
     private static LiveSample sample(double seconds, double tps,

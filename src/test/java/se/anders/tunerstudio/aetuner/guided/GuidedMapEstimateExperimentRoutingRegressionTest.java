@@ -52,15 +52,22 @@ public final class GuidedMapEstimateExperimentRoutingRegressionTest {
         require(session.mapEstimatePendingProposalLimitForTest()==MapEstimateProposalLimitPolicy.UNRESTRICTED_ELIGIBLE_MAP,
                 "active production capture allowed proposal-limit mutation");
 
+        // This fixture intentionally has no stable evidence, so Finish is a
+        // lifecycle completion but not Review-ready. The raw completed report
+        // must still preserve the exact active experiment provenance.
         session.finish();
+        require(!session.reviewReady(),
+                "zero-sample MAP experiment unexpectedly became Review-ready");
         String completed=session.reportText("0.4.2-dev.test");
         require(completed.contains("Evidence basis: Current capture only"),
                 "completed production export lost actual evidence basis");
-        require(completed.contains("Proposal limit: Unrestricted eligible MAP"),
+        require(completed.contains("proposal limit: Unrestricted eligible MAP"),
                 "completed production export lost actual proposal limit");
+        require(completed.contains("EVIDENCE INCOMPLETE — REVIEW AUTHORITY WITHHELD"),
+                "zero-sample completed experiment incorrectly entered Review authority");
 
         // After Finish the next capture may be configured, but the completed
-        // report/review must remain historical authority for the run just made.
+        // raw report/provenance must remain historical authority for the run just made.
         listener.onEvidenceBasisRequested(MapEstimateEvidenceBasis.LEARNED_MEMORY);
         listener.onProposalLimitPolicyRequested(MapEstimateProposalLimitPolicy.HIGH_TPS_CAP);
         require(session.mapEstimatePendingEvidenceBasisForTest()==MapEstimateEvidenceBasis.LEARNED_MEMORY,
@@ -69,7 +76,7 @@ public final class GuidedMapEstimateExperimentRoutingRegressionTest {
                 "completed production session did not unlock next proposal limit");
         String historical=session.reportText("0.4.2-dev.test");
         require(historical.contains("Evidence basis: Current capture only")
-                        && historical.contains("Proposal limit: Unrestricted eligible MAP"),
+                        && historical.contains("proposal limit: Unrestricted eligible MAP"),
                 "next-capture setup rewrote completed production export authority");
     }
 

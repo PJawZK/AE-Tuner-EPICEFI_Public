@@ -18,7 +18,6 @@ public final class EngagementRawEvidenceRegressionTest {
 
     private static void incidentalCoachingSuppressionDoesNotRewriteRawReviewMetrics() {
         FoundationTpsNoiseGate.reset();
-        EngagementDeltaWindowSweepRuntime.resetForTest();
         AeProjectSnapshot snapshot = snapshot();
         GuidedMethodProbeSession session = new GuidedMethodProbeSession();
         session.start(new EngagementDetectionMethodModule(), snapshot, 5, 20, 115.0);
@@ -31,11 +30,11 @@ public final class EngagementRawEvidenceRegressionTest {
         session.accept(incidental);
 
         double coached = EngagementFocusModel.selectedDetectorOutput(snapshot, incidental);
-        double raw = EngagementDetectorEvidence.rawSelectedOutput(snapshot, incidental);
+        double raw = incidental.get(ChannelRole.AE_DELTA_NEWEST_PAIR);
         requireClose(1.0, coached,
                 "incidental crossing was not suppressed to threshold on the coaching path");
         requireClose(1.35, raw,
-                "raw evidence selector did not preserve the actual Dual Stride/Newest value");
+                "raw Dual Stride/Newest channel did not preserve the actual detector evidence");
         require(session.activityEventCount() == 0,
                 "incidental low-rate crossing incorrectly advanced physical maneuver progress");
 

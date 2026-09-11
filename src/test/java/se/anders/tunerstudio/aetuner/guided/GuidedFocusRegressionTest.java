@@ -18,17 +18,16 @@ public final class GuidedFocusRegressionTest {
     private GuidedFocusRegressionTest() { }
 
     public static void main(String[] args) {
-        acceptedSecondsExcludeRejectedGap();
+        acceptedEvidenceExcludesTransientSamples();
         incompleteRequiredDataPausesFocusProgress();
         focusHubFollowsMapEstimateSession();
-        heatMapExposesLoadedAxesAndTextStates();
         plannedTaskCoachExplainsRealControlFamilyAndWorkflow();
         engagementFocusIsPassiveCaptureFirst();
         foundationThresholdGetsDedicatedEvidenceFocus();
         System.out.println("GuidedFocusRegressionTest passed");
     }
 
-    private static void acceptedSecondsExcludeRejectedGap() {
+    private static void acceptedEvidenceExcludesTransientSamples() {
         GuidedMethodProbeSession session = new GuidedMethodProbeSession();
         session.start(GuidedAeMethodModules.forRecipe(GuidedTuningRecipe.MAP_ESTIMATE),
                 mapSnapshot(), 5, 3, 115.0);
@@ -36,12 +35,15 @@ public final class GuidedFocusRegressionTest {
         session.accept(mapSample(1.05, false, false));
         session.accept(mapSample(1.10, true, false));
         session.accept(mapSample(1.20, false, false));
-        MapEstimateFocusSnapshot focus = session.mapEstimateFocusSnapshot(null);
-        require(focus.countAt(1, 0) == 3, "rejected MAP Predict sample changed the stable-cell count");
-        double seconds = focus.acceptedSecondsAt(1, 0);
-        require(seconds >= 0.12 && seconds < 0.16,
-                "accepted-seconds display credited rejected gap time: " + seconds);
-        require(focus.isComplete(1, 0), "three clean stable samples did not satisfy the test minimum");
+        GuidedFocusHub.State state = GuidedFocusHub.snapshot();
+        require(state.mapEstimate != null,
+                "MAP Estimate Focus model was not published during capture");
+        require(state.mapEstimate.currentRunSamples == 3,
+                "rejected MAP Predict sample changed learned current-run evidence count");
+        require(state.mapEstimate.evidenceSamplesUsed == 3,
+                "new MAP Estimate surface did not use exactly the three accepted stable samples");
+        require(state.mapEstimate.directCount == 1,
+                "three direct stable samples did not mature their exact TPS/RPM cell");
     }
 
     private static void incompleteRequiredDataPausesFocusProgress() {
@@ -50,12 +52,12 @@ public final class GuidedFocusRegressionTest {
                 mapSnapshot(), 5, 3, 115.0);
         session.accept(mapSample(2.00, false, false));
         session.accept(mapSample(2.05, false, true));
-        MapEstimateFocusSnapshot focus = session.mapEstimateFocusSnapshot(null);
-        require(focus.countAt(1, 0) == 1, "required-incomplete sample entered MAP Estimate evidence");
-        require(focus.eligibility == MapEstimateCollector.LiveEligibility.MISSING_REQUIRED,
-                "required-incomplete sample was not surfaced as a driver-facing pause reason");
-        require(!focus.eligibility.isCollecting(),
-                "required-incomplete focus state still presented itself as collecting");
+        GuidedFocusHub.State state = GuidedFocusHub.snapshot();
+        require(state.mapEstimate != null && state.mapEstimate.currentRunSamples == 1,
+                "required-incomplete sample entered MAP Estimate learned evidence");
+        require(MapEstimateCollector.LiveEligibility.MISSING_REQUIRED.getDisplayText()
+                        .equals(state.mapEstimate.liveEligibility),
+                "required-incomplete sample was not surfaced as the new-model driver pause reason");
     }
 
     private static void focusHubFollowsMapEstimateSession() {
@@ -67,23 +69,12 @@ public final class GuidedFocusRegressionTest {
         require(state.recipe == GuidedTuningRecipe.MAP_ESTIMATE, "focus hub did not identify MAP Estimate");
         require(state.captureState == GuidedCaptureState.CAPTURING, "focus hub did not follow active capture state");
         require(state.mapEstimate != null && state.mapEstimate.hasTable(),
-                "focus hub omitted MAP Estimate heat-map state");
+                "focus hub omitted MAP Estimate learned-memory surface state");
         require(state.mapEstimate.liveRow == 1 && state.mapEstimate.liveCol == 0,
                 "focus hub did not expose the live TPS/RPM cell");
         session.finish();
         require(GuidedFocusHub.snapshot().captureState == GuidedCaptureState.COMPLETE,
                 "focus hub did not follow finish/review state");
-    }
-
-    private static void heatMapExposesLoadedAxesAndTextStates() {
-        MapEstimateFocusSnapshot setup = MapEstimateFocusSnapshot.setup(mapSnapshot(), 20, null);
-        MapEstimateGuidedFocusPanel panel = new MapEstimateGuidedFocusPanel();
-        panel.updateSnapshot(setup, GuidedCaptureState.IDLE);
-        require(panel.tableForTest().getRowCount() == 2, "heat map did not expose both TPS rows");
-        require(panel.tableForTest().getColumnCount() == 3,
-                "heat map did not expose TPS label plus both RPM columns");
-        require(String.valueOf(panel.tableForTest().getValueAt(0, 1)).contains("—"),
-                "empty heat-map cell did not expose a text state in addition to color");
     }
 
     private static void plannedTaskCoachExplainsRealControlFamilyAndWorkflow() {
@@ -135,7 +126,7 @@ public final class GuidedFocusRegressionTest {
                 "passive Driver view exposes retired detector setting controls");
         panel.setDriverView(false);
         require(!panel.settingsToggleVisibleForTest() && !panel.settingsPanelVisibleForTest()
-                        && !panel.requestedDeltaWindowEnabledForTest(),
+                        && !panel.deltaWindowEnabledForTest(),
                 "passive Details view revived retired Delta Window experiment controls");
     }
 

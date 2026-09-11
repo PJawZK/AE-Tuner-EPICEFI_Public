@@ -32,7 +32,6 @@ public final class GuidedMethodProbeSessionRegressionTest {
         System.out.println("GuidedMethodProbeSessionRegressionTest passed");
     }
 
-
     private static void passiveFoundationEmitsReadyOnceAfterSettling() {
         GuidedMethodProbeSession session = new GuidedMethodProbeSession();
         final List<GuidedWorkflowEvent> events = new ArrayList<GuidedWorkflowEvent>();
@@ -174,7 +173,9 @@ public final class GuidedMethodProbeSessionRegressionTest {
         session.finish();
         GuidedSessionSnapshot snapshot = session.snapshot();
         require(snapshot.state == GuidedCaptureState.COMPLETE,
-                "method-base finish did not enter review/complete state");
+                "method-base finish did not end the capture lifecycle");
+        require(!session.reviewReady(),
+                "one Wall sample incorrectly became review-ready evidence");
         String report = session.reportText("0.4.2-dev.test");
         require(report.contains("Guided capture observes only")
                         && report.contains("The selected method owns its own evidence/recommendation boundary")
@@ -183,9 +184,10 @@ public final class GuidedMethodProbeSessionRegressionTest {
                         && report.contains("no burn"),
                 "method report did not expose the method-owned capture / guarded final Apply boundary");
         require(session.reviewedWritePlan() == null,
-                "Wall Wetting invented a numerical change before its tuning rule produced one");
-        require(session.reviewText().contains("No supported setting/value change is currently proposed"),
-                "review did not distinguish no-current-change from a read-only product state");
+                "Wall Wetting invented a numerical change before evidence readiness");
+        require(session.reviewText().contains("EVIDENCE INCOMPLETE")
+                        && snapshot.headline.contains("MORE EVIDENCE NEEDED"),
+                "stopped but insufficient evidence was presented as a valid Review result");
     }
 
     private static void genericProbeModuleCanExposeReviewedWritePlan() {
@@ -211,11 +213,13 @@ public final class GuidedMethodProbeSessionRegressionTest {
             }
         };
         GuidedMethodProbeSession session = new GuidedMethodProbeSession();
-        session.start(module);
+        session.start(module, null, 1, 20, 115.0);
         session.accept(wallSample(2.0, 0.35));
         require(session.reviewedWritePlan() == null,
                 "probe exposed a write plan before Finish/Review");
         session.finish();
+        require(session.reviewReady(),
+                "explicit one-event test target did not unlock Review after Finish");
         ProposalWritePlan plan = session.reviewedWritePlan();
         require(plan != null && plan.changeCount() == 1
                         && "wallTau".equals(plan.getChanges().get(0).parameterName),
@@ -348,7 +352,6 @@ public final class GuidedMethodProbeSessionRegressionTest {
                 new double[0], new double[0], new double[0][0],
                 new double[0], new double[0]);
     }
-
 
     private static LiveSample engagementSample(double seconds, double tps,
                                                double tpsRate, boolean detectorActive) {
