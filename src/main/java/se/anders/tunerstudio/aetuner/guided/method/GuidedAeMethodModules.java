@@ -14,11 +14,28 @@ public final class GuidedAeMethodModules {
         register(new BlendDurationMethodModule());
         register(new EngagementDetectionMethodModule());
         register(new FoundationThresholdMethodModule());
+        register(new DecelDetectionMethodModule());
         register(new MapPredictMethodModule());
         register(new MapEstimateMethodModule());
-        register(new WallWettingMethodModule());
+
+        // TPS AE complete baseline.
         register(new TpsAeMethodModule());
+        register(BaselineGuidedTaskModule.tpsCompensation());
+        register(BaselineGuidedTaskModule.tpsCompletion());
+        register(BaselineGuidedTaskModule.tpsValidation());
+
+        // Wall Wetting complete baseline.
+        register(new WallWettingMethodModule());
+        register(BaselineGuidedTaskModule.wallAdvanced());
+        register(BaselineGuidedTaskModule.wallValidation());
+
+        // Instant Fuel complete baseline. Setup/curve tasks own the writable
+        // surfaces; residual validation remains the final evidence-only task.
+        register(BaselineGuidedTaskModule.instantSetup());
+        register(BaselineGuidedTaskModule.instantEventStrength());
+        register(BaselineGuidedTaskModule.instantConditions());
         register(new InstantFuelMethodModule());
+
         register(new OptimizationMethodModule());
 
         for (GuidedTuningRecipe recipe : GuidedTuningRecipe.values()) {
@@ -47,5 +64,10 @@ public final class GuidedAeMethodModules {
             throw new IllegalArgumentException("No Guided AE method module registered for " + recipe);
         }
         return module;
+    }
+
+    /** Final plugin/classloader retirement; ordinary task switches do not call this. */
+    public static void clearLifecycleCaches() {
+        BaselineRecommendationCacheGuard.clear();
     }
 }

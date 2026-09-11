@@ -6,6 +6,8 @@ public final class MapEstimateFocusModel {
         public final MapEstimateSurface.State state;
         public final MapEstimateSurface.Maturity maturity;
         public final double valueKpa;
+        public final double currentKpa;
+        public final double proposedKpa;
         public final long evidenceSamples;
         public final int sessionCount;
         public final double betweenSessionRangeKpa;
@@ -15,10 +17,13 @@ public final class MapEstimateFocusModel {
         public final boolean currentRun;
         public final boolean proposalChange;
 
-        Cell(MapEstimateSurface.Cell cell, boolean selected, boolean currentRun, boolean proposalChange) {
+        Cell(MapEstimateSurface.Cell cell, boolean selected, boolean currentRun,
+             boolean proposalChange, double currentKpa, double proposedKpa) {
             this.state = cell.state;
             this.maturity = cell.maturity;
             this.valueKpa = cell.valueKpa;
+            this.currentKpa = currentKpa;
+            this.proposedKpa = proposedKpa;
             this.evidenceSamples = cell.evidenceSamples;
             this.sessionCount = cell.sessionCount;
             this.betweenSessionRangeKpa = cell.betweenSessionRangeKpa;
@@ -155,8 +160,10 @@ public final class MapEstimateFocusModel {
         Cell[][] cells = new Cell[tps.length][rpm.length];
         for (int r = 0; r < tps.length; r++) {
             for (int c = 0; c < rpm.length; c++) {
+                double currentKpa = currentValue(currentTable, r, c);
+                double proposedKpa = proposal == null ? currentKpa : proposal.value(r, c);
                 cells[r][c] = new Cell(surface.cell(r,c), scope.contains(r,c), run[r][c],
-                        proposal != null && proposal.changed(r,c));
+                        proposal != null && proposal.changed(r,c), currentKpa, proposedKpa);
             }
         }
         MapEstimateTargetSelector.Target target = new MapEstimateTargetSelector().choose(
@@ -186,6 +193,12 @@ public final class MapEstimateFocusModel {
     public Cell cell(int row, int col) { return cells[row][col]; }
     public boolean isLive(int row, int col) { return row == liveRow && col == liveCol; }
     public boolean isTarget(int row, int col) { return row == targetRow && col == targetCol; }
+
+    private static double currentValue(double[][] table, int row, int col) {
+        if (table == null || row < 0 || row >= table.length || table[row] == null
+                || col < 0 || col >= table[row].length) return Double.NaN;
+        return table[row][col];
+    }
 
     private static boolean[][] currentRunMask(MapEstimateMemory memory, double[] tps, double[] rpm) {
         boolean[][] mask = new boolean[tps.length][rpm.length];
