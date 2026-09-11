@@ -103,13 +103,15 @@ final class PassiveOverviewController {
                  EnumMap<ChannelRole, String> channelNames,
                  EnumMap<ChannelRole, Double> latestValues,
                  List<TransientEvent> events) {
+        SessionMonitor.Snapshot reviewSnapshot = sessionMonitor.snapshot();
+        SessionReview review = reviewForRevision(eventRevision, events, reviewSnapshot);
         refreshOverview(projectSnapshot, configurationName, subscribedChannels,
-                sampleRateHz, detectionArmedNano, eventRevision,
-                channelNames, latestValues, events);
+                sampleRateHz, detectionArmedNano, channelNames, latestValues,
+                events, reviewSnapshot, review);
 
         String eventCountText;
         if (projectSnapshot != null && projectSnapshot.isMapPredictWorkflow()) {
-            int predictionEvents = countPredictionEvents(events);
+            int predictionEvents = review.predictionEvents();
             eventCountText = "Events: " + predictionEvents + " MAP Predict / "
                     + (acceptedEvents - predictionEvents)
                     + " other diagnostic / " + rejectedEvents + " rejected";
@@ -124,7 +126,7 @@ final class PassiveOverviewController {
                 fuelPathStatus(projectSnapshot != null
                         && projectSnapshot.isMapPredictWorkflow(), latestValues),
                 sessionModeText(projectSnapshot, channelNames),
-                sessionGuidanceText(projectSnapshot, events),
+                sessionGuidanceText(projectSnapshot, events.size(), review),
                 mapEstimateCollector.statusText(minimumSamples()));
     }
 
@@ -133,10 +135,11 @@ final class PassiveOverviewController {
                                  int subscribedChannels,
                                  double sampleRateHz,
                                  long detectionArmedNano,
-                                 long eventRevision,
                                  EnumMap<ChannelRole, String> channelNames,
                                  EnumMap<ChannelRole, Double> latestValues,
-                                 List<TransientEvent> events) {
+                                 List<TransientEvent> events,
+                                 SessionMonitor.Snapshot reviewSnapshot,
+                                 SessionReview review) {
         uiPresenter.refreshCalibration(calibration.isRunning(),
                 calibration.secondsRemaining(), detectionArmedNano,
                 System.nanoTime(), calibration.getLastResult());
@@ -221,8 +224,8 @@ final class PassiveOverviewController {
                 absGreater(wallPw, 0.0001) || absGreater(instantPw, 0.0001)
                         ? CardState.ACTIVE : CardState.OFF);
 
-        int predictionEvents = countPredictionEvents(events);
-        int repeatedResets = countRepeatedResetEvents(events);
+        int predictionEvents = review.predictionEvents();
+        int repeatedResets = review.repeatedResetEvents();
         eventProgressCard.setValue(
                 OverviewTextRenderer.eventProgress(predictionEvents, repeatedResets),
                 predictionEvents > 0
@@ -237,15 +240,6 @@ final class PassiveOverviewController {
                         mapEstimateCollector.getAcceptedSamples(), covered, total),
                 covered > 0 ? CardState.GOOD : CardState.WAITING);
 
-        SessionMonitor.Snapshot reviewSnapshot = sessionMonitor.snapshot();
-        SessionReview review;
-        if (cachedEventReview == null || cachedEventReviewRevision != eventRevision) {
-            cachedEventReview = SessionReview.build(events, reviewSnapshot);
-            cachedEventReviewRevision = eventRevision;
-            review = cachedEventReview;
-        } else {
-            review = cachedEventReview.withFullLoad(reviewSnapshot);
-        }
         contributionReviewCard.setValue(review.contributionCardText(),
                 predictionEvents > 0 ? CardState.INFO : CardState.WAITING);
         lowRpmReviewCard.setValue(review.lowRpmCardText(),
@@ -305,20 +299,13 @@ final class PassiveOverviewController {
     }
 
     private String sessionGuidanceText(AeProjectSnapshot projectSnapshot,
-                                       List<TransientEvent> events) {
+                                       int eventCount,
+                                       SessionReview review) {
         if (projectSnapshot != null && projectSnapshot.isMapPredictWorkflow()) {
-            int predictionEvents = countPredictionEvents(events);
-            int repeatedResetEvents = 0;
-            int wallActiveEvents = 0;
-            int resetDiscontinuities = 0;
-            for (TransientEvent event : events) {
-                CounterMath.Result resets = event.getPredictionResetMetrics();
-                if (resets.hasRepeatedResets()) repeatedResetEvents++;
-                if (resets.hasDiscontinuity()) resetDiscontinuities++;
-                if (event.hasWallWettingContribution()) wallActiveEvents++;
-            }
-            SessionReview review = SessionReview.build(
-                    events, sessionMonitor.snapshot());
+            int predictionEvents = review.predictionEvents();
+            int repeatedResetEvents = review.repeatedResetEvents();
+            int wallActiveEvents = review.wallActiveEvents();
+            int resetDiscontinuities = review.resetDiscontinuityEvents();
             String nextStep;
             if (review.triggerSyncNeedsReview()) {
                 nextStep = "Running trigger/sync loss review has priority before further transient testing.";
@@ -341,14 +328,20 @@ final class PassiveOverviewController {
                     nextStep);
         }
 
-        int proved = 0;
-        int nearMiss = 0;
-        for (TransientEvent summary : events) {
-            if (summary.isTpsAeFuelProved()) proved++;
-            else if (summary.isTriggerNearMiss()) nearMiss++;
-        }
         return TechnicalDetailsRenderer.tpsCycleGuidance(
-                events.size(), proved, nearMiss);
+                eventCount, review.tpsAeFuelProvedEvents(),
+                review.triggerNearMissEvents());
+    }
+
+    private SessionReview reviewForRevision(long eventRevision,
+                                            List<TransientEvent> events,
+                                            SessionMonitor.Snapshot reviewSnapshot) {
+        if (cachedEventReview == null || cachedEventReviewRevision != eventRevision) {
+            cachedEventReview = SessionReview.build(events, reviewSnapshot);
+            cachedEventReviewRevision = eventRevision;
+            return cachedEventReview;
+        }
+        return cachedEventReview.withFullLoad(reviewSnapshot);
     }
 
     private int minimumSamples() {
@@ -358,22 +351,6 @@ final class PassiveOverviewController {
     static String fuelPathStatus(boolean mapPredictWorkflow,
                                  EnumMap<ChannelRole, Double> values) {
         return TechnicalDetailsRenderer.fuelPathStatus(mapPredictWorkflow, values);
-    }
-
-    private static int countPredictionEvents(List<TransientEvent> events) {
-        int count = 0;
-        for (TransientEvent event : events) {
-            if (event.hasMapPrediction()) count++;
-        }
-        return count;
-    }
-
-    private static int countRepeatedResetEvents(List<TransientEvent> events) {
-        int count = 0;
-        for (TransientEvent event : events) {
-            if (event.getPredictionResetMetrics().hasRepeatedResets()) count++;
-        }
-        return count;
     }
 
     private static boolean valueOn(double value) {

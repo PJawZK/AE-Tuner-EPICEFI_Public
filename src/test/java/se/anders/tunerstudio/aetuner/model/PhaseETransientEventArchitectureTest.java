@@ -21,19 +21,19 @@ public final class PhaseETransientEventArchitectureTest {
     private PhaseETransientEventArchitectureTest() { }
 
     public static void main(String[] args) {
-        compatibilityAliasIsThin();
+        compatibilityAliasIsGone();
         transientEventOwnsOnlyModelState();
-        compatibilityAliasPreservesObservableContract();
+        transientEventPreservesObservableContract();
         System.out.println("PhaseETransientEventArchitectureTest passed");
     }
 
-    private static void compatibilityAliasIsThin() {
-        require(EventSummary.class.getSuperclass() == TransientEvent.class,
-                "EventSummary must be only a compatibility alias over TransientEvent");
-        require(EventSummary.class.getDeclaredFields().length == 0,
-                "Compatibility alias must not duplicate transient-event state");
-        require(EventSummary.class.getDeclaredMethods().length == 0,
-                "Compatibility alias must not duplicate transient-event behavior");
+    private static void compatibilityAliasIsGone() {
+        try {
+            Class.forName("se.anders.tunerstudio.aetuner.model.EventSummary");
+            throw new AssertionError("EventSummary compatibility alias returned after TransientEvent migration");
+        } catch (ClassNotFoundException expected) {
+            // TransientEvent is now the sole event model authority.
+        }
     }
 
     private static void transientEventOwnsOnlyModelState() {
@@ -52,7 +52,7 @@ public final class PhaseETransientEventArchitectureTest {
         }
     }
 
-    private static void compatibilityAliasPreservesObservableContract() {
+    private static void transientEventPreservesObservableContract() {
         List<LiveSample> samples = new ArrayList<LiveSample>();
         samples.add(sample(1000000000L, 1800.0, 10.0, 55.0, false));
         samples.add(sample(1060000000L, 1900.0, 20.0, 65.0, true));
@@ -60,19 +60,20 @@ public final class PhaseETransientEventArchitectureTest {
 
         TransientEvent event = new TransientEvent(2, true, "MAP Predict event", "architecture",
                 samples, true);
-        EventSummary alias = new EventSummary(2, true, "MAP Predict event", "architecture",
-                samples, true);
 
-        require(event.toDisplayText().equals(alias.toDisplayText()),
-                "Compatibility alias changed display output");
-        require(event.toCsvHeader().equals(alias.toCsvHeader()),
-                "Compatibility alias changed CSV schema");
-        require(event.toCsvRows().equals(alias.toCsvRows()),
-                "Compatibility alias changed CSV rows");
-        require(event.hasMapPrediction() == alias.hasMapPrediction(),
-                "Compatibility alias changed prediction evidence");
-        require(bits(event.getMaxEffectiveMapGap()) == bits(alias.getMaxEffectiveMapGap()),
-                "Compatibility alias changed prediction metrics");
+        require(event.toDisplayText().contains("MAP Predict event"),
+                "TransientEvent lost display output");
+        require(event.toCsvHeader().contains("event_index"),
+                "TransientEvent lost CSV schema");
+        List<String> rows = event.toCsvRows();
+        require(rows.size() == samples.size()
+                        && rows.get(0).contains("\"MAP Predict event\"")
+                        && rows.get(0).contains("\"architecture\""),
+                "TransientEvent lost CSV row output");
+        require(event.hasMapPrediction(),
+                "TransientEvent lost prediction evidence");
+        require(Double.isFinite(event.getMaxEffectiveMapGap()),
+                "TransientEvent lost prediction metrics");
     }
 
     private static LiveSample sample(long nano, double rpm, double tps, double map,
@@ -95,10 +96,6 @@ public final class PhaseETransientEventArchitectureTest {
         values.put(ChannelRole.ENGINE_RUNNING, Double.valueOf(1.0));
         return new LiveSample(nano, nano / 1000000000.0, values,
                 predictionActive ? 20.0 : 0.0, 0.0);
-    }
-
-    private static long bits(double value) {
-        return Double.doubleToLongBits(value);
     }
 
     private static void require(boolean condition, String message) {

@@ -16,16 +16,9 @@ public final class EngagementFocusPresentationRateRegressionTest {
     }
 
     private static void liveFocusBuildsAreCappedNearTenHz() {
-        EngagementDeltaWindowSweepRuntime.resetForTest();
-        FoundationTpsNoiseGate.reset();
+        EngagementPassiveCapture.reset();
         EngagementFocusModel.resetPresentationCacheForTest();
         AeProjectSnapshot snapshot = snapshot();
-
-        // Prime the gate independently at full input rate, as the real method path does.
-        for (int i = 0; i < FoundationTpsNoiseGate.minimumQuietSamples() + 2; i++) {
-            FoundationTpsNoiseGate.evaluate(sample(i + 1,
-                    i * 0.005, 1800.0, 6.0, 0.20, 1.0, 0.5));
-        }
 
         for (int i = 0; i < 100; i++) {
             double seconds = 1.0 + i * 0.005; // 200 Hz for 0.5 s

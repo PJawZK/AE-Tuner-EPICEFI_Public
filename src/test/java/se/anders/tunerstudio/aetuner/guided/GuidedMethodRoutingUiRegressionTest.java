@@ -112,15 +112,15 @@ public final class GuidedMethodRoutingUiRegressionTest {
                     "TPS AE could start without the working TPS-to/cycle table baseline");
 
             panel.setProjectSnapshotForTest(tpsSnapshot());
-  require(panel.startCaptureEnabledForTest(),
-          "valid TPS AE working-table baseline did not enable Guided capture; status="
-                  + panel.connectionTextForTest());
-  require(panel.connectionTextForTest().contains("1. Fuel by Engine Cycle selected"),
-          "TPS AE ready status did not identify the selected task; status="
-                  + panel.connectionTextForTest());
-  require(panel.connectionTextForTest().contains("ready"),
-          "TPS AE ready status did not report readiness; status="
-                  + panel.connectionTextForTest());
+            require(panel.startCaptureEnabledForTest(),
+                    "valid TPS AE working-table baseline did not enable Guided capture; status="
+                            + panel.connectionTextForTest());
+            require(panel.connectionTextForTest().contains("1. Fuel by Engine Cycle selected"),
+                    "TPS AE ready status did not identify the selected task; status="
+                            + panel.connectionTextForTest());
+            require(panel.connectionTextForTest().contains("ready"),
+                    "TPS AE ready status did not report readiness; status="
+                            + panel.connectionTextForTest());
         } finally {
             panel.disposePanel();
         }
@@ -222,7 +222,7 @@ public final class GuidedMethodRoutingUiRegressionTest {
             require(panel.connectionTextForTest().contains("1. Fuel by Engine Cycle selected")
                             && !panel.connectionTextForTest().contains("1. Model / Base Tau-Beta capture started"),
                     "TPS AE selection retained stale Wall Wetting capture status");
-            require(panel.selectedTuningTaskForTest().contains("Guided table evidence available")
+            require(panel.selectedTuningTaskForTest().contains(GuidedTuningRecipe.TPS_AE.status)
                             && !panel.selectedTuningTaskForTest().contains("capture active"),
                     "selector maturity text still reads like a running capture state");
         } finally {
@@ -262,13 +262,27 @@ public final class GuidedMethodRoutingUiRegressionTest {
             addTpsAeEvent(panel, 12.80);
             panel.finishSelectedTaskForTest();
 
+            require(panel.proposalTextForTest().contains("EVIDENCE INCOMPLETE")
+                            && panel.startCaptureTextForTest().contains("Continue"),
+                    "3/5 TPS AE events incorrectly entered Review instead of offering continuation");
+            require(!panel.copyReviewedDraftEnabledForTest()
+                            && !panel.applyCurrentProposalEnabledForTest(),
+                    "incomplete TPS AE evidence exposed reviewed draft/apply authority");
+
+            panel.startSelectedTaskForTest();
+            addTpsAeEvent(panel, 14.20);
+            addTpsAeEvent(panel, 15.60);
+            panel.finishSelectedTaskForTest();
+
             require(panel.proposalTextForTest().contains("TPS AE TABLE REVIEW")
-                            && panel.proposalTextForTest().contains("Basis: 3 usable TPS AE fuel-proved event(s)"),
-                    "shared Guided review did not surface the TPS AE table generator result");
+                            && panel.proposalTextForTest().contains("Basis: 5 usable TPS AE fuel-proved event(s)"),
+                    "shared Guided review did not surface the TPS AE table generator after the 5-event evidence target");
             require(panel.copyReviewedDraftEnabledForTest(),
                     "reviewed TPS AE table did not enable Copy Reviewed Draft");
+            require(panel.proposalTextForTest().contains("Guarded working-tune Apply/readback/Restore is available"),
+                    "review-ready TPS AE table did not expose its guarded multi-cell Apply capability");
             require(!panel.applyCurrentProposalEnabledForTest(),
-                    "TPS AE copy/paste draft should not enable Apply until its module returns an explicit ProposalWritePlan");
+                    "dead/no-controller UI fixture unexpectedly enabled the physical Apply button");
         } finally {
             panel.disposePanel();
         }
@@ -307,12 +321,12 @@ public final class GuidedMethodRoutingUiRegressionTest {
             require(!panel.startCaptureEnabledForTest(),
                     "different method could start while prior unexported evidence was retained");
             require(panel.selectedTuningTaskForTest().contains("1. Model / Base Tau-Beta")
-                  && panel.connectionTextForTest().contains("1. Model / Base Tau-Beta")
-                  && panel.connectionTextForTest().contains("3. Transient Validation")
-                  && panel.connectionTextForTest().contains("export retained"),
-          "method switch guard did not preserve immediate navigation plus retained-evidence blocking");
-  require(panel.saveReportEnabledForTest(),
-          "retained prior evidence was not directly exportable while browsing the next method");
+                            && panel.connectionTextForTest().contains("1. Model / Base Tau-Beta")
+                            && panel.connectionTextForTest().contains("3. Transient Validation")
+                            && panel.connectionTextForTest().contains("export retained"),
+                    "method switch guard did not preserve immediate navigation plus retained-evidence blocking");
+            require(panel.saveReportEnabledForTest(),
+                    "retained prior evidence was not directly exportable while browsing the next method");
 
             panel.markProbeEvidenceExportedForTest();
             require(panel.startCaptureEnabledForTest(),

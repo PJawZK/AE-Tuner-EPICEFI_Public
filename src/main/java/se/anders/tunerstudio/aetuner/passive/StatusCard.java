@@ -1,12 +1,7 @@
 package se.anders.tunerstudio.aetuner.passive;
 
-import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.guided.*;
-import se.anders.tunerstudio.aetuner.model.*;
-import se.anders.tunerstudio.aetuner.proposal.*;
-import se.anders.tunerstudio.aetuner.recovery.*;
-import se.anders.tunerstudio.aetuner.ui.*;
-import se.anders.tunerstudio.aetuner.AeTunerPlugin;
+import se.anders.tunerstudio.aetuner.ui.AeUiTheme;
+import se.anders.tunerstudio.aetuner.ui.AeUtilityWorkspacePanel;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -19,26 +14,26 @@ import javax.swing.JPanel;
 enum CardState { GOOD, ACTIVE, INFO, OFF, WAITING, WARNING, ERROR }
 
 final class StatusCard extends JPanel {
+    private final JLabel title = new JLabel();
     private final JLabel value = new JLabel();
     private String lastText;
     private CardState lastState;
+    private AeUiTheme.Side lastTheme;
 
-    StatusCard(String title, int width, int height) {
+    StatusCard(String titleText, int width, int height) {
         super(new BorderLayout(4, 3));
         Dimension fixedSize = new Dimension(width, height);
         setPreferredSize(fixedSize);
         setMinimumSize(fixedSize);
         setMaximumSize(fixedSize);
-        setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(180, 180, 180)),
-                BorderFactory.createEmptyBorder(5, 7, 5, 7)));
-        JLabel titleLabel = new JLabel(title);
-        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 11f));
+        putClientProperty(AeUtilityWorkspacePanel.PRESERVE_BACKGROUND, Boolean.TRUE);
+        title.setText(titleText);
+        title.setFont(title.getFont().deriveFont(Font.BOLD, 11f));
         value.setFocusable(false);
         value.setVerticalAlignment(JLabel.TOP);
         value.setHorizontalAlignment(JLabel.LEFT);
         value.setFont(value.getFont().deriveFont(Font.BOLD, 12f));
-        add(titleLabel, BorderLayout.NORTH);
+        add(title, BorderLayout.NORTH);
         add(value, BorderLayout.CENTER);
         setValue("Waiting", CardState.WAITING);
     }
@@ -49,27 +44,46 @@ final class StatusCard extends JPanel {
 
     void setValue(String text, CardState state) {
         String normalized = text == null ? "" : text.replace("  •  ", "\n");
-        if (normalized.equals(lastText) && state == lastState) {
-            return;
-        }
+        AeUiTheme.Side theme = AeUiTheme.side();
+        if (normalized.equals(lastText) && state == lastState && theme == lastTheme) return;
         lastText = normalized;
         lastState = state;
+        lastTheme = theme;
         value.setText(toHtml(normalized));
+
         Color background;
-        Color foreground = Color.BLACK;
+        Color foreground = AeUiTheme.text();
         switch (state) {
-            case GOOD: background = new Color(220, 242, 220); break;
-            case ACTIVE: background = new Color(196, 235, 255); break;
-            case INFO: background = new Color(226, 235, 248); break;
-            case OFF: background = new Color(236, 236, 236); break;
-            case WARNING: background = new Color(255, 238, 190); break;
-            case ERROR: background = new Color(255, 210, 210); break;
-            default: background = new Color(245, 245, 245); break;
+            case GOOD:
+                background = AeUiTheme.softGreen();
+                break;
+            case ACTIVE:
+                background = AeUiTheme.softBlue();
+                break;
+            case INFO:
+                background = AeUiTheme.neutralSoft();
+                break;
+            case OFF:
+                background = AeUiTheme.disabled();
+                foreground = AeUiTheme.muted();
+                break;
+            case WARNING:
+                background = AeUiTheme.softAmber();
+                break;
+            case ERROR:
+                background = AeUiTheme.softRed();
+                break;
+            default:
+                background = AeUiTheme.neutralSoft();
+                foreground = AeUiTheme.muted();
+                break;
         }
-        if (!background.equals(getBackground())) {
-            setBackground(background);
-        }
+        setBackground(background);
+        title.setForeground(AeUiTheme.muted());
         value.setForeground(foreground);
+        setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(AeUiTheme.border()),
+                BorderFactory.createEmptyBorder(5, 7, 5, 7)));
         setOpaque(true);
         repaint();
     }

@@ -13,6 +13,7 @@ for test_class in \
   se.anders.tunerstudio.aetuner.passive.SessionMonitorRegressionTest \
   se.anders.tunerstudio.aetuner.passive.CoherentLiveSampleAssemblerRegressionTest \
   se.anders.tunerstudio.aetuner.passive.PhaseDPanelLayoutArchitectureTest \
+  se.anders.tunerstudio.aetuner.ui.AeUtilityWorkspaceRegressionTest \
   se.anders.tunerstudio.aetuner.proposal.BlendDurationPolicyRegressionTest \
   se.anders.tunerstudio.aetuner.proposal.ProposalWritePlanRegressionTest \
   se.anders.tunerstudio.aetuner.proposal.SessionExportSupportRegressionTest \
@@ -30,6 +31,7 @@ for test_class in \
   se.anders.tunerstudio.aetuner.host.EngagementDetectionApplyWorkflowRegressionTest \
   se.anders.tunerstudio.aetuner.host.GuidedBlendApplyWorkflowRegressionTest \
   se.anders.tunerstudio.aetuner.host.GuidedTaskSettingsPanelIntegrationRegressionTest \
+  se.anders.tunerstudio.aetuner.guided.GuidedTaskSettingsPresentationRegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedVehicleTestLimitsRegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedVehicleTest9RegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedAttemptTraceRegressionTest \
@@ -51,16 +53,21 @@ for test_class in \
   se.anders.tunerstudio.aetuner.guided.EngagementDetectionRoutingRegressionTest \
   se.anders.tunerstudio.aetuner.guided.EngagementDetectionSettingRoutingRegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedTuningNavigationRegressionTest \
+  se.anders.tunerstudio.aetuner.guided.GuidedV019CaptureLifecycleRegressionTest \
   se.anders.tunerstudio.aetuner.guided.method.GuidedAeMethodModulesRegressionTest \
+  se.anders.tunerstudio.aetuner.guided.method.WallWettingRecommendationRegressionTest \
+  se.anders.tunerstudio.aetuner.guided.method.InstantFuelRecommendationRegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedMethodRoutingUiRegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedLifecycleRegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedBlendProposalRegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedUiRegressionTest \
+  se.anders.tunerstudio.aetuner.guided.GuidedProductionUiIntegrationRegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedAudioCueLabRegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedSampleDispatcherRegressionTest \
   se.anders.tunerstudio.aetuner.recovery.EvidenceRecoveryStoreRegressionTest \
   se.anders.tunerstudio.aetuner.RuntimeOverhaulRegressionTest \
   se.anders.tunerstudio.aetuner.VehicleTestIdentityRegressionTest \
+  se.anders.tunerstudio.aetuner.model.AeProjectSnapshotDecelSettingsRegressionTest \
   se.anders.tunerstudio.aetuner.model.MapPredictionMetricsRegressionTest \
   se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateDev18RegressionTest \
   se.anders.tunerstudio.aetuner.guided.GuidedChannelValidityRegressionTest

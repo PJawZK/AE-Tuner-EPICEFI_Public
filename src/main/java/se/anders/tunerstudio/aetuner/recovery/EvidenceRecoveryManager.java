@@ -32,7 +32,13 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class EvidenceRecoveryManager {
     private static final long PERIOD_SECONDS = 60L;
-    private static final long DIRTY_DELAY_SECONDS = 2L;
+    /*
+     * Evidence changes arrive at sample cadence. A five-second coalescing
+     * window keeps crash recovery frequent while avoiding complete report/CSV
+     * serialization every two seconds during a long continuous capture.
+     * Final close still forces an immediate full snapshot/write.
+     */
+    private static final long DIRTY_DELAY_SECONDS = 5L;
     private static final int RETAIN_RUNS = 8;
     private static final long NON_EDT_CLOSE_WAIT_SECONDS = 3L;
 
@@ -49,8 +55,10 @@ public final class EvidenceRecoveryManager {
     private volatile String status = "Automatic recovery waiting for evidence.";
     private volatile String passiveSession = "";
     private volatile int passiveEventCount;
+    private volatile long passiveFingerprint = Long.MIN_VALUE;
     private volatile String guidedSession = "";
     private volatile int guidedRecordCount;
+    private volatile long guidedFingerprint = Long.MIN_VALUE;
 
     public EvidenceRecoveryManager(AeTunerPanel passivePanel,
                             GuidedCapturePanel guidedPanel) {
@@ -153,34 +161,88 @@ public final class EvidenceRecoveryManager {
                 status = "Automatic recovery waiting for evidence.";
                 return;
             }
-            int passiveCount = 0;
-            int guidedCount = 0;
+            boolean force = "plugin close".equals(reason);
+            boolean wrote = false;
+            int passiveCount = passiveEventCount;
+            int guidedCount = guidedRecordCount;
+
             if (snapshot.passive != null) {
-                if (!snapshot.passive.sessionKey.equals(passiveSession)) {
+                boolean newSession = !snapshot.passive.sessionKey.equals(passiveSession);
+                if (newSession) {
                     passiveSession = snapshot.passive.sessionKey;
                     passiveEventCount = 0;
+                    passiveFingerprint = Long.MIN_VALUE;
                 }
-                store.writePassive(snapshot.passive, passiveEventCount);
+                long fingerprint = passiveFingerprint(snapshot.passive);
+                if (force || fingerprint != passiveFingerprint) {
+                    store.writePassive(snapshot.passive, passiveEventCount);
+                    passiveFingerprint = fingerprint;
+                    wrote = true;
+                }
                 passiveEventCount = snapshot.passive.events.size();
                 passiveCount = passiveEventCount;
             }
+
             if (snapshot.guided != null) {
-                if (!snapshot.guided.sessionKey.equals(guidedSession)) {
+                boolean newSession = !snapshot.guided.sessionKey.equals(guidedSession);
+                if (newSession) {
                     guidedSession = snapshot.guided.sessionKey;
                     guidedRecordCount = 0;
+                    guidedFingerprint = Long.MIN_VALUE;
                 }
-                store.writeGuided(snapshot.guided);
+                long fingerprint = guidedFingerprint(snapshot.guided);
+                if (force || fingerprint != guidedFingerprint) {
+                    store.writeGuided(snapshot.guided);
+                    guidedFingerprint = fingerprint;
+                    wrote = true;
+                }
                 guidedRecordCount = snapshot.guided.recordCount;
                 guidedCount = guidedRecordCount;
             }
-            store.writeRunInfo(reason, passiveCount, guidedCount);
-            status = "Automatic recovery saved locally at "
-                    + new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date());
+
+            if (wrote || force) {
+                store.writeRunInfo(reason, passiveCount, guidedCount);
+                status = "Automatic recovery saved locally at "
+                        + new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date());
+            } else {
+                status = "Automatic recovery already up to date.";
+            }
         } catch (Exception ex) {
             status = "Automatic recovery failed: " + safeMessage(ex);
         } finally {
             writing.set(false);
         }
+    }
+
+    private static long passiveFingerprint(EvidenceRecoverySnapshot.Passive snapshot) {
+        long hash = 1469598103934665603L;
+        hash = mix(hash, snapshot.sessionKey);
+        hash = mix(hash, snapshot.revision);
+        hash = mix(hash, snapshot.events.size());
+        hash = mix(hash, snapshot.reportText);
+        return hash;
+    }
+
+    private static long guidedFingerprint(EvidenceRecoverySnapshot.Guided snapshot) {
+        long hash = 1469598103934665603L;
+        hash = mix(hash, snapshot.sessionKey);
+        hash = mix(hash, snapshot.recordCount);
+        hash = mix(hash, snapshot.reportText);
+        hash = mix(hash, snapshot.csvText);
+        return hash;
+    }
+
+    private static long mix(long hash, int value) {
+        return (hash ^ value) * 1099511628211L;
+    }
+
+    private static long mix(long hash, long value) {
+        hash = mix(hash, (int)(value ^ (value >>> 32)));
+        return hash;
+    }
+
+    private static long mix(long hash, String value) {
+        return mix(hash, value == null ? 0 : value.hashCode());
     }
 
     /** Final recovery shutdown without an EDT<->worker wait cycle. */

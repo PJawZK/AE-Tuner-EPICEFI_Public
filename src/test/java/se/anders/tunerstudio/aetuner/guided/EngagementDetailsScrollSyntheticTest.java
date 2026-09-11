@@ -28,7 +28,6 @@ public final class EngagementDetailsScrollSyntheticTest {
         final boolean[] scrollContractOk = new boolean[]{false};
         final boolean[] naturalHeightOk = new boolean[]{false};
         final boolean[] passiveCardOk = new boolean[]{false};
-        final boolean[] legacyCalibrationHidden = new boolean[]{false};
 
         SwingUtilities.invokeAndWait(new Runnable() {
             @Override public void run() {
@@ -47,12 +46,10 @@ public final class EngagementDetailsScrollSyntheticTest {
                 naturalHeightOk[0] = w.engagementDetailsNotCompressedForTest();
                 EngagementDetectionGuidedFocusPanel engagement = w.engagementPanelForTest();
                 passiveCardOk[0] = "engagement".equals(w.visibleCardForTest())
-                        && engagement.sweepTargetTextForTest().contains("No exact TPS target")
+                        && engagement.referenceSummaryTextForTest().contains("No exact TPS target")
                         && !engagement.settingsToggleVisibleForTest()
                         && !engagement.settingsPanelVisibleForTest()
-                        && !engagement.requestedDeltaWindowEnabledForTest();
-                legacyCalibrationHidden[0] = !w.engagementCalibrationDriverForTest().isShowing()
-                        && !w.engagementCalibrationDetailsForTest().isVisible();
+                        && !engagement.deltaWindowEnabledForTest();
                 window[0] = w;
             }
         });
@@ -97,8 +94,6 @@ public final class EngagementDetailsScrollSyntheticTest {
                 "passive Details content was compressed below its preferred height");
         require(passiveCardOk[0],
                 "passive Details revived exact-target or timing-experiment controls");
-        require(legacyCalibrationHidden[0],
-                "legacy quiet-calibration UI is still reachable in passive Foundation 1");
         require(file.isFile() && file.length() > 0L,
                 "passive Foundation Details scroll screenshot missing");
 

@@ -4,10 +4,10 @@ package se.anders.tunerstudio.aetuner.guided;
  * User-facing Guided Tuning task catalog.
  *
  * Display order is owned by GuidedTuningArea, not enum declaration order.
- * Tasks marked implemented=false are intentional UX/product scaffolds derived
- * from the current EpicEFI AE controls. They make the intended Guided product
- * shape visible without claiming tuning math, capture qualification or write
- * support that has not been implemented yet.
+ * implemented=true means a real vehicle evidence route exists. Recommendation
+ * maturity remains independent: a baseline heuristic may be deliberately marked
+ * as confirmation/refinement work while every physically validated setting is
+ * already accessible through the common guarded Task Settings / Apply path.
  *
  * Guarded working-tune Apply is a common product capability: whenever a task's
  * reviewed tuning logic or explicit operator setting choice produces an exact
@@ -33,24 +33,24 @@ public enum GuidedTuningRecipe {
 
     TPS_AE(
             "1. Fuel by Engine Cycle",
-            "Guided table evidence available",
+            "Guided table recommendation + guarded Apply available",
             true,
             "Tune the TPS-to versus Engine Cycle fuel multiplier table. Shared event detection belongs to AE Foundation; this task owns the amount/decay shape of TPS AE fuel after an accepted event."),
     TPS_AE_COMPENSATION(
             "2. RPM / Temperature Compensation",
-            "Planned Guided scaffold",
-            false,
-            "Shape TPS AE across operating conditions using the current Transient RPM correction, TPS-vs-CLT AE scale and CLT correction controls without changing the underlying detector."),
+            "Complete baseline evidence + guarded recommendation available",
+            true,
+            "Shape TPS AE across operating conditions using the Transient RPM correction, TPS-vs-CLT AE scale and CLT correction controls. All validated axes/tables/curves are present; baseline evidence moves only covered attributable regions and is intended for new vehicle confirmation/refinement."),
     TPS_AE_COMPLETION(
             "3. Completion / Closed-Loop Handoff",
-            "Planned Guided scaffold",
-            false,
-            "Review event completion and closed-loop interaction: cycle-table tail length, TPS AE burn-skip behavior, EGO reset behavior and the post-accel closed-loop inhibit interval."),
+            "Complete baseline handoff evidence + guarded recommendation available",
+            true,
+            "Review event completion and closed-loop interaction: cycle-table tail length, TPS AE burn-skip behavior, EGO reset behavior and the post-accel closed-loop inhibit interval. The whole validated completion surface remains directly review/apply-capable even when one capture supports only part of it."),
     TPS_AE_VALIDATION(
             "4. TPS AE Validation",
-            "Planned Guided validation coach",
-            false,
-            "Validate the resulting TPS AE contribution over repeatable openings and stacked events while separating MAP Predict, Wall Wetting and Instant Fuel overlap."),
+            "TPS AE outcome validation active",
+            true,
+            "Validate early amount, mid-event shape, late tail and rapid re-apply over repeatable openings while separating MAP Predict, Wall Wetting and Instant Fuel overlap. This final validation is evidence-only and routes failures back to the owning TPS AE subtask."),
 
     MAP_ESTIMATE(
             "1. MAP Estimate Table",
@@ -70,25 +70,25 @@ public enum GuidedTuningRecipe {
 
     WALL_WETTING(
             "1. Model / Base Tau-Beta",
-            "Diagnostic evidence capture available",
+            "Base Tau/Beta evidence + guarded recommendation available",
             true,
-            "Establish the Wall Wetting model and basic tau/beta behavior from balanced tip-in/tip-out evidence. Basic mode uses fixed evaporation time (tau) and wall-stick fraction (beta)."),
+            "Establish the Wall Wetting model and basic tau/beta behavior from paired tip-in/tip-out evidence. Basic mode uses fixed evaporation time (tau) and wall-stick fraction (beta); both belong to the working baseline and are confirmed against measured film amplitude/persistence."),
     WALL_WETTING_ADVANCED(
             "2. Advanced Tau/Beta Mapping",
-            "Planned Guided scaffold",
-            false,
-            "Shape advanced Wall Wetting across coolant temperature and RPM/MAP using the current tau/beta CLT curves and RPM-vs-MAP tables."),
+            "Complete advanced mapping baseline + guarded recommendation available",
+            true,
+            "Shape advanced Wall Wetting across coolant temperature and RPM/MAP using the complete tau/beta CLT curves and RPM-vs-MAP tables. All surfaces are captured from Working Tune; automatic movement requires covered attributable regions rather than hiding unmeasured cells."),
     WALL_WETTING_VALIDATION(
             "3. Film Validation",
-            "Planned Guided validation coach",
-            false,
-            "Validate the complete wall-film response in both directions and across temperatures, checking lambda shape and interaction with other AE methods rather than one AFR peak."),
+            "Bidirectional film validation active",
+            true,
+            "Validate the complete wall-film response in both directions and across temperatures, checking lambda shape, correction decay and interaction with other AE methods rather than one AFR peak."),
 
     DECEL_DETECTION(
             "1. Decel Detection / Threshold",
-            "Planned Guided scaffold",
-            false,
-            "Tune the dedicated throttle-fall threshold and hold-cycle deadband used by current EpicEFI decel detection. Detection remains visible even when the fuel enleanment itself is disabled."),
+            "Guided falling-TPS threshold evidence + guarded recommendation available",
+            true,
+            "Tune the dedicated throttle-fall threshold used by current EpicEFI decel detection from signed falling-TPS event evidence. Automatic recommendation is limited to evidence-backed tpsDecelThresholdValue cells; threshold 0 remains a firmware disable command and is never auto-enabled. tpsDecelHoldCycles is captured but remains read-only until threshold behavior is validated independently."),
     DECEL_FUEL(
             "2. Enleanment / Cycle Shape",
             "Planned Guided scaffold",
@@ -107,24 +107,24 @@ public enum GuidedTuningRecipe {
 
     INSTANT_FUEL_SETUP(
             "1. Global Pulse / Inhibit",
-            "Planned Guided scaffold",
-            false,
-            "Configure Instant Fuel enable state, global pulse multiplier and inhibit-cycle spacing only after a residual early fuel need has been established."),
+            "Complete three-setting setup baseline + guarded recommendation available",
+            true,
+            "With Instant Fuel enabled in the Working Tune, tune its complete setup surface: enable state, global pulse multiplier and inhibit-cycle spacing from repeatable first-moment and re-apply evidence. If Instant Fuel is OFF, all Instant Fuel tasks are unavailable and collect no Guided evidence until it is enabled and Working Tune is read again."),
     INSTANT_FUEL_EVENT_STRENGTH(
             "2. Event Strength (Delta TPS)",
-            "Planned Guided scaffold",
-            false,
-            "Shape Instant Fuel by the latched throttle-change severity using the current Delta TPS multiplier curve. This separates small pedal corrections from genuinely sharp events."),
+            "Delta-TPS strength curve baseline + guarded recommendation available",
+            true,
+            "Shape Instant Fuel by the latched throttle-change severity using the complete Delta TPS axis/multiplier curve. Covered event-strength bins may move from first-moment residual evidence; unmeasured bins remain at Working Tune."),
     INSTANT_FUEL_CONDITIONS(
             "3. Operating-Condition Multipliers",
-            "Planned Guided scaffold",
-            false,
-            "Shape Instant Fuel across RPM, ending TPS, MAP and coolant temperature with the four current condition multiplier curves."),
+            "Four condition-curve baseline + guarded recommendation available",
+            true,
+            "Shape Instant Fuel across RPM, ending TPS, MAP and coolant temperature with all four current condition multiplier curves. Baseline logic distributes correction authority across the multiplicative surfaces and is intended for vehicle confirmation/refinement."),
     INSTANT_FUEL(
             "4. Residual Lean-Hole Validation",
-            "Residual-correction evidence capture available",
+            "Final Instant Fuel validation active",
             true,
-            "Prove that a repeatable early lean hole remains after the primary AE strategy is credible. Instant Fuel should stay a residual correction rather than mask MAP Estimate, Blend Duration, TPS AE or Wall Wetting errors."),
+            "Validate that the completed Instant Fuel setup removes only a repeatable first-moment residual without masking sustained MAP Estimate, Blend Duration, TPS AE or Wall Wetting errors. This final task is evidence-only; writable Instant settings belong to the three tuning tasks above."),
 
     OPTIMIZATION(
             "1. Stack Interaction Review",

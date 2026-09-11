@@ -90,7 +90,6 @@ public final class GuidedAudioCueController implements GuidedWorkflowEvent.Liste
     private boolean sessionActive;
     private boolean suspended;
     private long auditSequence;
-    private String lastEngagementOutcomeFingerprint = "";
 
     public GuidedAudioCueController() {
         this(new ToneCuePlayer());
@@ -115,7 +114,6 @@ public final class GuidedAudioCueController implements GuidedWorkflowEvent.Liste
         if (event == GuidedWorkflowEvent.SESSION_STARTED) {
             sessionActive = true;
             activeProfile = pendingProfile.copy();
-            armEngagementOutcomeFingerprint();
             requestCue(Cue.SESSION_STARTED, "workflow");
             return;
         }
@@ -127,15 +125,6 @@ public final class GuidedAudioCueController implements GuidedWorkflowEvent.Liste
             player.cancel(auditSink);
             sessionActive = false;
             activeProfile = null;
-            lastEngagementOutcomeFingerprint = "";
-            return;
-        }
-        // During TPS Movement / Timing the detector-clear transition is not a
-        // maneuver result. The final quality poll below owns pass/not-counted audio.
-        if (event == GuidedWorkflowEvent.RETURN_TO_BASELINE
-                && EngagementDeltaWindowSweepRuntime.snapshot().active) {
-            appendAudit("SKIPPED_ENGAGEMENT_CLEAR", Cue.RETURN_TO_BASELINE,
-                    "Detector clear is neutral during controlled TPS Movement; waiting for final maneuver quality");
             return;
         }
         Cue cue = cueFor(event);
@@ -213,7 +202,6 @@ public final class GuidedAudioCueController implements GuidedWorkflowEvent.Liste
 
     public synchronized String statusText() {
         if (suspended) return "Off — plugin lifecycle suspended";
-        pollEngagementOutcome();
         return enabled ? player.statusText()
                 : "Off — all Guided Capture cues remain silent";
     }
@@ -221,7 +209,6 @@ public final class GuidedAudioCueController implements GuidedWorkflowEvent.Liste
     public synchronized void resume() {
         player.resume(auditSink);
         suspended = false;
-        armEngagementOutcomeFingerprint();
         appendAudit("RESUMED", null, "Audio lifecycle resumed");
     }
 
@@ -264,75 +251,7 @@ public final class GuidedAudioCueController implements GuidedWorkflowEvent.Liste
         enabled = false;
         sessionActive = false;
         activeProfile = null;
-        lastEngagementOutcomeFingerprint = "";
         player.close(auditSink);
-    }
-
-    private void armEngagementOutcomeFingerprint() {
-        lastEngagementOutcomeFingerprint = engagementOutcomeFingerprint(
-                EngagementDeltaWindowSweepRuntime.snapshot());
-    }
-
-    private void pollEngagementOutcome() {
-        if (!sessionActive || suspended) return;
-        EngagementDeltaWindowSweepRuntime.Snapshot snapshot =
-                EngagementDeltaWindowSweepRuntime.snapshot();
-        if (snapshot == null || snapshot.lastAttemptQuality == null) return;
-        String fingerprint = engagementOutcomeFingerprint(snapshot);
-        if (fingerprint.length() == 0
-                || fingerprint.equals(lastEngagementOutcomeFingerprint)) return;
-        lastEngagementOutcomeFingerprint = fingerprint;
-
-        Cue cue = cueForQuality(snapshot.lastAttemptQuality);
-        String quality = snapshot.lastAttemptQuality.name().replace('_', ' ');
-        String detail = quality
-                + " | peak ΔTPS " + f1(snapshot.lastAttemptPeakDeltaTps)
-                + " | comparable " + snapshot.eventsThisCandidate + "/"
-                + snapshot.eventsPerCandidate
-                + " | attempts " + snapshot.attemptsThisCandidate
-                + (snapshot.lastAttemptReason == null
-                        || snapshot.lastAttemptReason.length() == 0
-                        ? "" : " | " + snapshot.lastAttemptReason);
-        appendAudit("QUALITY_OUTCOME", cue, detail);
-        requestCue(cue, "physical maneuver quality — " + detail);
-    }
-
-    static Cue cueForQuality(EngagementManeuverQualityPolicy.Quality quality) {
-        if (quality == null) return Cue.EXCLUDED;
-        switch (quality) {
-            case EXCELLENT:
-                return Cue.ACCEPTED;
-            case GOOD:
-            case USABLE:
-            case DIAGNOSTIC_ONLY:
-            case REJECT:
-            default:
-                return Cue.EXCLUDED;
-        }
-    }
-
-    private static String engagementOutcomeFingerprint(
-            EngagementDeltaWindowSweepRuntime.Snapshot snapshot) {
-        if (snapshot == null || snapshot.lastAttemptQuality == null) return "";
-        return snapshot.completedRuns + "|"
-                + snapshot.candidateRevision + "|"
-                + snapshot.candidateIndex + "|"
-                + snapshot.attemptsThisCandidate + "|"
-                + snapshot.eventsThisCandidate + "|"
-                + snapshot.lastAttemptQuality.name() + "|"
-                + f3(snapshot.lastAttemptPeakDeltaTps) + "|"
-                + (snapshot.lastAttemptReason == null
-                        ? "" : snapshot.lastAttemptReason);
-    }
-
-    private static String f1(double value) {
-        return Double.isFinite(value)
-                ? String.format(Locale.US, "%.1f", value) : "n/a";
-    }
-
-    private static String f3(double value) {
-        return Double.isFinite(value)
-                ? String.format(Locale.US, "%.3f", value) : "n/a";
     }
 
     private boolean requestCue(Cue cue, String origin) {

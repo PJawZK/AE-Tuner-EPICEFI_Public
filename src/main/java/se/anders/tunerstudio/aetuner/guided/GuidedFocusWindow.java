@@ -10,7 +10,6 @@ import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
@@ -21,7 +20,6 @@ import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Font;
-import java.awt.Insets;
 import java.awt.Rectangle;
 import java.awt.Window;
 
@@ -44,9 +42,6 @@ public final class GuidedFocusWindow extends JDialog {
     private final EngagementScrollHost engagementHost = new EngagementScrollHost();
     private final JScrollPane engagementScroll = new JScrollPane(
             engagementHost, JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-    // Compatibility-only object retained for existing test/source hooks. It is
-    // no longer attached to the Foundation 1 card hierarchy or refreshed live.
-    private final EngagementQuietCalibrationPanel engagementCalibrationDriver = new EngagementQuietCalibrationPanel(true);
     private final FoundationThresholdGuidedFocusPanel foundationThreshold = new FoundationThresholdGuidedFocusPanel();
     private final GuidedCoachProposalPanel coachProposal = new GuidedCoachProposalPanel();
     private GuidedTuningRecipe currentRecipe = GuidedTuningRecipe.BLEND_DURATION;
@@ -64,7 +59,6 @@ public final class GuidedFocusWindow extends JDialog {
         setMinimumSize(new Dimension(760, 480));
         setPreferredSize(new Dimension(1180, 720));
         mapEstimate.setConfigurationListener(mapEstimateListener);
-        engagementCalibrationDriver.setVisible(false);
         buildUi();
         pack();
     }
@@ -162,8 +156,6 @@ public final class GuidedFocusWindow extends JDialog {
     public MapEstimateGuidedFocusPanel mapEstimatePanelForTest() { return mapEstimate; }
     public EngagementDetectionGuidedFocusPanel engagementPanelForTest() { return engagement; }
     public FoundationThresholdGuidedFocusPanel foundationThresholdPanelForTest() { return foundationThreshold; }
-    public EngagementQuietCalibrationPanel engagementCalibrationDriverForTest() { return engagementCalibrationDriver; }
-    public EngagementQuietCalibrationPanel engagementCalibrationDetailsForTest() { return engagement.quietCalibrationDetailsForTest(); }
     public GuidedCoachProposalPanel coachProposalPanelForTest() { return coachProposal; }
     public boolean driverViewForTest() { return driverView.isSelected(); }
     public boolean alwaysOnTopForTest() { return alwaysOnTop.isSelected(); }
@@ -228,51 +220,6 @@ public final class GuidedFocusWindow extends JDialog {
             }
         }
         return found;
-    }
-
-    // Legacy helpers retained for source compatibility with older tests/tools.
-    private static JPanel findTitledPanel(Container root, String title) {
-        if (root == null || title == null) return null;
-        for (Component child : root.getComponents()) {
-            if (child instanceof JPanel) {
-                JPanel panel = (JPanel) child;
-                if (panel.getBorder() instanceof TitledBorder
-                        && title.equals(((TitledBorder) panel.getBorder()).getTitle())) return panel;
-            }
-            if (child instanceof Container) {
-                JPanel nested = findTitledPanel((Container) child, title);
-                if (nested != null) return nested;
-            }
-        }
-        return null;
-    }
-
-    private static boolean childrenShareLeftEdge(JPanel panel) {
-        if (panel == null || panel.getWidth() <= 0) return false;
-        Insets insets = panel.getInsets();
-        int expected = insets.left;
-        for (Component child : panel.getComponents()) {
-            if (!child.isVisible()) continue;
-            if (Math.abs(child.getX() - expected) > 3) return false;
-        }
-        return true;
-    }
-
-    private static boolean wideChildrenFillInnerWidth(JPanel panel) {
-        if (panel == null || panel.getWidth() <= 0) return false;
-        Insets insets = panel.getInsets();
-        int available = panel.getWidth() - insets.left - insets.right;
-        if (available <= 0) return false;
-        boolean checked = false;
-        for (Component child : panel.getComponents()) {
-            if (!child.isVisible()) continue;
-            boolean wide = child instanceof JProgressBar
-                    || child instanceof EngagementQuietCalibrationPanel || child instanceof JPanel;
-            if (!wide) continue;
-            checked = true;
-            if (child.getWidth() + 4 < available) return false;
-        }
-        return checked;
     }
 
     private static final class EngagementScrollHost extends JPanel implements Scrollable {

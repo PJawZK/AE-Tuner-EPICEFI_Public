@@ -46,10 +46,27 @@ public final class BlendDurationFocusModel {
     public final boolean tpsStepInRange;
 
     public final double liveMap;
+    public final double liveFallbackMap;
+    public final double liveEffectiveMap;
     public final double predictionTarget;
     public final double mapRemaining;
     public final double targetGap;
     public final double currentBlendDuration;
+    public final boolean softPlateauAcquired;
+    public final double physicalCatchupSeconds;
+    public final int effectiveMapReplaySamples;
+    public final double effectiveMapMeanAbsoluteError;
+    public final double effectiveMapMaxAbsoluteError;
+    public final boolean effectiveMapReplayConsistent;
+    public final String predictionCounterEvidence;
+
+    public final double lastEventDuration;
+    public final double lastEventBaseRpm;
+    public final double lastEventBaseMap;
+    public final double lastEventBaseTps;
+    public final double lastEventHeldTps;
+    public final double lastEventGap;
+    public final String lastEventTrend;
 
     public final int matchingEvents;
     public final int targetEvents;
@@ -75,9 +92,25 @@ public final class BlendDurationFocusModel {
                                     double tpsStepLow,
                                     double tpsStepHigh,
                                     double liveMap,
+                                    double liveFallbackMap,
+                                    double liveEffectiveMap,
                                     double predictionTarget,
                                     double targetGap,
                                     double currentBlendDuration,
+                                    boolean softPlateauAcquired,
+                                    double physicalCatchupSeconds,
+                                    int effectiveMapReplaySamples,
+                                    double effectiveMapMeanAbsoluteError,
+                                    double effectiveMapMaxAbsoluteError,
+                                    boolean effectiveMapReplayConsistent,
+                                    String predictionCounterEvidence,
+                                    double lastEventDuration,
+                                    double lastEventBaseRpm,
+                                    double lastEventBaseMap,
+                                    double lastEventBaseTps,
+                                    double lastEventHeldTps,
+                                    double lastEventGap,
+                                    String lastEventTrend,
                                     int matchingEvents,
                                     int targetEvents,
                                     int allValidEvents,
@@ -108,11 +141,27 @@ public final class BlendDurationFocusModel {
         this.tpsStepInRange = Double.isFinite(liveTpsStep)
                 && liveTpsStep >= tpsStepLow && liveTpsStep <= tpsStepHigh;
         this.liveMap = liveMap;
+        this.liveFallbackMap = liveFallbackMap;
+        this.liveEffectiveMap = liveEffectiveMap;
         this.predictionTarget = predictionTarget;
         this.mapRemaining = Double.isFinite(predictionTarget) && Double.isFinite(liveMap)
                 ? Math.max(0.0, predictionTarget - liveMap) : Double.NaN;
         this.targetGap = targetGap;
         this.currentBlendDuration = currentBlendDuration;
+        this.softPlateauAcquired = softPlateauAcquired;
+        this.physicalCatchupSeconds = physicalCatchupSeconds;
+        this.effectiveMapReplaySamples = Math.max(0, effectiveMapReplaySamples);
+        this.effectiveMapMeanAbsoluteError = effectiveMapMeanAbsoluteError;
+        this.effectiveMapMaxAbsoluteError = effectiveMapMaxAbsoluteError;
+        this.effectiveMapReplayConsistent = effectiveMapReplayConsistent;
+        this.predictionCounterEvidence = safe(predictionCounterEvidence);
+        this.lastEventDuration = lastEventDuration;
+        this.lastEventBaseRpm = lastEventBaseRpm;
+        this.lastEventBaseMap = lastEventBaseMap;
+        this.lastEventBaseTps = lastEventBaseTps;
+        this.lastEventHeldTps = lastEventHeldTps;
+        this.lastEventGap = lastEventGap;
+        this.lastEventTrend = safe(lastEventTrend);
         this.matchingEvents = Math.max(0, matchingEvents);
         this.targetEvents = Math.max(1, targetEvents);
         this.allValidEvents = Math.max(0, allValidEvents);
@@ -147,6 +196,8 @@ public final class BlendDurationFocusModel {
         double liveRpm = value(latest, ChannelRole.RPM);
         double liveTps = value(latest, ChannelRole.TPS);
         double liveMap = value(latest, ChannelRole.MAP);
+        double liveFallbackMap = value(latest, ChannelRole.FALLBACK_MAP);
+        double liveEffectiveMap = value(latest, ChannelRole.EFFECTIVE_MAP);
         RoadBaselineTracker.Baseline base = frozenBaseline != null
                 && frozenBaseline.valid() ? frozenBaseline : rollingBaseline;
         double baseTps = base == null ? Double.NaN : base.tps;
@@ -161,6 +212,24 @@ public final class BlendDurationFocusModel {
                 : RoadBaselineTracker.RPM_ACQUIRE_TOLERANCE;
         double target = catchup == null ? Double.NaN : catchup.finalPredictionTarget();
         double gap = catchup == null ? Double.NaN : catchup.bestGap();
+        double catchupSeconds = catchup == null ? Double.NaN : catchup.catchupDurationSeconds();
+        int replaySamples = catchup == null ? 0 : catchup.modelSampleCount();
+        double replayMean = catchup == null ? Double.NaN : catchup.modelMeanAbsoluteError();
+        double replayMax = catchup == null ? Double.NaN : catchup.modelMaxAbsoluteError();
+        boolean replayConsistent = catchup != null && catchup.effectiveMapModelConsistent();
+        String counterEvidence = catchup == null
+                ? "Prediction counters: unavailable" : catchup.counterEvidenceText();
+
+        BlendDurationAttempt lastAttempt = validAttempts == null || validAttempts.isEmpty()
+                ? null : validAttempts.get(validAttempts.size() - 1);
+        double lastDuration = lastAttempt == null ? Double.NaN : lastAttempt.duration;
+        double lastBaseRpm = lastAttempt == null ? Double.NaN : lastAttempt.baseRpm;
+        double lastBaseMap = lastAttempt == null ? Double.NaN : lastAttempt.baseMap;
+        double lastBaseTps = lastAttempt == null ? Double.NaN : lastAttempt.baseTps;
+        double lastHeldTps = lastAttempt == null ? Double.NaN : lastAttempt.heldTps;
+        double lastGap = lastAttempt == null ? Double.NaN : lastAttempt.gap;
+        String lastTrend = lastAttempt == null ? "" : lastAttempt.trend;
+
         int best = groups == null ? 0 : groups.bestGroupCount();
         int valid = validAttempts == null ? 0 : validAttempts.size();
         String repeatability = repeatability(groups == null
@@ -181,8 +250,12 @@ public final class BlendDurationFocusModel {
                 safeConfig.startRpm, liveRpm, rpmTolerance,
                 baseTps, liveTps, safeConfig.desiredTpsStep,
                 safeConfig.targetStepLow(), safeConfig.targetStepHigh(),
-                liveMap, target, gap,
+                liveMap, liveFallbackMap, liveEffectiveMap, target, gap,
                 safeConfig.blendDurationAt(safeConfig.startRpm),
+                plateauAcquired, catchupSeconds, replaySamples,
+                replayMean, replayMax, replayConsistent, counterEvidence,
+                lastDuration, lastBaseRpm, lastBaseMap, lastBaseTps,
+                lastHeldTps, lastGap, lastTrend,
                 best, safeConfig.targetCount, valid, excluded, returned,
                 repeatability, compareHint);
     }
@@ -195,7 +268,12 @@ public final class BlendDurationFocusModel {
                 Double.NaN, Double.NaN, 20.0,
                 BlendDurationCaptureConfig.targetStepLow(20.0),
                 BlendDurationCaptureConfig.targetStepHigh(20.0),
+                Double.NaN, Double.NaN, Double.NaN,
+                Double.NaN, Double.NaN, Double.NaN,
+                false, Double.NaN, 0, Double.NaN, Double.NaN, false,
+                "Prediction counters: unavailable",
                 Double.NaN, Double.NaN, Double.NaN, Double.NaN,
+                Double.NaN, Double.NaN, "",
                 0, 5, 0, 0, 0, "WAITING", "No comparable events yet.");
     }
 

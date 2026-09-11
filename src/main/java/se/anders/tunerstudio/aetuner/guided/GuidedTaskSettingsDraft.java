@@ -121,6 +121,19 @@ public final class GuidedTaskSettingsDraft {
     public String getConfigurationName() { return configurationName; }
     public List<Entry> getEntries() { return entries; }
 
+    /**
+     * Return an independent mutable proposal draft with the exact same frozen
+     * original values. Evidence engines use this so repeated Review calls never
+     * mutate the cached Read Working Tune baseline.
+     */
+    public GuidedTaskSettingsDraft copyBaseline() {
+        List<Entry> copy = new ArrayList<Entry>();
+        for (Entry entry : entries) {
+            copy.add(new Entry(entry.target, entry.originalValue));
+        }
+        return new GuidedTaskSettingsDraft(task, configurationName, copy);
+    }
+
     public List<String> controllerNames() {
         Set<String> names = new LinkedHashSet<String>();
         for (Entry entry : entries) names.add(entry.target.getControllerName());

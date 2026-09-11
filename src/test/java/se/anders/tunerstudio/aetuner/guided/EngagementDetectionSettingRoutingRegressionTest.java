@@ -23,11 +23,11 @@ public final class EngagementDetectionSettingRoutingRegressionTest {
         focus.updateModel(EngagementFocusModel.build(snapshot, null,
                 GuidedCaptureState.IDLE, 0, 6, 0, 0));
 
-        require(!focus.requestedDeltaWindowEnabledForTest(),
-                "passive Foundation 1 exposed the retired manual Delta Window road control");
+        require(!focus.deltaWindowEnabledForTest(),
+                "passive Foundation 1 exposed a manual Delta Window road control");
         require(!focus.settingsToggleVisibleForTest()
                         && !focus.settingsPanelVisibleForTest(),
-                "passive Foundation 1 exposed retired sweep/settings UI");
+                "passive Foundation 1 exposed retired timing-experiment settings UI");
         require(focus.currentTextForTest().contains("capture is read-only"),
                 "Focus did not expose the passive read-only road boundary");
         require(!EngagementDetectionWriteSelection.snapshot().hasRequestedChange(),

@@ -26,6 +26,7 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.proposal.BlendDurationPolicyRegressionTest \
     se.anders.tunerstudio.aetuner.proposal.MapBlendSuggestionRegressionTest \
     se.anders.tunerstudio.aetuner.proposal.ProposalWritePlanRegressionTest \
+    se.anders.tunerstudio.aetuner.proposal.AeTableSuggestionMemoizationRegressionTest \
     se.anders.tunerstudio.aetuner.proposal.SessionExportSupportRegressionTest \
     se.anders.tunerstudio.aetuner.host.AeTuningParameterCatalogRegressionTest \
     se.anders.tunerstudio.aetuner.host.AeApplyRestoreValidationTargetsRegressionTest \
@@ -42,6 +43,7 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.host.MapEstimateApplyResolutionRegressionTest \
     se.anders.tunerstudio.aetuner.host.GuidedBlendApplyWorkflowRegressionTest \
     se.anders.tunerstudio.aetuner.host.GuidedTaskSettingsPanelIntegrationRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedTaskSettingsPresentationRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedVehicleTestLimitsRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedVehicleTest9RegressionTest \
     se.anders.tunerstudio.aetuner.guided.PhaseA3LegacyInvariantMigrationTest \
@@ -60,6 +62,7 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.guided.BlendDurationFocusCoachingRegressionTest \
     se.anders.tunerstudio.aetuner.guided.PhaseA2AdaptiveTypeMigrationTest \
     se.anders.tunerstudio.aetuner.guided.GuidedMethodProbeSessionRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedEvidenceReadinessRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedTpsAeMultiCellProposalRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedTaskSettingsDraftRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedProbeLongSessionRegressionTest \
@@ -67,11 +70,23 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.guided.EngagementDetectionRoutingRegressionTest \
     se.anders.tunerstudio.aetuner.guided.EngagementDetectionSettingRoutingRegressionTest \
     se.anders.tunerstudio.aetuner.guided.EngagementPassiveCaptureRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.FoundationPassiveArchitectureRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.FoundationTpsQuietCalibrationRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.FoundationTpsNoiseFreezeRegressionTest \
     se.anders.tunerstudio.aetuner.guided.EngagementFocusCoachingRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.RuntimeResidueCleanupRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedTuningNavigationRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedV019CaptureLifecycleRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedV019InteractionHardeningRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedMapEstimateExperimentRoutingRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedFocusRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedFocusHubLifecycleRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedV019RetainedEvidenceRegressionTest \
     se.anders.tunerstudio.aetuner.guided.method.GuidedAeMethodModulesRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.method.BaselineRecommendationCacheLifecycleRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.method.TransientEvidenceEventRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.method.WallWettingRecommendationRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.method.InstantFuelRecommendationRegressionTest \
     se.anders.tunerstudio.aetuner.guided.method.FoundationThresholdRecommendationRegressionTest \
     se.anders.tunerstudio.aetuner.guided.method.FoundationThresholdValidationRegressionTest \
     se.anders.tunerstudio.aetuner.guided.FoundationTimingValidationRegressionTest \
@@ -83,12 +98,16 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.guided.GuidedAudioCueRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedAudioCueLabRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedUiRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedProductionUiIntegrationRegressionTest \
     se.anders.tunerstudio.aetuner.VehicleTestIdentityRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedSampleDispatcherRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedSampleDispatcherHardeningRegressionTest \
     se.anders.tunerstudio.aetuner.guided.PhaseCSampleDispatchArchitectureTest \
     se.anders.tunerstudio.aetuner.passive.PhaseDPanelLayoutArchitectureTest \
     se.anders.tunerstudio.aetuner.passive.PhaseDAdvisoryActionsArchitectureTest \
     se.anders.tunerstudio.aetuner.passive.PhaseDOverviewControllerArchitectureTest \
+    se.anders.tunerstudio.aetuner.ui.AeUtilityWorkspaceRegressionTest \
+    se.anders.tunerstudio.aetuner.model.AeProjectSnapshotDecelSettingsRegressionTest \
     se.anders.tunerstudio.aetuner.model.MapPredictionMetricsRegressionTest \
     se.anders.tunerstudio.aetuner.model.TransientEventAnalyzerRegressionTest \
     se.anders.tunerstudio.aetuner.model.TransientEventAssessmentRegressionTest \
@@ -101,8 +120,9 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateDev16RegressionTest \
     se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateDev17RegressionTest \
     se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateDev18RegressionTest \
-    se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateGuidedProbeRouteRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateArchitectureMigrationRegressionTest \
     se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateGuidedControllerRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateFocusLiveCellCacheRegressionTest \
     se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateProposalLimitSafetyRegressionTest \
     se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateFocusUiRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedChannelValidityRegressionTest

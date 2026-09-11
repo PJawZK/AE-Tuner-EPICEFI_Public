@@ -18,10 +18,11 @@ import java.util.Map;
  * diagnostic/review tasks with no write target.
  *
  * Production write support and recommendation maturity are deliberately
- * independent. After the complete physical campaign, every declared write
- * target in this inventory is available through the common guarded production
- * Apply/Restore path. A task may still have PARTIAL or PLANNED recommendation
- * maturity when its evidence-to-value tuning algorithm is incomplete.
+ * independent. Every declared write target is available only through the
+ * common guarded production Apply/Restore path. PARTIAL recommendation support
+ * means a usable baseline evidence algorithm exists and is intentionally
+ * expected to be refined by subsequent vehicle confirmation; it never limits
+ * access to the already physically validated controller surface.
  */
 public final class GuidedControllerSettingInventory {
     public enum Classification {
@@ -31,7 +32,6 @@ public final class GuidedControllerSettingInventory {
         NO_DIRECT_CONTROLLER_WRITE_TARGETS
     }
 
-    /** Whether the declared controller surface may use production Apply/Restore. */
     public enum ProductionWriteSupport {
         CURRENT,
         PARTIAL,
@@ -39,7 +39,6 @@ public final class GuidedControllerSettingInventory {
         NONE
     }
 
-    /** Maturity of the task's evidence-to-recommended-value logic. */
     public enum RecommendationSupport {
         CURRENT,
         PARTIAL,
@@ -75,12 +74,8 @@ public final class GuidedControllerSettingInventory {
         public GuidedTuningArea getArea() { return area; }
         public GuidedTuningRecipe getTask() { return task; }
         public Classification getClassification() { return classification; }
-        public ProductionWriteSupport getProductionWriteSupport() {
-            return productionWriteSupport;
-        }
-        public RecommendationSupport getRecommendationSupport() {
-            return recommendationSupport;
-        }
+        public ProductionWriteSupport getProductionWriteSupport() { return productionWriteSupport; }
+        public RecommendationSupport getRecommendationSupport() { return recommendationSupport; }
         public List<String> getControllerTargets() { return controllerTargets; }
         public String getNote() { return note; }
         public boolean hasWriteTargets() { return !controllerTargets.isEmpty(); }
@@ -117,15 +112,15 @@ public final class GuidedControllerSettingInventory {
         add(all, GuidedTuningArea.TPS_AE, GuidedTuningRecipe.TPS_AE,
                 Classification.WRITABLE_VALIDATION_REQUIRED,
                 RecommendationSupport.PARTIAL,
-                "The full declared TPS AE surface is physically validated for guarded Apply/Restore. Current recommendation logic populates the evidence-derived cycle fuel table as one coherent multi-cell plan; activation and axes remain operator/context settings unless later tuning logic justifies changing them.",
+                "The full declared TPS AE cycle surface is physically validated for guarded Apply/Restore. Current recommendation logic populates the evidence-derived cycle fuel table as one coherent multi-cell plan; activation and axes remain operator-reviewable settings.",
                 AeParameterNames.TPS_ACCEL_AE_ENABLED,
                 AeParameterNames.TPS_AE_CYCLE_CYCLE_BINS,
                 AeParameterNames.TPS_AE_CYCLE_TPS_TO_BINS,
                 AeParameterNames.TPS_AE_CYCLE_VALUES);
         add(all, GuidedTuningArea.TPS_AE, GuidedTuningRecipe.TPS_AE_COMPENSATION,
-                Classification.PLANNED_WRITABLE_MAPPING,
-                RecommendationSupport.PLANNED,
-                "RPM correction, TPS-vs-CLT scale table and AE-vs-CLT correction are physically validated write surfaces; tuning recommendation logic remains planned.",
+                Classification.WRITABLE_VALIDATION_REQUIRED,
+                RecommendationSupport.PARTIAL,
+                "RPM correction, TPS-vs-CLT scale table and AE-vs-CLT correction are complete physically validated write surfaces. Baseline recommendation logic uses condition-binned residual lambda evidence and is expected to be refined by new vehicle confirmation.",
                 AeParameterNames.TPS_AE_RPM_CORRECTION_BINS,
                 AeParameterNames.TPS_AE_RPM_CORRECTION_VALUES,
                 AeParameterNames.TPS_AE_SCALE_TPS_BINS,
@@ -134,16 +129,16 @@ public final class GuidedControllerSettingInventory {
                 AeParameterNames.AE_CLT_CORR_BINS,
                 AeParameterNames.AE_CLT_CORR_VALUES);
         add(all, GuidedTuningArea.TPS_AE, GuidedTuningRecipe.TPS_AE_COMPLETION,
-                Classification.PLANNED_WRITABLE_MAPPING,
-                RecommendationSupport.PLANNED,
-                "Cycle-tail length plus burn-skip, EGO-reset and post-accel closed-loop inhibit settings are physically validated write surfaces; recommendation logic remains planned.",
+                Classification.WRITABLE_VALIDATION_REQUIRED,
+                RecommendationSupport.PARTIAL,
+                "Cycle-tail length plus burn-skip, EGO-reset and post-accel closed-loop inhibit settings are complete physically validated write surfaces. Baseline review uses the measured AE tail and closed-loop handoff timeline; vehicle confirmation will refine its thresholds.",
                 AeParameterNames.TPS_AE_CYCLE_CYCLE_BINS,
                 AeParameterNames.TPS_AE_BURN_SKIP_INITIAL,
                 AeParameterNames.TPS_AE_RESETS_EGO,
                 AeParameterNames.NO_FUEL_TRIM_AFTER_ACCEL_TIME);
         addNoTargets(all, GuidedTuningArea.TPS_AE, GuidedTuningRecipe.TPS_AE_VALIDATION,
-                Classification.NO_DIRECT_CONTROLLER_WRITE_TARGETS,
-                "Outcome validation does not add a controller write target.");
+                Classification.READ_ONLY_EVIDENCE_DIAGNOSTIC,
+                "Outcome validation captures the completed TPS AE stack and routes residual early/mid/tail/reapply errors back to the owning subtask without adding another controller target.");
 
         // MAP Predict.
         add(all, GuidedTuningArea.MAP_PREDICT, GuidedTuningRecipe.MAP_ESTIMATE,
@@ -168,15 +163,15 @@ public final class GuidedControllerSettingInventory {
         add(all, GuidedTuningArea.WALL_WETTING, GuidedTuningRecipe.WALL_WETTING,
                 Classification.WRITABLE_VALIDATION_REQUIRED,
                 RecommendationSupport.PARTIAL,
-                "Base model activation/type and fixed tau/beta are physically validated for guarded Apply/Restore. Evidence diagnostics exist; complete numerical tuning recommendations remain incomplete.",
+                "Base model activation/type and fixed tau/beta are complete physically validated write surfaces. Baseline evidence logic tunes beta from immediate film-amplitude error and tau from paired tip-in/tip-out persistence/decay; both require subsequent vehicle confirmation rather than artificial exclusion.",
                 AeParameterNames.WALL_WETTING_AE_ENABLED,
                 AeParameterNames.WALL_MODEL_TYPE,
                 AeParameterNames.WALL_TAU,
                 AeParameterNames.WALL_BETA);
         add(all, GuidedTuningArea.WALL_WETTING, GuidedTuningRecipe.WALL_WETTING_ADVANCED,
-                Classification.PLANNED_WRITABLE_MAPPING,
-                RecommendationSupport.PLANNED,
-                "Shared CLT/RPM/MAP axes, tau/beta CLT curves and RPM-vs-MAP tables are physically validated write surfaces; advanced recommendation logic remains planned.",
+                Classification.WRITABLE_VALIDATION_REQUIRED,
+                RecommendationSupport.PARTIAL,
+                "Shared CLT/RPM/MAP axes, tau/beta CLT curves and RPM-vs-MAP tables are complete physically validated write surfaces. Baseline mapping uses residual wall-film behavior versus condition after the base model is established; new captures refine cell authority.",
                 AeParameterNames.WALL_CLT_BINS,
                 AeParameterNames.WALL_TAU_CLT_VALUES,
                 AeParameterNames.WALL_BETA_CLT_VALUES,
@@ -185,14 +180,14 @@ public final class GuidedControllerSettingInventory {
                 AeParameterNames.WALL_TAU_TABLE,
                 AeParameterNames.WALL_BETA_TABLE);
         addNoTargets(all, GuidedTuningArea.WALL_WETTING, GuidedTuningRecipe.WALL_WETTING_VALIDATION,
-                Classification.NO_DIRECT_CONTROLLER_WRITE_TARGETS,
-                "Tip-in/tip-out validation is evidence-only after the model settings are tuned.");
+                Classification.READ_ONLY_EVIDENCE_DIAGNOSTIC,
+                "Film Validation captures paired bidirectional response after Base and Advanced tuning and attributes residual errors without adding another controller setting.");
 
         // Decel / Tip-out.
         add(all, GuidedTuningArea.DECEL_TIPOUT, GuidedTuningRecipe.DECEL_DETECTION,
-                Classification.PLANNED_WRITABLE_MAPPING,
-                RecommendationSupport.PLANNED,
-                "Falling-TPS threshold curve and minimum hold-cycle deadband are physically validated write surfaces; recommendation logic remains planned.",
+                Classification.WRITABLE_VALIDATION_REQUIRED,
+                RecommendationSupport.PARTIAL,
+                "The falling-TPS threshold axis/value curve and hold-cycle setting are physically validated write surfaces. Current evidence logic may emit conservative multi-bin tpsDecelThresholdValue proposals from locked Normal Correction versus Decel Release separation. A threshold of 0 is a firmware disable command and is never auto-enabled. tpsDecelHoldCycles is captured and remains operator-reviewable, but automatic hold-cycle recommendation is intentionally withheld until threshold behavior is validated independently.",
                 AeParameterNames.TPS_DECEL_THRESHOLD_RPM_BINS,
                 AeParameterNames.TPS_DECEL_THRESHOLD_VALUES,
                 AeParameterNames.TPS_DECEL_HOLD_CYCLES);
@@ -219,22 +214,22 @@ public final class GuidedControllerSettingInventory {
 
         // Optional / Residual Correction.
         add(all, GuidedTuningArea.OPTIONAL_RESIDUAL, GuidedTuningRecipe.INSTANT_FUEL_SETUP,
-                Classification.PLANNED_WRITABLE_MAPPING,
-                RecommendationSupport.PLANNED,
-                "Instant-pulse enable, global multiplier and inhibit cycles are physically validated write surfaces; recommendation logic remains planned.",
+                Classification.WRITABLE_VALIDATION_REQUIRED,
+                RecommendationSupport.PARTIAL,
+                "Instant-pulse enable, global multiplier and inhibit cycles form one complete physically validated setup surface. Baseline recommendation logic uses repeatable residual first-moment error and repeated-stab spacing; new vehicle evidence confirms/refines the result.",
                 AeParameterNames.TPS_ACCEL_EXTRA_SHOT,
                 AeParameterNames.TPS_EXTRA_SHOT_MULT,
                 AeParameterNames.TPS_EXTRA_SHOT_TIMER);
         add(all, GuidedTuningArea.OPTIONAL_RESIDUAL, GuidedTuningRecipe.INSTANT_FUEL_EVENT_STRENGTH,
-                Classification.PLANNED_WRITABLE_MAPPING,
-                RecommendationSupport.PLANNED,
-                "Delta-TPS axis and multiplier shape are physically validated write surfaces; event-strength recommendation logic remains planned.",
+                Classification.WRITABLE_VALIDATION_REQUIRED,
+                RecommendationSupport.PARTIAL,
+                "Delta-TPS axis and multiplier shape are a complete physically validated surface. Baseline logic bins clean first-moment residual error by latched TPS change while preserving the live axis.",
                 AeParameterNames.TPS_AE_INSTANT_DELTA_TPS_BINS,
                 AeParameterNames.TPS_AE_INSTANT_DELTA_TPS_MULTIPLIER);
         add(all, GuidedTuningArea.OPTIONAL_RESIDUAL, GuidedTuningRecipe.INSTANT_FUEL_CONDITIONS,
-                Classification.PLANNED_WRITABLE_MAPPING,
-                RecommendationSupport.PLANNED,
-                "RPM, ending-TPS, MAP and CLT condition curves are physically validated write surfaces; condition recommendation logic remains planned.",
+                Classification.WRITABLE_VALIDATION_REQUIRED,
+                RecommendationSupport.PARTIAL,
+                "RPM, ending-TPS, MAP and CLT condition curves are complete physically validated surfaces. Baseline logic evaluates one condition axis at a time against repeatable clean pulse events; new captures refine the binning and interaction rules.",
                 AeParameterNames.TPS_AE_INSTANT_RPM_BINS,
                 AeParameterNames.TPS_AE_INSTANT_RPM_MULTIPLIER,
                 AeParameterNames.TPS_AE_INSTANT_TPS_BINS,
@@ -245,7 +240,7 @@ public final class GuidedControllerSettingInventory {
                 AeParameterNames.TPS_AE_INSTANT_CLT_MULTIPLIER);
         addNoTargets(all, GuidedTuningArea.OPTIONAL_RESIDUAL, GuidedTuningRecipe.INSTANT_FUEL,
                 Classification.READ_ONLY_EVIDENCE_DIAGNOSTIC,
-                "Residual lean-hole evidence decides whether Instant Fuel remains necessary; this review task does not write it.");
+                "Residual Lean-Hole Validation is the final evidence-only confirmation after Setup, Event Strength and Operating Conditions. It does not own a duplicate multiplier write target.");
 
         // Review / Simplification.
         addNoTargets(all, GuidedTuningArea.REVIEW_SIMPLIFICATION, GuidedTuningRecipe.OPTIMIZATION,
@@ -263,8 +258,7 @@ public final class GuidedControllerSettingInventory {
         for (TaskInventory item : all) {
             TaskInventory previous = byTask.put(item.task, item);
             if (previous != null) {
-                throw new IllegalStateException(
-                        "Duplicate Guided controller inventory for " + item.task);
+                throw new IllegalStateException("Duplicate Guided controller inventory for " + item.task);
             }
         }
         ALL = Collections.unmodifiableList(all);
@@ -286,8 +280,7 @@ public final class GuidedControllerSettingInventory {
                                      GuidedTuningRecipe task,
                                      Classification classification, String note) {
         all.add(new TaskInventory(area, task, classification,
-                ProductionWriteSupport.NONE, RecommendationSupport.NONE,
-                note));
+                ProductionWriteSupport.NONE, RecommendationSupport.NONE, note));
     }
 
     public static List<TaskInventory> all() { return ALL; }

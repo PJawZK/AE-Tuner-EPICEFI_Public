@@ -3,8 +3,8 @@ package se.anders.tunerstudio.aetuner;
 import se.anders.tunerstudio.aetuner.guided.GuidedCapturePanel;
 import se.anders.tunerstudio.aetuner.guided.GuidedFocusHub;
 import se.anders.tunerstudio.aetuner.guided.GuidedFocusWindow;
-import se.anders.tunerstudio.aetuner.guided.MapEstimateFocusSnapshot;
 import se.anders.tunerstudio.aetuner.model.AeProjectSnapshot;
+import se.anders.tunerstudio.aetuner.ui.AeUtilityWorkspacePanel;
 
 import javax.imageio.ImageIO;
 import javax.swing.JButton;
@@ -30,7 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Real-Swing synthetic coverage for the current AE Tuner workspace structure. */
+/** Real-Swing synthetic coverage for the explicit legacy Guided fallback shell. */
 public final class WorkspaceSyntheticIntegrationTest {
     private WorkspaceSyntheticIntegrationTest() { }
 
@@ -50,36 +50,45 @@ public final class WorkspaceSyntheticIntegrationTest {
             requireTitles(root, "Overview", "Guided Tuning", "Passive Analysis",
                     "Evidence / Diagnostics");
             require(root.getSelectedIndex() == 0,
-                    "plugin must open on the generic Overview workspace");
+                    "legacy Guided fallback must still open on the generic Overview workspace");
             require(findButton(panel, "Open Guided Tuning") == null
                             && findButton(panel, "Open Passive Analysis") == null,
                     "Overview retained duplicate lower navigation buttons");
             render(panel, new File(out, "workspace-overview-1366.png"));
 
+            // Legacy mode intentionally preserves the old outer shell and Guided
+            // surface only. Passive Analysis is globally ported to the v0.19
+            // utility navigator and must not regress to its retired nested tabs.
             selectTab(root, 2, frame);
-            JTabbedPane passiveTabs = findTabsWithTitle(panel, "Setup / Calibration");
-            require(passiveTabs != null,
-                    "Passive Analysis did not expose Setup / Calibration");
-            require(passiveTabs.getTabCount() == 2,
-                    "Passive Analysis must expose only Overview and Setup / Calibration");
-            requireTitles(passiveTabs, "Overview", "Setup / Calibration");
-            require(indexOf(passiveTabs, "Technical details") < 0,
-                    "retired Passive Technical details tab is still visible");
-            selectTab(passiveTabs, 1, frame);
-            require(findButton(passiveTabs.getSelectedComponent(),
+            AeUtilityWorkspacePanel passive = findUtilityWorkspace(root.getSelectedComponent());
+            require(passive != null,
+                    "Passive Analysis did not expose the v0.19 utility workspace");
+            requireSections(passive, "Overview", "Event Preview", "Session Notes",
+                    "Session Guidance", "Setup / Calibration");
+            require(!containsNestedTabs(root.getSelectedComponent()),
+                    "Passive Analysis reintroduced nested legacy tab chrome");
+            passive.selectSection("event-preview");
+            flush(frame);
+            render(panel, new File(out, "workspace-passive-event-preview-1366.png"));
+            passive.selectSection("setup");
+            flush(frame);
+            require(findButton(root.getSelectedComponent(),
                             "Start TPS noise calibration") != null,
-                    "Passive TPS noise calibration was not moved into Setup / Calibration");
+                    "Passive TPS noise calibration is not reachable from Setup / Calibration");
             render(panel, new File(out, "workspace-passive-setup-1366.png"));
 
             selectTab(root, 3, frame);
-            JTabbedPane diagnostics = findTabsWithTitle(panel, "Audio Cue Lab");
+            AeUtilityWorkspacePanel diagnostics = findUtilityWorkspace(root.getSelectedComponent());
             require(diagnostics != null,
-                    "Evidence / Diagnostics did not expose Audio Cue Lab");
-            requireTitles(diagnostics, "Overview", "Channels / Runtime",
+                    "Evidence / Diagnostics did not expose the v0.19 utility workspace");
+            requireSections(diagnostics, "Overview", "Channels / Runtime",
                     "Audio Cue Lab", "Recovery / Audit");
-            selectTab(diagnostics, 2, frame);
-            require(findButton(diagnostics.getSelectedComponent(), "Test all cues") != null,
-                    "Audio Cue Lab actions are not reachable on their dedicated diagnostics tab");
+            require(!containsNestedTabs(root.getSelectedComponent()),
+                    "Evidence / Diagnostics reintroduced legacy tab chrome");
+            diagnostics.selectSection("audio");
+            flush(frame);
+            require(findButton(root.getSelectedComponent(), "Test all cues") != null,
+                    "Audio Cue Lab actions are not reachable from the Audio section");
             render(panel, new File(out, "workspace-evidence-audio-1366.png"));
 
             selectTab(root, 1, frame);
@@ -94,9 +103,10 @@ public final class WorkspaceSyntheticIntegrationTest {
             List<String> result = new ArrayList<String>();
             result.add("Workspace synthetic integration: passed");
             result.add("Plugin: " + plugin.getDisplayName() + " " + plugin.getVersion());
-            result.add("Root tabs: Overview | Guided Tuning | Passive Analysis | Evidence / Diagnostics");
-            result.add("Passive tabs: Overview | Setup / Calibration");
-            result.add("Evidence tabs: Overview | Channels / Runtime | Audio Cue Lab | Recovery / Audit");
+            result.add("Legacy outer tabs: Overview | Guided Tuning | Passive Analysis | Evidence / Diagnostics");
+            result.add("Passive sections: Overview | Event Preview | Session Notes | Session Guidance | Setup / Calibration");
+            result.add("Evidence sections: Overview | Channels / Runtime | Audio Cue Lab | Recovery / Audit");
+            result.add("Passive/Diagnostics nested legacy tabs: ABSENT");
             result.add("Guided Restore/Reconnect horizontal reachability: 1366 / 1024 / 820 PASS");
             result.add("Guided Focus: modeless MAP Estimate heat map open/hide/reopen PASS");
             Files.write(new File(out, "result.txt").toPath(), result,
@@ -128,7 +138,7 @@ public final class WorkspaceSyntheticIntegrationTest {
                                                 final JFrame frame,
                                                 final File out) throws Exception {
         GuidedFocusHub.publishMapEstimateSetup(
-                MapEstimateFocusSnapshot.setup(focusSnapshot(), 20, null),
+                focusSnapshot(), 20, 115.0,
                 "Synthetic MAP Estimate focus target");
 
         final AtomicReference<JButton> buttonRef = new AtomicReference<JButton>();
@@ -265,10 +275,7 @@ public final class WorkspaceSyntheticIntegrationTest {
                 frame.validate();
             }
         });
-        SwingUtilities.invokeAndWait(new Runnable() {
-            @Override
-            public void run() { frame.validate(); }
-        });
+        flush(frame);
     }
 
     private static void resize(final JFrame frame, final int width,
@@ -280,9 +287,12 @@ public final class WorkspaceSyntheticIntegrationTest {
                 frame.validate();
             }
         });
+        flush(frame);
+    }
+
+    private static void flush(final JFrame frame) throws Exception {
         SwingUtilities.invokeAndWait(new Runnable() {
-            @Override
-            public void run() { frame.validate(); }
+            @Override public void run() { frame.validate(); frame.repaint(); }
         });
     }
 
@@ -312,18 +322,25 @@ public final class WorkspaceSyntheticIntegrationTest {
                 "synthetic screenshot was not created: " + file);
     }
 
-    private static JTabbedPane findTabsWithTitle(Component root, String title) {
-        if (root instanceof JTabbedPane) {
-            JTabbedPane tabs = (JTabbedPane) root;
-            if (indexOf(tabs, title) >= 0) return tabs;
-        }
+    private static AeUtilityWorkspacePanel findUtilityWorkspace(Component root) {
+        if (root instanceof AeUtilityWorkspacePanel) return (AeUtilityWorkspacePanel) root;
         if (root instanceof Container) {
             for (Component child : ((Container) root).getComponents()) {
-                JTabbedPane found = findTabsWithTitle(child, title);
+                AeUtilityWorkspacePanel found = findUtilityWorkspace(child);
                 if (found != null) return found;
             }
         }
         return null;
+    }
+
+    private static boolean containsNestedTabs(Component root) {
+        if (root instanceof JTabbedPane) return true;
+        if (root instanceof Container) {
+            for (Component child : ((Container) root).getComponents()) {
+                if (containsNestedTabs(child)) return true;
+            }
+        }
+        return false;
     }
 
     private static JTable findTable(Component root) {
@@ -360,11 +377,15 @@ public final class WorkspaceSyntheticIntegrationTest {
         }
     }
 
-    private static int indexOf(JTabbedPane tabs, String title) {
-        for (int i = 0; i < tabs.getTabCount(); i++) {
-            if (title.equals(tabs.getTitleAt(i))) return i;
+    private static void requireSections(AeUtilityWorkspacePanel workspace,
+                                        String... expected) {
+        require(workspace.sectionCount() == expected.length,
+                "unexpected utility section count: " + workspace.sectionCount());
+        for (int i = 0; i < expected.length; i++) {
+            require(expected[i].equals(workspace.sectionTitleAt(i)),
+                    "utility section " + i + " expected '" + expected[i]
+                            + "' but was '" + workspace.sectionTitleAt(i) + "'");
         }
-        return -1;
     }
 
     private static Object field(Object target, String name) throws Exception {

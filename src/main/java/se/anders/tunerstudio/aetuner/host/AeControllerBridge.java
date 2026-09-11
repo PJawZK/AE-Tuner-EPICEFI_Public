@@ -26,6 +26,8 @@ public final class AeControllerBridge {
     private static final String PARAM_TPS_AE_ENABLED = "tpsAccelAeEnabled";
     private static final String PARAM_WALL_WETTING_ENABLED = "wallWettingAeEnabled";
     private static final String PARAM_WALL_MODEL = "complexWallModel";
+    private static final String PARAM_WALL_TAU = AeParameterNames.WALL_TAU;
+    private static final String PARAM_WALL_BETA = AeParameterNames.WALL_BETA;
     private static final String PARAM_EXTRA_SHOT_ENABLED = "tpsAccelExtraShot";
     private static final String PARAM_MAP_ESTIMATE_ENABLED = "useMapEstimateDuringTransient";
     private static final String PARAM_DYNAMIC_THRESHOLD = "tpsAeUseDynamicThreshold";
@@ -43,6 +45,9 @@ public final class AeControllerBridge {
     private static final String PARAM_ENGAGEMENT_SAMPLE_LENGTH = AeParameterNames.TPS_ACCEL_LOOKBACK;
     private static final String PARAM_ENGAGEMENT_FAST_CALLBACK = AeParameterNames.TPS_AE_FAST_CALLBACK;
     private static final String PARAM_DELTA_TPS_AVERAGE_ALPHA = AeParameterNames.DELTA_TPS_AVERAGE_ALPHA;
+    private static final String PARAM_DECEL_THRESHOLD_RPM_BINS = AeParameterNames.TPS_DECEL_THRESHOLD_RPM_BINS;
+    private static final String PARAM_DECEL_THRESHOLD_VALUES = AeParameterNames.TPS_DECEL_THRESHOLD_VALUES;
+    private static final String PARAM_DECEL_HOLD_CYCLES = AeParameterNames.TPS_DECEL_HOLD_CYCLES;
 
     /*
      * Latest controller handle observed through a normal working-tune bridge.
@@ -66,6 +71,11 @@ public final class AeControllerBridge {
         return latestControllerAccess;
     }
 
+    /** Final plugin/classloader retirement only. Normal hide/suspend must not call this. */
+    public static void clearLatestControllerAccess() {
+        latestControllerAccess = null;
+    }
+
     public AeProjectSnapshot readSnapshot() throws ControllerException {
         ControllerParameterServer server = controllerAccess.getControllerParameterServer();
         if (server == null) {
@@ -73,6 +83,11 @@ public final class AeControllerBridge {
         }
 
         String configurationName = findEpicEfiConfiguration(server);
+        // Every normal Read Working Tune freezes the complete validated TPS AE,
+        // Wall Wetting and Instant Fuel controller surfaces together. This must
+        // refresh even when the configuration name is unchanged after Apply or
+        // Restore so evidence cannot inherit an older baseline.
+        GuidedWorkingTuneSurfaceCache.refresh(controllerAccess, configurationName);
         BooleanRead fastCallback = readBooleanOptionalState(
                 server, configurationName, PARAM_ENGAGEMENT_FAST_CALLBACK);
         return new AeProjectSnapshot(
@@ -105,7 +120,12 @@ public final class AeControllerBridge {
                 readScalarOptional(server, configurationName, PARAM_ENGAGEMENT_SAMPLE_LENGTH),
                 fastCallback.value,
                 fastCallback.available,
-                readScalarOptional(server, configurationName, PARAM_DELTA_TPS_AVERAGE_ALPHA));
+                readScalarOptional(server, configurationName, PARAM_DELTA_TPS_AVERAGE_ALPHA),
+                readAxisOptional(server, configurationName, PARAM_DECEL_THRESHOLD_RPM_BINS),
+                readAxisOptional(server, configurationName, PARAM_DECEL_THRESHOLD_VALUES),
+                readScalarOptional(server, configurationName, PARAM_DECEL_HOLD_CYCLES),
+                readScalarOptional(server, configurationName, PARAM_WALL_TAU),
+                readScalarOptional(server, configurationName, PARAM_WALL_BETA));
     }
 
     private String findEpicEfiConfiguration(ControllerParameterServer server)

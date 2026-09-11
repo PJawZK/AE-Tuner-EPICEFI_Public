@@ -6,6 +6,7 @@ import se.anders.tunerstudio.aetuner.model.TransientEvent;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 
@@ -14,11 +15,9 @@ import java.util.List;
  * AeTableSuggestion math. This class does not create write plans and does not
  * write ECU parameters.
  *
- * Unlike the Passive detector, Guided capture starts from the ECU's TPS AE
- * activity/fuel evidence rather than a separately configured TPSdot threshold.
- * A short pre-window and post-activity quiet window are retained so the shared
- * TransientEvent analysis can evaluate early/mid/late lambda response and
- * attribution to Wall Wetting, MAP Predict and Instant Fuel.
+ * Completed-event snapshots are revision-cached so multiple Review/Proposal/
+ * Copy readers in one presentation refresh share the same immutable list rather
+ * than allocating/copying the complete event list repeatedly.
  */
 final class GuidedTpsAeEventAccumulator {
     private static final double PRE_SECONDS = 0.60;
@@ -32,6 +31,9 @@ final class GuidedTpsAeEventAccumulator {
     private final Deque<LiveSample> ring = new ArrayDeque<LiveSample>();
     private final List<LiveSample> active = new ArrayList<LiveSample>();
     private final List<TransientEvent> events = new ArrayList<TransientEvent>();
+    private List<TransientEvent> cachedEvents = Collections.emptyList();
+    private int eventRevision;
+    private int cachedEventRevision = -1;
 
     private boolean inEvent;
     private double eventStartSeconds = Double.NaN;
@@ -39,7 +41,10 @@ final class GuidedTpsAeEventAccumulator {
     private int nextEventIndex = 1;
 
     synchronized void reset() {
+        if (!events.isEmpty()) eventRevision++;
         events.clear();
+        cachedEvents = Collections.emptyList();
+        cachedEventRevision = eventRevision;
         nextEventIndex = 1;
         resetTracking();
     }
@@ -98,8 +103,15 @@ final class GuidedTpsAeEventAccumulator {
     }
 
     synchronized List<TransientEvent> eventsSnapshot() {
-        return new ArrayList<TransientEvent>(events);
+        if (cachedEventRevision != eventRevision) {
+            cachedEvents = Collections.unmodifiableList(
+                    new ArrayList<TransientEvent>(events));
+            cachedEventRevision = eventRevision;
+        }
+        return cachedEvents;
     }
+
+    synchronized int eventRevisionForTest() { return eventRevision; }
 
     private void startEvent(LiveSample sample) {
         inEvent = true;
@@ -119,6 +131,7 @@ final class GuidedTpsAeEventAccumulator {
         if (active.size() >= MIN_EVENT_SAMPLES) {
             events.add(new TransientEvent(nextEventIndex++, true,
                     "Guided TPS AE event", note, active, false));
+            eventRevision++;
         }
         resetTracking();
     }

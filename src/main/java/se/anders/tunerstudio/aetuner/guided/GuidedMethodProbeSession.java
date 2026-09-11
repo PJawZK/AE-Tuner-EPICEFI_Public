@@ -47,6 +47,9 @@ final class GuidedMethodProbeSession {
     private double lastActivitySeconds = Double.NaN;
     private double firstSeconds = Double.NaN;
     private double lastSeconds = Double.NaN;
+    private long evidenceRevision;
+    private long cachedEvidenceRevision = Long.MIN_VALUE;
+    private List<LiveSample> cachedEvidenceSnapshot = Collections.emptyList();
 
     GuidedMethodProbeSession() {
         GuidedFocusHub.setMapEstimateConfigurationListener(
@@ -176,6 +179,8 @@ final class GuidedMethodProbeSession {
             droppedSamples++;
         }
         samples.add(sample);
+        evidenceRevision++;
+        cachedEvidenceRevision = Long.MIN_VALUE;
 
         boolean requiredComplete = allFinite(sample, module.requiredRoles());
         if (requiredComplete) completeRequiredSamples++;
@@ -266,8 +271,12 @@ final class GuidedMethodProbeSession {
             }
             state = GuidedCaptureState.COMPLETE;
             activityLatched = false;
+            boolean ready = reviewReady();
             workflowEvents.onGuidedWorkflowEvent(GuidedWorkflowEvent.SERIES_COMPLETE,
-                    module == null ? "Guided method capture complete" : module.recipe().displayName + " review ready",
+                    module == null ? "Guided method capture ended"
+                            : module.recipe().displayName + (ready
+                            ? " evidence ready for Review"
+                            : " capture ended — more evidence is required before Review"),
                     System.nanoTime());
             publishFocusState(null);
         }
@@ -280,6 +289,9 @@ final class GuidedMethodProbeSession {
         projectSnapshot = null;
         state = GuidedCaptureState.IDLE;
         samples.clear();
+        evidenceRevision++;
+        cachedEvidenceRevision = Long.MIN_VALUE;
+        cachedEvidenceSnapshot = Collections.emptyList();
         finiteCounts.clear();
         mapEstimateCollector.clear();
         if (mapEstimateGuided.configured()) mapEstimateGuided.resetCurrentCapture();
@@ -326,23 +338,39 @@ final class GuidedMethodProbeSession {
     synchronized int tpsAeTableEventCount() { return tpsAeEvents.eventCount(); }
     synchronized int tpsAeFuelProvedEventCount() { return tpsAeEvents.fuelProvedEventCount(); }
     synchronized boolean hasEvidence() { return !samples.isEmpty(); }
+
+    /**
+     * Lifecycle completion only means capture has stopped. This method owns the
+     * separate evidence-quality gate used by Review and evidence-derived Apply.
+     */
+    synchronized boolean reviewReady() {
+        if (module == null || state != GuidedCaptureState.COMPLETE
+                || samples.isEmpty() || completeRequiredSamples <= 0) return false;
+        GuidedTuningRecipe recipe = module.recipe();
+        if (recipe == GuidedTuningRecipe.ENGAGEMENT_DETECTION) {
+            return EngagementPassiveCapture.snapshot().complete();
+        }
+        if (recipe == GuidedTuningRecipe.MAP_ESTIMATE) {
+            return mapEstimateCollector.getAcceptedSamples() >= mapMinimumSamples;
+        }
+        if (recipe == GuidedTuningRecipe.TPS_AE) {
+            return tpsAeEvents.fuelProvedEventCount() >= targetActivityEvents;
+        }
+        return activityEventCount() >= targetActivityEvents;
+    }
+
     synchronized List<LiveSample> evidenceSnapshot() {
-        return Collections.unmodifiableList(new ArrayList<LiveSample>(samples));
+        if (cachedEvidenceRevision == evidenceRevision) return cachedEvidenceSnapshot;
+        cachedEvidenceSnapshot = Collections.unmodifiableList(new ArrayList<LiveSample>(samples));
+        cachedEvidenceRevision = evidenceRevision;
+        return cachedEvidenceSnapshot;
     }
     synchronized GuidedCaptureState state() { return state; }
     synchronized GuidedAeMethodModule module() { return module; }
     synchronized MapEstimateEvidenceBasis mapEstimatePendingEvidenceBasisForTest() { return mapEstimateGuided.pendingEvidenceBasis(); }
     synchronized MapEstimateProposalLimitPolicy mapEstimatePendingProposalLimitForTest() { return mapEstimateGuided.pendingProposalLimitPolicy(); }
     synchronized long mapEstimateCollectorAcceptedForTest() { return mapEstimateCollector.getAcceptedSamples(); }
-
-    synchronized MapEstimateFocusSnapshot mapEstimateFocusSnapshot(LiveSample latest) {
-        if (projectSnapshot == null) return MapEstimateFocusSnapshot.empty(mapMinimumSamples);
-        if (module == null || module.recipe() != GuidedTuningRecipe.MAP_ESTIMATE) {
-            return MapEstimateFocusSnapshot.setup(projectSnapshot, mapMinimumSamples, latest);
-        }
-        return MapEstimateFocusSnapshot.fromCollector(projectSnapshot, mapEstimateCollector,
-                mapMinimumSamples, latest);
-    }
+    synchronized long evidenceRevisionForTest() { return evidenceRevision; }
 
     private void publishFocusState(LiveSample latest) {
         if (module == null) return;
@@ -385,8 +413,13 @@ final class GuidedMethodProbeSession {
         String headline;
         String instruction;
         if (state == GuidedCaptureState.COMPLETE) {
-            headline = "REVIEW — " + module.recipe().displayName;
-            instruction = "Capture complete. Review required-channel readiness, accumulated method evidence and any generated proposal/draft before exporting, applying, or continuing capture.";
+            if (reviewReady()) {
+                headline = "REVIEW — " + module.recipe().displayName;
+                instruction = "Capture ended with sufficient evidence. Review required-channel readiness, accumulated method evidence and any generated proposal/draft before exporting or applying.";
+            } else {
+                headline = "CAPTURE ENDED — MORE EVIDENCE NEEDED";
+                instruction = "Capture stopped, but the evidence target is not satisfied. Start Capture again to append evidence; Review and evidence-derived Apply remain blocked.";
+            }
         } else if (state == GuidedCaptureState.PAUSED) {
             headline = "PAUSED — " + module.recipe().displayName;
             instruction = "Capture is paused; resume when ready.";
@@ -462,6 +495,7 @@ final class GuidedMethodProbeSession {
                     .append(tpsAeEvents.eventCount()).append(" | fuel-proved: ")
                     .append(tpsAeEvents.fuelProvedEventCount()).append('\n');
         }
+        out.append("Review readiness: ").append(reviewReady() ? "READY" : "INCOMPLETE").append('\n');
         out.append("\nREQUIRED CHANNELS\n");
         appendCoverage(out, module.requiredRoles(), true);
         out.append("\nCONTEXT / ATTRIBUTION CHANNELS\n");
@@ -495,13 +529,19 @@ final class GuidedMethodProbeSession {
                     .append(" fuel-proved\n");
         }
         out.append("Observed duration: ").append(f3(duration)).append(" s\n")
-                .append("Status: ").append(state.name()).append("\n\n")
-                .append(methodMetricsText());
+                .append("Capture state: ").append(state.name()).append('\n')
+                .append("Evidence readiness: ").append(reviewReady() ? "READY" : "INCOMPLETE")
+                .append("\n\n").append(methodMetricsText());
         return out.toString();
     }
 
     synchronized String reviewText() {
         if (module == null) return "No method capture active.";
+        if (!reviewReady()) {
+            return "EVIDENCE INCOMPLETE — REVIEW AUTHORITY WITHHELD\n"
+                    + "Capture may be stopped, but the task evidence target and required-channel gate are not both satisfied. Start Capture again to append evidence. No evidence-derived Apply is available.\n\n"
+                    + coverageText() + "\n\nCURRENT CAPTURE METRICS\n" + methodMetricsText();
+        }
         if (module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE) {
             return mapEstimateGuided.configured() ? mapEstimateGuided.reviewText()
                     : "MAP Estimate Table is not configured; Read Working Tune first.";
@@ -525,7 +565,7 @@ final class GuidedMethodProbeSession {
     }
 
     synchronized String copyPasteBlock() {
-        if (module == null) return "";
+        if (module == null || !reviewReady()) return "";
         if (module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE) {
             return mapEstimateGuided.configured() ? mapEstimateGuided.reviewedCopyPasteBlock() : "";
         }
@@ -537,7 +577,7 @@ final class GuidedMethodProbeSession {
     }
 
     synchronized ProposalWritePlan reviewedWritePlan() {
-        if (module == null || state != GuidedCaptureState.COMPLETE) return null;
+        if (module == null || !reviewReady()) return null;
         if (module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE) {
             return mapEstimateGuided.configured() ? mapEstimateGuided.reviewedWritePlan() : null;
         }
@@ -545,8 +585,7 @@ final class GuidedMethodProbeSession {
             return AeTableSuggestion.build(projectSnapshot,
                     tpsAeEvents.eventsSnapshot()).getWritePlan();
         }
-        return module.reviewedWritePlan(projectSnapshot,
-                Collections.unmodifiableList(new ArrayList<LiveSample>(samples)));
+        return module.reviewedWritePlan(projectSnapshot, evidenceSnapshot());
     }
 
     synchronized String reportText(String pluginVersion) {

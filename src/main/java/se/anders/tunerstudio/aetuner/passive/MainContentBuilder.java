@@ -1,51 +1,56 @@
 package se.anders.tunerstudio.aetuner.passive;
 
-import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.guided.*;
-import se.anders.tunerstudio.aetuner.model.*;
-import se.anders.tunerstudio.aetuner.proposal.*;
-import se.anders.tunerstudio.aetuner.recovery.*;
-import se.anders.tunerstudio.aetuner.ui.*;
-import se.anders.tunerstudio.aetuner.AeTunerPlugin;
+import se.anders.tunerstudio.aetuner.ui.AeUiTheme;
 
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.Font;
 import javax.swing.BorderFactory;
-import javax.swing.BoxLayout;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTable;
-import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.ScrollPaneConstants;
+import javax.swing.border.CompoundBorder;
+import javax.swing.border.LineBorder;
 import javax.swing.text.DefaultCaret;
 
+/** Builds the production-owned content used by the v0.19 Passive utility shell. */
 final class MainContentBuilder {
-    private MainContentBuilder() {
+    private MainContentBuilder() { }
+
+    static final class Sections {
+        final JComponent eventPreview;
+        final JComponent notes;
+        final JComponent guidance;
+
+        Sections(JComponent eventPreview, JComponent notes, JComponent guidance) {
+            this.eventPreview = eventPreview;
+            this.notes = notes;
+            this.guidance = guidance;
+        }
     }
 
-    static void configure(JScrollPane mainScroll,
-                          JScrollPane channelScroll,
+    static Sections build(JScrollPane channelScroll,
                           JTable channelTable,
                           JTextArea latestEventText,
                           JTextArea recommendationHistoryText,
-                          JTabbedPane lowerTabs,
-                          EventPlotPanel plotPanel,
-                          JComponent statusPanel) {
+                          EventPlotPanel plotPanel) {
         configureChannelTable(channelTable);
         channelTable.setFillsViewportHeight(true);
         channelTable.setAutoCreateRowSorter(false);
         channelTable.setFocusable(false);
-        channelTable.setPreferredScrollableViewportSize(new Dimension(420, 250));
+        channelTable.setPreferredScrollableViewportSize(new Dimension(360, 250));
         channelScroll.setViewportView(channelTable);
-        channelScroll.setBorder(BorderFactory.createTitledBorder("Resolved live channels"));
-        channelScroll.setPreferredSize(new Dimension(450, 265));
-        channelScroll.setMinimumSize(new Dimension(400, 180));
+        channelScroll.setBorder(new CompoundBorder(
+                BorderFactory.createTitledBorder("Resolved Passive inputs"),
+                BorderFactory.createEmptyBorder(2, 2, 2, 2)));
+        channelScroll.setPreferredSize(new Dimension(390, 265));
+        channelScroll.setMinimumSize(new Dimension(320, 180));
         channelScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        channelScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+        channelScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
         channelScroll.getVerticalScrollBar().setUnitIncrement(18);
         channelScroll.getVerticalScrollBar().setBlockIncrement(90);
 
@@ -57,58 +62,47 @@ final class MainContentBuilder {
         DefaultCaret notesCaret = (DefaultCaret) latestEventText.getCaret();
         notesCaret.setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
         JScrollPane eventScroll = new JScrollPane(latestEventText);
-        eventScroll.setBorder(BorderFactory.createEmptyBorder());
+        eventScroll.setBorder(new LineBorder(AeUiTheme.border()));
         eventScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        eventScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+        eventScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
         eventScroll.getVerticalScrollBar().setUnitIncrement(16);
 
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, channelScroll, plotPanel);
-        split.setResizeWeight(0.0);
-        split.setDividerLocation(455);
+        split.setResizeWeight(0.32);
+        split.setDividerLocation(390);
         split.setOneTouchExpandable(true);
         split.setContinuousLayout(true);
         split.setBorder(null);
 
-        JPanel liveDataPanel = new JPanel(new BorderLayout());
+        JPanel liveDataPanel = card();
         liveDataPanel.add(split, BorderLayout.CENTER);
 
-        lowerTabs.addTab("Live channels & event preview", liveDataPanel);
-        lowerTabs.addTab("Latest event / session notes", eventScroll);
         JScrollPane guidanceScroll = new JScrollPane(recommendationHistoryText);
-        guidanceScroll.setBorder(BorderFactory.createEmptyBorder());
+        guidanceScroll.setBorder(new LineBorder(AeUiTheme.border()));
         guidanceScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        guidanceScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+        guidanceScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
         guidanceScroll.getVerticalScrollBar().setUnitIncrement(16);
-        lowerTabs.addTab("Session Guidance", guidanceScroll);
-        lowerTabs.setToolTipTextAt(0, "Live channel values and the latest captured transient plot.");
-        lowerTabs.setToolTipTextAt(1, "Detailed event text, draft reports, CSV status, and session notes.");
-        lowerTabs.setToolTipTextAt(2, "Temporary recommendation transitions for this plugin session only.");
-        lowerTabs.setFocusable(false);
-        lowerTabs.setRequestFocusEnabled(false);
-        lowerTabs.setPreferredSize(new Dimension(1000, 330));
-        lowerTabs.setMinimumSize(new Dimension(650, 260));
-        lowerTabs.setMaximumSize(new Dimension(Integer.MAX_VALUE, 330));
 
-        ViewportWidthPanel scrollContent = new ViewportWidthPanel();
-        scrollContent.setLayout(new BoxLayout(scrollContent, BoxLayout.Y_AXIS));
-        statusPanel.setAlignmentX(JPanel.LEFT_ALIGNMENT);
-        lowerTabs.setAlignmentX(JPanel.LEFT_ALIGNMENT);
-        scrollContent.add(statusPanel);
-        scrollContent.add(lowerTabs);
+        JPanel notesCard = card();
+        notesCard.add(eventScroll, BorderLayout.CENTER);
+        JPanel guidanceCard = card();
+        guidanceCard.add(guidanceScroll, BorderLayout.CENTER);
+        return new Sections(liveDataPanel, notesCard, guidanceCard);
+    }
 
-        mainScroll.setViewportView(scrollContent);
-        mainScroll.setBorder(null);
-        mainScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        mainScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
-        mainScroll.getVerticalScrollBar().setUnitIncrement(18);
-        mainScroll.getVerticalScrollBar().setBlockIncrement(90);
+    private static JPanel card() {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(new CompoundBorder(
+                new LineBorder(AeUiTheme.border()),
+                BorderFactory.createEmptyBorder(6, 6, 6, 6)));
+        return panel;
     }
 
     private static void configureChannelTable(JTable channelTable) {
-        channelTable.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
-        channelTable.setRowHeight(19);
-        channelTable.getColumnModel().getColumn(0).setPreferredWidth(125);
-        channelTable.getColumnModel().getColumn(1).setPreferredWidth(150);
+        channelTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
+        channelTable.setRowHeight(21);
+        channelTable.getColumnModel().getColumn(0).setPreferredWidth(120);
+        channelTable.getColumnModel().getColumn(1).setPreferredWidth(145);
         channelTable.getColumnModel().getColumn(2).setPreferredWidth(65);
         channelTable.getColumnModel().getColumn(3).setPreferredWidth(78);
     }

@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.4.4 — 2026-09-11
+
+Status: **PUBLIC RELEASE**. Replaces `v0.4.3`.
+
+### Guided workflow and UI
+- Promoted the v0.19 task-based Guided workspace as the normal production presentation.
+- Added strict task/method availability routing from the current Working Tune.
+- Separated capture lifecycle completion from task-specific evidence readiness.
+- An early Finish now reports incomplete evidence rather than a misleading no-write completion.
+- Added **Continue Capture** so insufficient evidence can continue in the same evidence window.
+- Hardened first-click/refresh interaction behavior and Focus lifecycle handling.
+- Retained completed evidence only after the task-specific readiness gate is satisfied.
+
+### Transient evidence and recommendations
+- TPS AE, Wall Wetting and Instant Fuel now use method-owned transient-event evidence rather than broad generic same-sample attribution.
+- Added delayed lambda-response attribution for transient response analysis.
+- Preserved release/decel transients under dispatcher pressure rather than protecting only acceleration openings.
+- Consolidated Instant Fuel around pulse-event ownership and conservative residual-error handling.
+- Wall Tau automatic movement remains withheld until transport/sensor delay is measured/aligned.
+- TPS closed-loop inhibit/handoff automatic movement remains withheld without authoritative EGO/trim re-entry evidence.
+
+### Runtime and performance
+- Hardened plugin/worker lifecycle ownership and final static-reference cleanup.
+- Added recommendation/model caching and TPS AE table-suggestion memoization.
+- Reduced high-rate MAP Estimate model work and strengthened Focus live-cell invalidation.
+- Coalesced/deduplicated recovery work and removed duplicated completed-evidence serialization.
+- Expanded permanent real-Swing/Xvfb, long-session, lifecycle and Apply/Restore regression coverage.
+
+### Validation boundary
+- The public-identity source passed the complete private permanent pipeline as CI **#1511 / run `34564608676`**.
+- Canonical JAR: `ae-tuner-epicefi-0.4.4.jar`.
+- SHA-256: `1a60283a4414167142fbd8a96584780caf52a7eb8cbaba2ae88b466016df1bfd`.
+- Foundation 2 / Threshold & Sensitivity received a final real-vehicle workflow check before release and the process behaved as intended.
+- Other method/recommendation tuning conclusions still require matching vehicle `.mlg` evidence.
+
+### Safety
+- Guarded mutation remains centralized through `ProposalWritePlan → ProposalApplyCoordinator → write → exact readback → Restore snapshot`.
+- No Burn path was added.
+- No alternate writer was added.
+- VE and ignition remain outside AE Tuner tuning authority.
+
+---
+
 ## 0.4.3 — 2026-09-06
 
 Status: **PUBLIC RELEASE**. Replaces `v0.4.2-rc.2`.

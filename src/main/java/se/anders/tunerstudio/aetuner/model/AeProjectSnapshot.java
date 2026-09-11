@@ -51,9 +51,24 @@ public final class AeProjectSnapshot {
     private final boolean engagementFastCallbackAvailable;
     private final double deltaTpsAverageAlpha;
 
+    // Falling-TPS detector settings are deliberately independent of the
+    // positive TPS threshold curve above. Empty arrays / NaN mean the working
+    // tune did not expose an authoritative baseline; zero values inside a
+    // captured curve remain real firmware values (zero disables decel at that
+    // RPM) and must never be conflated with an unreadable setting.
+    private final double[] decelThresholdRpmBins;
+    private final double[] decelThresholdValues;
+    private final double decelHoldCycles;
+
+    // Basic Wall Wetting scalars. NaN means unreadable/unavailable; real zero
+    // remains a real controller value and must not be manufactured from a
+    // failed read. Advanced wall-table dimensions remain tracked separately.
+    private final double wallTau;
+    private final double wallBeta;
+
     /**
      * Backward-compatible constructor retained for the existing synthetic test
-     * fixtures. Detector settings are unknown when this constructor is used.
+     * fixtures. Detector and Basic Wall scalar settings are unknown here.
      */
     public AeProjectSnapshot(String configurationName,
                       double[] cycleBins,
@@ -174,6 +189,115 @@ public final class AeProjectSnapshot {
                       boolean engagementFastCallback,
                       boolean engagementFastCallbackAvailable,
                       double deltaTpsAverageAlpha) {
+        this(configurationName,
+                cycleBins, tpsToBins, cycleValues,
+                thresholdRpmBins, thresholdValues,
+                extraShotMultiplier, extraShotTimer,
+                cltCorrBins, cltCorr,
+                tpsAeEnabled, wallWettingEnabled, wallWettingModel,
+                extraShotEnabled, mapEstimateEnabled,
+                dynamicThresholdEnabled, dynamicThresholdAverageStatic,
+                wallTauTable, wallBetaTable,
+                mapEstimateRpmBins, mapEstimateTpsBins, mapEstimateTable,
+                blendDurationRpmBins, blendDurationValues,
+                engagementModel, engagementDeltaWindowMs,
+                engagementSampleLengthSeconds, engagementFastCallback,
+                engagementFastCallbackAvailable, deltaTpsAverageAlpha,
+                new double[0], new double[0], Double.NaN);
+    }
+
+    /**
+     * Complete runtime working-tune snapshot including the shared falling-TPS
+     * detector baseline. Kept for source compatibility; Basic Wall scalars are
+     * unavailable when this overload is used.
+     */
+    public AeProjectSnapshot(String configurationName,
+                      double[] cycleBins,
+                      double[] tpsToBins,
+                      double[][] cycleValues,
+                      double[] thresholdRpmBins,
+                      double[] thresholdValues,
+                      double extraShotMultiplier,
+                      double extraShotTimer,
+                      double[] cltCorrBins,
+                      double[] cltCorr,
+                      boolean tpsAeEnabled,
+                      boolean wallWettingEnabled,
+                      String wallWettingModel,
+                      boolean extraShotEnabled,
+                      boolean mapEstimateEnabled,
+                      boolean dynamicThresholdEnabled,
+                      boolean dynamicThresholdAverageStatic,
+                      double[][] wallTauTable,
+                      double[][] wallBetaTable,
+                      double[] mapEstimateRpmBins,
+                      double[] mapEstimateTpsBins,
+                      double[][] mapEstimateTable,
+                      double[] blendDurationRpmBins,
+                      double[] blendDurationValues,
+                      String engagementModel,
+                      double engagementDeltaWindowMs,
+                      double engagementSampleLengthSeconds,
+                      boolean engagementFastCallback,
+                      boolean engagementFastCallbackAvailable,
+                      double deltaTpsAverageAlpha,
+                      double[] decelThresholdRpmBins,
+                      double[] decelThresholdValues,
+                      double decelHoldCycles) {
+        this(configurationName,
+                cycleBins, tpsToBins, cycleValues,
+                thresholdRpmBins, thresholdValues,
+                extraShotMultiplier, extraShotTimer,
+                cltCorrBins, cltCorr,
+                tpsAeEnabled, wallWettingEnabled, wallWettingModel,
+                extraShotEnabled, mapEstimateEnabled,
+                dynamicThresholdEnabled, dynamicThresholdAverageStatic,
+                wallTauTable, wallBetaTable,
+                mapEstimateRpmBins, mapEstimateTpsBins, mapEstimateTable,
+                blendDurationRpmBins, blendDurationValues,
+                engagementModel, engagementDeltaWindowMs,
+                engagementSampleLengthSeconds, engagementFastCallback,
+                engagementFastCallbackAvailable, deltaTpsAverageAlpha,
+                decelThresholdRpmBins, decelThresholdValues, decelHoldCycles,
+                Double.NaN, Double.NaN);
+    }
+
+    /** Complete runtime Working Tune snapshot including Decel and Basic Wall scalar baselines. */
+    public AeProjectSnapshot(String configurationName,
+                      double[] cycleBins,
+                      double[] tpsToBins,
+                      double[][] cycleValues,
+                      double[] thresholdRpmBins,
+                      double[] thresholdValues,
+                      double extraShotMultiplier,
+                      double extraShotTimer,
+                      double[] cltCorrBins,
+                      double[] cltCorr,
+                      boolean tpsAeEnabled,
+                      boolean wallWettingEnabled,
+                      String wallWettingModel,
+                      boolean extraShotEnabled,
+                      boolean mapEstimateEnabled,
+                      boolean dynamicThresholdEnabled,
+                      boolean dynamicThresholdAverageStatic,
+                      double[][] wallTauTable,
+                      double[][] wallBetaTable,
+                      double[] mapEstimateRpmBins,
+                      double[] mapEstimateTpsBins,
+                      double[][] mapEstimateTable,
+                      double[] blendDurationRpmBins,
+                      double[] blendDurationValues,
+                      String engagementModel,
+                      double engagementDeltaWindowMs,
+                      double engagementSampleLengthSeconds,
+                      boolean engagementFastCallback,
+                      boolean engagementFastCallbackAvailable,
+                      double deltaTpsAverageAlpha,
+                      double[] decelThresholdRpmBins,
+                      double[] decelThresholdValues,
+                      double decelHoldCycles,
+                      double wallTau,
+                      double wallBeta) {
         this.configurationName = configurationName;
         this.cycleBins = cloneArray(cycleBins);
         this.tpsToBins = cloneArray(tpsToBins);
@@ -207,6 +331,11 @@ public final class AeProjectSnapshot {
         this.engagementFastCallback = engagementFastCallback;
         this.engagementFastCallbackAvailable = engagementFastCallbackAvailable;
         this.deltaTpsAverageAlpha = deltaTpsAverageAlpha;
+        this.decelThresholdRpmBins = cloneArray(decelThresholdRpmBins);
+        this.decelThresholdValues = cloneArray(decelThresholdValues);
+        this.decelHoldCycles = decelHoldCycles;
+        this.wallTau = wallTau;
+        this.wallBeta = wallBeta;
     }
 
     public String getConfigurationName() { return configurationName; }
@@ -220,6 +349,13 @@ public final class AeProjectSnapshot {
     public double[][] getMapEstimateTable() { return cloneTable(mapEstimateTable); }
     public double[] getBlendDurationRpmBins() { return cloneArray(blendDurationRpmBins); }
     public double[] getBlendDurationValues() { return cloneArray(blendDurationValues); }
+    public double[] getDecelThresholdRpmBins() { return cloneArray(decelThresholdRpmBins); }
+    public double[] getDecelThresholdValues() { return cloneArray(decelThresholdValues); }
+    public double getDecelHoldCycles() { return decelHoldCycles; }
+    public double getExtraShotMultiplier() { return extraShotMultiplier; }
+    public double getExtraShotTimer() { return extraShotTimer; }
+    public double getWallTau() { return wallTau; }
+    public double getWallBeta() { return wallBeta; }
 
     public boolean isTpsAeEnabled() { return tpsAeEnabled; }
     public boolean isWallWettingEnabled() { return wallWettingEnabled; }
@@ -237,6 +373,30 @@ public final class AeProjectSnapshot {
     public double getDeltaTpsAverageAlpha() { return deltaTpsAverageAlpha; }
     public boolean hasEngagementDeltaWindow() { return Double.isFinite(engagementDeltaWindowMs); }
     public boolean hasEngagementSampleLength() { return Double.isFinite(engagementSampleLengthSeconds); }
+
+    public boolean hasDecelThresholdCurve() {
+        return decelThresholdRpmBins.length > 0
+                && decelThresholdRpmBins.length == decelThresholdValues.length;
+    }
+
+    public boolean hasDecelHoldCycles() { return Double.isFinite(decelHoldCycles); }
+
+    public boolean hasDecelDetectionSettings() {
+        return hasDecelThresholdCurve() && hasDecelHoldCycles();
+    }
+
+    public boolean hasWallTauBeta() {
+        return Double.isFinite(wallTau) && Double.isFinite(wallBeta);
+    }
+
+    public boolean hasInstantFuelSettings() {
+        return Double.isFinite(extraShotMultiplier) && Double.isFinite(extraShotTimer);
+    }
+
+    /** Positive firmware threshold magnitude at RPM; NaN when unavailable. */
+    public double decelThresholdForRpm(double rpm) {
+        return interpolate(decelThresholdRpmBins, decelThresholdValues, rpm, Double.NaN);
+    }
 
     public String engagementSettingsText() {
         return "Engagement model " + engagementModel
@@ -321,6 +481,7 @@ public final class AeProjectSnapshot {
                 : "Dynamic TPS AE threshold OFF";
         String wallText = wallWettingEnabled
                 ? "Wall Wetting AE ON / " + wallWettingModel
+                        + (hasWallTauBeta() ? " / Tau " + finiteText(wallTau, " s") + " / Beta " + finiteText(wallBeta, "") : "")
                         + (hasAdvancedWallTables() ? " / tables " + wallTauRows + "x" + wallTauCols : "")
                 : "Wall Wetting AE OFF";
         String mapText = mapEstimateEnabled
@@ -335,10 +496,12 @@ public final class AeProjectSnapshot {
                 + " | Instant Fuel Pulse " + (extraShotEnabled ? "ON" : "OFF")
                 + " | " + mapText
                 + " | TPS AE Rate of change vs RPM " + summarize(thresholdRpmBins) + " -> " + summarize(thresholdValues)
+                + " | Decel threshold vs RPM " + summarize(decelThresholdRpmBins) + " -> " + summarize(decelThresholdValues)
+                + " | Decel hold " + finiteText(decelHoldCycles, " cycle(s)")
                 + " | MAP Estimate RPM bins " + summarize(mapEstimateRpmBins)
                 + " | MAP Estimate TPS bins " + summarize(mapEstimateTpsBins)
-                + " | ExtraShot x" + F2.format(extraShotMultiplier)
-                + " for " + F2.format(extraShotTimer) + " cycle(s)"
+                + " | ExtraShot x" + finiteText(extraShotMultiplier, "")
+                + " for " + finiteText(extraShotTimer, " cycle(s)")
                 + " | CLT AE correction " + summarize(cltCorrBins) + " -> " + summarize(cltCorr);
     }
 

@@ -7,6 +7,9 @@ import se.anders.tunerstudio.aetuner.proposal.ProposalWritePlan;
  * persistent MAP Estimate learned-state/surface/proposal logic.
  */
 public final class MapEstimateGuidedController {
+    /** Heavy surface/proposal presentation is capped independently of ingestion. */
+    private static final long FOCUS_REBUILD_NS = 150000000L;
+
     private final MapEstimateMemoryStore store;
     private MapEstimateEvidenceSession session;
     private MapEstimateCoverageStrategy pendingStrategy = MapEstimateCoverageStrategy.INTERPOLATED_COVERAGE;
@@ -22,6 +25,12 @@ public final class MapEstimateGuidedController {
     private int minimumSamples = 20;
     private double capKpa = 115.0;
     private String status = "MAP Estimate Table memory not configured yet.";
+    private MapEstimateFocusModel cachedFocus;
+    private long cachedFocusNano;
+    private long acceptedStableRevision;
+    private long cachedStableRevision = Long.MIN_VALUE;
+    private int cachedLiveRow = Integer.MIN_VALUE;
+    private int cachedLiveColumn = Integer.MIN_VALUE;
 
     public MapEstimateGuidedController(MapEstimateMemoryStore store) {
         this.store = store;
@@ -40,7 +49,8 @@ public final class MapEstimateGuidedController {
                 throw new IllegalArgumentException("MAP Estimate table shape does not match axes");
             }
         }
-        boolean sameDimensions = this.tpsAxis.length == tpsAxis.length && this.rpmAxis.length == rpmAxis.length;
+        boolean sameDimensions = this.tpsAxis.length == tpsAxis.length
+                && this.rpmAxis.length == rpmAxis.length;
         this.configuration = configuration == null ? "" : configuration;
         this.tpsAxis = tpsAxis.clone();
         this.rpmAxis = rpmAxis.clone();
@@ -48,21 +58,27 @@ public final class MapEstimateGuidedController {
         this.minimumSamples = Math.max(3, minimumSamples);
         this.capKpa = Math.max(90.0, Math.min(180.0, capKpa));
         try {
-            this.session = new MapEstimateEvidenceSession(store, this.configuration, this.tpsAxis, this.rpmAxis);
+            this.session = new MapEstimateEvidenceSession(store, this.configuration,
+                    this.tpsAxis, this.rpmAxis);
             status = session.loadStatus();
         } catch (java.io.IOException ex) {
             try {
-                this.session = new MapEstimateEvidenceSession(null, this.configuration, this.tpsAxis, this.rpmAxis);
+                this.session = new MapEstimateEvidenceSession(null, this.configuration,
+                        this.tpsAxis, this.rpmAxis);
             } catch (java.io.IOException impossible) {
                 throw new IllegalStateException(impossible);
             }
-            status = "Persistent MAP Estimate memory could not be loaded; this plugin session is using RAM-only learned state: " + safeMessage(ex);
+            status = "Persistent MAP Estimate memory could not be loaded; this plugin session is using RAM-only learned state: "
+                    + safeMessage(ex);
         }
         if (!sameDimensions || pendingScope == null
-                || pendingScope.rows() != tpsAxis.length || pendingScope.cols() != rpmAxis.length) {
+                || pendingScope.rows() != tpsAxis.length
+                || pendingScope.cols() != rpmAxis.length) {
             pendingScope = MapEstimateCellScope.all(tpsAxis.length, rpmAxis.length);
         }
         if (status.length() == 0) status = session.loadStatus();
+        acceptedStableRevision = 0L;
+        invalidateFocus();
     }
 
     /** Update setup-time evidence/proposal thresholds without reloading learned memory. */
@@ -70,30 +86,38 @@ public final class MapEstimateGuidedController {
         requireEditable();
         this.minimumSamples = Math.max(3, minimumSamples);
         this.capKpa = Math.max(90.0, Math.min(180.0, capKpa));
+        invalidateFocus();
     }
 
     public void setPendingStrategy(MapEstimateCoverageStrategy strategy) {
         requireEditable();
-        pendingStrategy = strategy == null ? MapEstimateCoverageStrategy.INTERPOLATED_COVERAGE : strategy;
+        pendingStrategy = strategy == null
+                ? MapEstimateCoverageStrategy.INTERPOLATED_COVERAGE : strategy;
+        invalidateFocus();
     }
 
     public void setPendingScope(MapEstimateCellScope scope) {
         requireEditable();
-        if (scope == null || scope.rows() != tpsAxis.length || scope.cols() != rpmAxis.length) {
+        if (scope == null || scope.rows() != tpsAxis.length
+                || scope.cols() != rpmAxis.length) {
             throw new IllegalArgumentException("scope shape does not match MAP Estimate table");
         }
         pendingScope = scope;
+        invalidateFocus();
     }
 
     public void setPendingEvidenceBasis(MapEstimateEvidenceBasis basis) {
         requireEditable();
-        pendingEvidenceBasis = basis == null ? MapEstimateEvidenceBasis.LEARNED_MEMORY : basis;
+        pendingEvidenceBasis = basis == null
+                ? MapEstimateEvidenceBasis.LEARNED_MEMORY : basis;
+        invalidateFocus();
     }
 
     public void setPendingProposalLimitPolicy(MapEstimateProposalLimitPolicy policy) {
         requireEditable();
         pendingProposalLimitPolicy = policy == null
                 ? MapEstimateProposalLimitPolicy.HIGH_TPS_CAP : policy;
+        invalidateFocus();
     }
 
     public void start() {
@@ -104,17 +128,21 @@ public final class MapEstimateGuidedController {
         status = "MAP Estimate Table capture active; persistent memory is unchanged until Finish and Review."
                 + (activeEvidenceBasis == MapEstimateEvidenceBasis.CURRENT_CAPTURE_ONLY
                     ? " Current-capture-only analysis is isolating this run from previously stored evidence." : "");
+        invalidateFocus();
     }
 
     /** Called only when MapEstimateCollector.addSample(sample) returned true. */
     public boolean acceptStable(double tps, double rpm, double map, double clt, double mat) {
         requireConfigured();
-        return session.acceptStable(tps, rpm, map, clt, mat);
+        boolean accepted = session.acceptStable(tps, rpm, map, clt, mat);
+        if (accepted) acceptedStableRevision++;
+        return accepted;
     }
 
     public void togglePause() {
         requireConfigured();
         session.togglePause();
+        invalidateFocus();
     }
 
     public void finish() {
@@ -122,11 +150,16 @@ public final class MapEstimateGuidedController {
         long before = session.stored().sampleCount();
         long delta = session.currentRunSamples();
         java.io.IOException failure = null;
-        try { session.finish(); } catch (java.io.IOException ex) { failure = ex; }
+        try {
+            session.finish();
+        } catch (java.io.IOException ex) {
+            failure = ex;
+        }
         long after = session.stored().sampleCount();
         if (failure != null) {
             status = "Finished MAP Estimate Table capture; retained " + (after - before)
-                    + " new stable sample(s) in RAM, but persistent memory save FAILED: " + safeMessage(failure);
+                    + " new stable sample(s) in RAM, but persistent memory save FAILED: "
+                    + safeMessage(failure);
         } else {
             status = delta > 0
                     ? "Finished MAP Estimate Table capture; merged " + (after - before)
@@ -136,6 +169,7 @@ public final class MapEstimateGuidedController {
         if (activeEvidenceBasis == MapEstimateEvidenceBasis.CURRENT_CAPTURE_ONLY) {
             status += " Review/proposal authority for this completed run uses only its current-capture evidence; earlier stored memory is excluded.";
         }
+        invalidateFocus();
     }
 
     /** Discard only the current uncommitted capture delta; persistent learned state remains. */
@@ -143,36 +177,65 @@ public final class MapEstimateGuidedController {
         if (session == null) return;
         long discarded = session.currentRunSamples();
         session.reset();
+        acceptedStableRevision++;
         status = "Reset current MAP Estimate Table capture; discarded " + discarded
                 + " uncommitted stable sample(s). Stored memory was preserved.";
+        invalidateFocus();
     }
 
-    public MapEstimateFocusModel focus(double liveTps, double liveRpm, String eligibility) {
+    /**
+     * Build the expensive full surface/proposal Focus model at a bounded rate
+     * while capture is active. Stable-sample ingestion itself is never throttled.
+     * A changed accepted-evidence revision, eligibility, or live table cell is
+     * published immediately; repeated requests inside the same cell/evidence
+     * revision may reuse the 150 ms presentation model.
+     */
+    public MapEstimateFocusModel focus(double liveTps, double liveRpm,
+                                       String eligibility) {
         requireConfigured();
-        // Focus setup controls are unlocked after Finish. At that point they
-        // configure the NEXT capture, while the completed session remains
-        // authoritative for review/writePlan().
         boolean captureActive = active();
-        return MapEstimateFocusModel.build(session, currentTable, minimumSamples, capKpa,
-                liveTps, liveRpm, eligibility,
+        long now = System.nanoTime();
+        String safeEligibility = eligibility == null ? "" : eligibility;
+        int liveRow = nearestIndex(tpsAxis, liveTps);
+        int liveColumn = nearestIndex(rpmAxis, liveRpm);
+        if (captureActive && cachedFocus != null
+                && cachedStableRevision == acceptedStableRevision
+                && safeEligibility.equals(cachedFocus.liveEligibility)
+                && cachedLiveRow == liveRow
+                && cachedLiveColumn == liveColumn
+                && now - cachedFocusNano < FOCUS_REBUILD_NS) {
+            return cachedFocus;
+        }
+        MapEstimateFocusModel next = MapEstimateFocusModel.build(
+                session, currentTable, minimumSamples, capKpa,
+                liveTps, liveRpm, safeEligibility,
                 captureActive ? session.strategy() : pendingStrategy,
                 captureActive ? session.scope() : pendingScope,
                 captureActive ? activeEvidenceBasis : pendingEvidenceBasis,
                 captureActive ? activeProposalLimitPolicy : pendingProposalLimitPolicy);
+        cachedFocus = next;
+        cachedFocusNano = now;
+        cachedStableRevision = acceptedStableRevision;
+        cachedLiveRow = liveRow;
+        cachedLiveColumn = liveColumn;
+        return next;
     }
 
     public MapEstimateProposal proposal() {
         requireConfigured();
-        MapEstimateMemory evidence = activeEvidenceBasis == MapEstimateEvidenceBasis.CURRENT_CAPTURE_ONLY
+        MapEstimateMemory evidence = activeEvidenceBasis
+                == MapEstimateEvidenceBasis.CURRENT_CAPTURE_ONLY
                 ? session.currentRunMemory() : session.combined();
         MapEstimateSurface surface = new MapEstimateSurface(evidence, minimumSamples);
-        return MapEstimateProposal.build(configuration, tpsAxis, rpmAxis, currentTable,
-                surface, session.strategy(), session.scope(), capKpa, activeProposalLimitPolicy);
+        return MapEstimateProposal.build(configuration, tpsAxis, rpmAxis,
+                currentTable, surface, session.strategy(), session.scope(), capKpa,
+                activeProposalLimitPolicy);
     }
 
     /** Write authority is exposed only after explicit Finish/Review. */
     public ProposalWritePlan reviewedWritePlan() {
-        if (session == null || session.state() != MapEstimateEvidenceSession.State.COMPLETE) return null;
+        if (session == null
+                || session.state() != MapEstimateEvidenceSession.State.COMPLETE) return null;
         return proposal().writePlan();
     }
 
@@ -182,31 +245,34 @@ public final class MapEstimateGuidedController {
     }
 
     public String reviewedCopyPasteBlock() {
-        return session != null && session.state() == MapEstimateEvidenceSession.State.COMPLETE
+        return session != null
+                && session.state() == MapEstimateEvidenceSession.State.COMPLETE
                 ? proposal().copyPasteBlock() : "";
     }
 
     public String reviewText() {
         if (session == null) return "MAP Estimate Table is not configured.";
         MapEstimateProposal proposal = proposal();
-        // Review is historical authority for the just-completed capture. Do
-        // not let an operator's next-capture Focus setup rewrite its counts or
-        // write allowlist after Finish.
         MapEstimateFocusModel focus = MapEstimateFocusModel.build(
                 session, currentTable, minimumSamples, capKpa,
                 Double.NaN, Double.NaN, "review",
-                session.strategy(), session.scope(), activeEvidenceBasis, activeProposalLimitPolicy);
+                session.strategy(), session.scope(), activeEvidenceBasis,
+                activeProposalLimitPolicy);
         StringBuilder out = new StringBuilder();
         out.append("MAP ESTIMATE TABLE REVIEW\n")
                 .append("Strategy: ").append(session.strategy()).append('\n')
-                .append("Scope: ").append(session.scope().isWholeTable() ? "whole table" : session.scope().size() + " selected cell(s)").append('\n')
+                .append("Scope: ").append(session.scope().isWholeTable()
+                        ? "whole table" : session.scope().size() + " selected cell(s)").append('\n')
                 .append("Evidence basis: ").append(activeEvidenceBasis).append('\n')
                 .append("Proposal limit: ").append(activeProposalLimitPolicy)
                 .append(activeProposalLimitPolicy == MapEstimateProposalLimitPolicy.HIGH_TPS_CAP
-                        ? " (" + capKpa + " kPa from " + MapEstimateProposal.HIGH_TPS_CAP_START + "% TPS)" : "")
+                        ? " (" + capKpa + " kPa from "
+                            + MapEstimateProposal.HIGH_TPS_CAP_START + "% TPS)" : "")
                 .append('\n')
-                .append("Evidence samples used by this surface: ").append(focus.evidenceSamplesUsed).append('\n')
-                .append("Persistent stable samples retained: ").append(session.stored().sampleCount()).append('\n')
+                .append("Evidence samples used by this surface: ")
+                .append(focus.evidenceSamplesUsed).append('\n')
+                .append("Persistent stable samples retained: ")
+                .append(session.stored().sampleCount()).append('\n')
                 .append("Direct cells: ").append(focus.directCount)
                 .append(" | strong interpolated: ").append(focus.interpolatedStrongCount)
                 .append(" | weak: ").append(focus.weakCount)
@@ -241,27 +307,72 @@ public final class MapEstimateGuidedController {
     public String status() { return status; }
     public boolean configured() { return session != null; }
     public boolean active() {
-        return session != null && (session.state() == MapEstimateEvidenceSession.State.CAPTURING
-                || session.state() == MapEstimateEvidenceSession.State.PAUSED);
+        return session != null
+                && (session.state() == MapEstimateEvidenceSession.State.CAPTURING
+                    || session.state() == MapEstimateEvidenceSession.State.PAUSED);
     }
-    public boolean complete() { return session != null && session.state() == MapEstimateEvidenceSession.State.COMPLETE; }
-    public long currentRunSamples() { return session == null ? 0 : session.currentRunSamples(); }
-    public long storedSamples() { return session == null ? 0 : session.stored().sampleCount(); }
+    public boolean complete() {
+        return session != null
+                && session.state() == MapEstimateEvidenceSession.State.COMPLETE;
+    }
+    public long currentRunSamples() {
+        return session == null ? 0 : session.currentRunSamples();
+    }
+    public long storedSamples() {
+        return session == null ? 0 : session.stored().sampleCount();
+    }
+    long acceptedStableRevisionForTest() { return acceptedStableRevision; }
+    long cachedStableRevisionForTest() { return cachedStableRevision; }
+    int cachedLiveRowForTest() { return cachedLiveRow; }
+    int cachedLiveColumnForTest() { return cachedLiveColumn; }
+
+    private void invalidateFocus() {
+        cachedFocus = null;
+        cachedFocusNano = 0L;
+        cachedStableRevision = Long.MIN_VALUE;
+        cachedLiveRow = Integer.MIN_VALUE;
+        cachedLiveColumn = Integer.MIN_VALUE;
+    }
+
+    private static int nearestIndex(double[] axis, double value) {
+        if (axis == null || axis.length == 0 || !Double.isFinite(value)) return -1;
+        int best = 0;
+        double bestDistance = Math.abs(axis[0] - value);
+        for (int i = 1; i < axis.length; i++) {
+            double distance = Math.abs(axis[i] - value);
+            if (distance < bestDistance) {
+                best = i;
+                bestDistance = distance;
+            }
+        }
+        return best;
+    }
 
     private void requireEditable() {
         requireConfigured();
-        if (active()) throw new IllegalStateException("MAP Estimate setup controls are locked during capture");
+        if (active()) {
+            throw new IllegalStateException(
+                    "MAP Estimate setup controls are locked during capture");
+        }
     }
-    private void requireConfigured() { if (session == null) throw new IllegalStateException("MAP Estimate Table not configured"); }
+
+    private void requireConfigured() {
+        if (session == null) {
+            throw new IllegalStateException("MAP Estimate Table not configured");
+        }
+    }
+
     private static String safeMessage(Throwable throwable) {
         if (throwable == null) return "unknown error";
         String value = throwable.getMessage();
-        return value == null || value.trim().length() == 0 ? throwable.getClass().getSimpleName()
+        return value == null || value.trim().length() == 0
+                ? throwable.getClass().getSimpleName()
                 : value.replace('\n',' ').replace('\r',' ');
     }
+
     private static double[][] cloneTable(double[][] values) {
         double[][] copy = new double[values.length][];
-        for (int i=0;i<values.length;i++) copy[i]=values[i].clone();
+        for (int i = 0; i < values.length; i++) copy[i] = values[i].clone();
         return copy;
     }
 }

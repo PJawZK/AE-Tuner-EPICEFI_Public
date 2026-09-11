@@ -10,7 +10,8 @@ public final class GuidedTuningNavigationRegressionTest {
         mapPredictHasTheCorrectLocalDependencyOrder();
         decelIsAFirstClassTransientArea();
         changingTaskImmediatelyChangesGuidedFocusWithoutCapture();
-        plannedTasksAreExplicitlyNonFunctionalScaffolds();
+        fullTpsWallInstantBaselineTasksAreFunctional();
+        remainingPlannedTasksAreExplicitlyNonFunctionalScaffolds();
         System.out.println("GuidedTuningNavigationRegressionTest passed");
     }
 
@@ -101,6 +102,9 @@ public final class GuidedTuningNavigationRegressionTest {
                         && tasks[2] == GuidedTuningRecipe.DECEL_MAP_PREDICT
                         && tasks[3] == GuidedTuningRecipe.DECEL_VALIDATION,
                 "Decel / Tip-out must expose detection, fuel shape, MAP prediction and validation in that local order");
+        require(GuidedTuningRecipe.DECEL_DETECTION.implemented
+                        && GuidedTuningRecipe.DECEL_DETECTION.status.contains("guarded recommendation available"),
+                "Decel Detection did not become a real Guided evidence/recommendation task");
         require(GuidedTuningArea.DECEL_TIPOUT.guidance.contains("DFCO")
               && GuidedTuningArea.DECEL_TIPOUT.guidance.contains("without treating DFCO as an AE Tuner target"),
       "Decel area must preserve the boundary that DFCO is context rather than an AE Tuner target");
@@ -122,6 +126,14 @@ public final class GuidedTuningNavigationRegressionTest {
             require(GuidedFocusHub.snapshot().captureState == GuidedCaptureState.IDLE,
                     "selecting Threshold / Sensitivity incorrectly started a capture");
 
+            panel.selectTuningTaskForTest(GuidedTuningRecipe.DECEL_DETECTION);
+            require(GuidedFocusHub.snapshot().recipe == GuidedTuningRecipe.DECEL_DETECTION,
+                    "Guided Focus did not change immediately when Decel Detection was selected");
+            require(panel.startCaptureEnabledForTest(),
+                    "Decel Detection real falling-TPS evidence route cannot start");
+            require(GuidedFocusHub.snapshot().captureState == GuidedCaptureState.IDLE,
+                    "selecting Decel Detection incorrectly started a capture");
+
             panel.selectTuningTaskForTest(GuidedTuningRecipe.BLEND_DURATION);
             require(GuidedFocusHub.snapshot().recipe == GuidedTuningRecipe.BLEND_DURATION,
                     "Guided Focus did not change immediately when Blend Duration was selected");
@@ -139,27 +151,51 @@ public final class GuidedTuningNavigationRegressionTest {
         }
     }
 
-    private static void plannedTasksAreExplicitlyNonFunctionalScaffolds() {
-        GuidedTuningRecipe[] planned = new GuidedTuningRecipe[]{
-                GuidedTuningRecipe.FOUNDATION_VALIDATION,
+    private static void fullTpsWallInstantBaselineTasksAreFunctional() {
+        GuidedTuningRecipe[] active = new GuidedTuningRecipe[]{
+                GuidedTuningRecipe.TPS_AE,
                 GuidedTuningRecipe.TPS_AE_COMPENSATION,
                 GuidedTuningRecipe.TPS_AE_COMPLETION,
                 GuidedTuningRecipe.TPS_AE_VALIDATION,
+                GuidedTuningRecipe.WALL_WETTING,
                 GuidedTuningRecipe.WALL_WETTING_ADVANCED,
                 GuidedTuningRecipe.WALL_WETTING_VALIDATION,
-                GuidedTuningRecipe.DECEL_DETECTION,
-                GuidedTuningRecipe.DECEL_FUEL,
-                GuidedTuningRecipe.DECEL_MAP_PREDICT,
-                GuidedTuningRecipe.DECEL_VALIDATION,
                 GuidedTuningRecipe.INSTANT_FUEL_SETUP,
                 GuidedTuningRecipe.INSTANT_FUEL_EVENT_STRENGTH,
                 GuidedTuningRecipe.INSTANT_FUEL_CONDITIONS,
+                GuidedTuningRecipe.INSTANT_FUEL
+        };
+        for (GuidedTuningRecipe recipe : active) {
+            require(recipe.implemented,
+                    "full baseline task is not implemented: " + recipe);
+            require(!recipe.status.toLowerCase().contains("planned"),
+                    "full baseline task still presents itself as planned: " + recipe);
+        }
+
+        GuidedCapturePanel panel = new GuidedCapturePanel();
+        try {
+            for (GuidedTuningRecipe recipe : active) {
+                panel.selectTuningTaskForTest(recipe);
+                require(GuidedFocusHub.snapshot().recipe == recipe,
+                        "full baseline task did not publish immediate Guided Focus: " + recipe);
+            }
+        } finally {
+            panel.disposePanel();
+        }
+    }
+
+    private static void remainingPlannedTasksAreExplicitlyNonFunctionalScaffolds() {
+        GuidedTuningRecipe[] planned = new GuidedTuningRecipe[]{
+                GuidedTuningRecipe.FOUNDATION_VALIDATION,
+                GuidedTuningRecipe.DECEL_FUEL,
+                GuidedTuningRecipe.DECEL_MAP_PREDICT,
+                GuidedTuningRecipe.DECEL_VALIDATION,
                 GuidedTuningRecipe.RESIDUAL_ERROR_REVIEW,
                 GuidedTuningRecipe.FINAL_SIMPLIFICATION
         };
         for (GuidedTuningRecipe recipe : planned) {
-            require(!recipe.implemented && recipe.status.toLowerCase().contains("scaffold")
-                            || (!recipe.implemented && recipe.status.toLowerCase().contains("coach")),
+            require(!recipe.implemented && (recipe.status.toLowerCase().contains("scaffold")
+                            || recipe.status.toLowerCase().contains("coach")),
                     "planned task is not visibly classified as scaffold/coach: " + recipe);
         }
     }

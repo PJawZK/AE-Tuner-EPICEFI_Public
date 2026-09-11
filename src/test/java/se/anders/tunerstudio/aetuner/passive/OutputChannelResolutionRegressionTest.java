@@ -81,18 +81,18 @@ public final class OutputChannelResolutionRegressionTest {
 
     private static void technicalDetailsMustDistinguishUnavailableMapFromReceivedZero() {
         EnumMap<ChannelRole, Double> values = new EnumMap<ChannelRole, Double>(ChannelRole.class);
-        String unavailable = AeTunerPanel.buildFuelPathStatusText(true, values);
+        String unavailable = PassiveOverviewController.fuelPathStatus(true, values);
         require(unavailable.contains(" | MAP n/a |"),
                 "Technical details must render never-received MAP as n/a: " + unavailable);
 
         values.put(ChannelRole.MAP, 0.0);
-        String receivedZero = AeTunerPanel.buildFuelPathStatusText(true, values);
+        String receivedZero = PassiveOverviewController.fuelPathStatus(true, values);
         require(receivedZero.contains(" | MAP 0.00 |"),
                 "Technical details must preserve a genuinely received MAP zero: " + receivedZero);
 
         values.clear();
         values.put(ChannelRole.AE_ADD_MS, 0.125);
-        String unavailableCompanion = AeTunerPanel.buildFuelPathStatusText(false, values);
+        String unavailableCompanion = PassiveOverviewController.fuelPathStatus(false, values);
         require(unavailableCompanion.contains("Fuel: TPS AE add fuel ms 0.125"),
                 "Technical details must preserve the received TPS fuel value: " + unavailableCompanion);
         require(unavailableCompanion.contains("Fuel: TPS extraFuel n/a"),

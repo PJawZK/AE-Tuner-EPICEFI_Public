@@ -15,12 +15,12 @@ public final class GuidedTaskSettingsDraftRegressionTest {
     private GuidedTaskSettingsDraftRegressionTest() { }
 
     public static void main(String[] args) throws Exception {
-        plannedRecommendationTaskStillBuildsBroadReviewedPlan();
+        recommendationMaturityDoesNotLimitBroadReviewedPlan();
         multiBinAxisEditMustPreserveLiveOrdering();
         System.out.println("GuidedTaskSettingsDraftRegressionTest passed");
     }
 
-    private static void plannedRecommendationTaskStillBuildsBroadReviewedPlan()
+    private static void recommendationMaturityDoesNotLimitBroadReviewedPlan()
             throws Exception {
         GuidedControllerSettingInventory.TaskInventory inventory =
                 GuidedControllerSettingInventory.find(GuidedTuningRecipe.INSTANT_FUEL_SETUP);
@@ -29,8 +29,8 @@ public final class GuidedTaskSettingsDraftRegressionTest {
                         == GuidedControllerSettingInventory.ProductionWriteSupport.CURRENT,
                 "Instant Fuel Setup lost current production write support");
         require(inventory.getRecommendationSupport()
-                        == GuidedControllerSettingInventory.RecommendationSupport.PLANNED,
-                "fixture no longer exercises a task whose recommendation logic is still planned");
+                        != GuidedControllerSettingInventory.RecommendationSupport.NONE,
+                "Instant Fuel Setup unexpectedly lost recommendation ownership");
 
         GuidedTaskSettingsDraft draft = GuidedTaskSettingsDraft.capture(
                 new GuidedTaskSettingsDraft.ValueReader() {

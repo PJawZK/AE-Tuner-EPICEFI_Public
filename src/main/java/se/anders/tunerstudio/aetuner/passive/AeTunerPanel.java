@@ -54,7 +54,6 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -139,6 +138,7 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
             calibrationCard);
     private final PassiveAdvisoryActions advisoryActions;
     private final PassiveOverviewController overviewController;
+    private final PassivePanelLayout.Navigation passiveNavigation;
     private final Timer refreshTimer;
 
     private final Object lock = new Object();
@@ -155,6 +155,10 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
     private volatile GuidedSampleDispatcher guidedSampleDispatcher;
     private final RecommendationHistory recommendationHistory = new RecommendationHistory();
     private final List<TransientEvent> capturedEvents = new ArrayList<TransientEvent>();
+    // UI refreshes run on the EDT every 500 ms. Retained TransientEvent objects
+    // are immutable, so rebuild this view only when the event revision changes.
+    private List<TransientEvent> refreshEventSnapshot = Collections.emptyList();
+    private long refreshEventSnapshotRevision = Long.MIN_VALUE;
 
     private ControllerAccess controllerAccess;
     private OutputChannelServer outputChannelServer;
@@ -183,11 +187,7 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
 
     public AeTunerPanel() {
         super(new BorderLayout(8, 8));
-        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        advisoryActions = new PassiveAdvisoryActions(
-                this, latestEventText, lowerTabs, mapMinimumSamples, mapCapField,
-                mapEstimateCollector, sessionMonitor, eventDetector,
-                recommendationHistory);
+        setBorder(BorderFactory.createEmptyBorder());
         overviewController = new PassiveOverviewController(
                 uiPresenter, workflowCard, tpsCycleCard, mapPredictCard,
                 wallWettingCard, instantFuelCard, detectorCard, predictionLiveCard,
@@ -195,7 +195,13 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
                 nextActionCard, contributionReviewCard, lowRpmReviewCard,
                 fullLoadSafetyCard, mapMinimumSamples, mapEstimateCollector,
                 sessionMonitor, recommendationHistory, calibration);
-        buildLayout();
+        passiveNavigation = buildLayout();
+        advisoryActions = new PassiveAdvisoryActions(
+                this, latestEventText, new Runnable() {
+                    @Override public void run() { passiveNavigation.showNotes(); }
+                }, mapMinimumSamples, mapCapField,
+                mapEstimateCollector, sessionMonitor, eventDetector,
+                recommendationHistory);
         installActions();
         installThresholdListener();
         refreshTimer = new Timer(500, event -> refreshUi());
@@ -298,8 +304,8 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
         }
     }
 
-    private void buildLayout() {
-        PassivePanelLayout.install(this,
+    private PassivePanelLayout.Navigation buildLayout() {
+        return PassivePanelLayout.install(this,
                 new PassivePanelLayout.Controls(
                         reconnectButton, readProjectButton, saveCsvButton,
                         suggestTableButton, suggestMapEstimateButton,
@@ -337,13 +343,11 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
         suggestBlendButton.addActionListener(event -> copySuggestedBlendDuration());
         sessionReviewButton.addActionListener(event -> saveMapPredictReport());
         nextActionCard.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        nextActionCard.setToolTipText("Open temporary Session Guidance history");
+        nextActionCard.setToolTipText("Open Session Guidance history");
         nextActionCard.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent event) {
-                if (lowerTabs.getTabCount() > 2) {
-                    lowerTabs.setSelectedIndex(2);
-                }
+                passiveNavigation.showGuidance();
             }
         });
     }
@@ -663,16 +667,10 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
         }
     }
 
-    private void setNotesText(String text, boolean showNotesTab) {
+    private void setNotesText(String text, boolean showNotesView) {
         latestEventText.setText(text == null ? "" : text);
         latestEventText.setCaretPosition(0);
-        if (showNotesTab && lowerTabs.getTabCount() > 1) {
-            lowerTabs.setSelectedIndex(1);
-        }
-    }
-
-    private double parseMapCap() {
-        return advisoryActions.mapCap();
+        if (showNotesView) passiveNavigation.showNotes();
     }
 
     private void updateModeButtons() {
@@ -680,7 +678,7 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
         boolean mapMode = hasSnapshot && projectSnapshot.isMapPredictWorkflow();
         suggestTableButton.setEnabled(hasSnapshot && projectSnapshot.isTpsAeEnabled());
         suggestTableButton.setVisible(!mapMode);
-        suggestTableButton.getParent().revalidate();
+        if (suggestTableButton.getParent() != null) suggestTableButton.getParent().revalidate();
         suggestMapEstimateButton.setEnabled(hasSnapshot && projectSnapshot.hasMapEstimateTable());
         suggestBlendButton.setEnabled(hasSnapshot && projectSnapshot.hasBlendDurationCurve());
         if (mapMode) {
@@ -815,8 +813,13 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
         synchronized (lock) {
             names = new EnumMap<ChannelRole, String>(channelNames);
             values = new EnumMap<ChannelRole, Double>(latestValues);
-            events = new ArrayList<TransientEvent>(capturedEvents);
             revision = eventRevision;
+            if (refreshEventSnapshotRevision != revision) {
+                refreshEventSnapshot = Collections.unmodifiableList(
+                        new ArrayList<TransientEvent>(capturedEvents));
+                refreshEventSnapshotRevision = revision;
+            }
+            events = refreshEventSnapshot;
             subscribed = subscribedChannels.size();
         }
         overviewController.refresh(
@@ -824,12 +827,6 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
                 detectionArmedNano, acceptedEvents, tpsAeFuelProvedEvents,
                 rejectedEvents, revision, names, values, events);
         LiveChannelTableRenderer.update(channelTableModel, names, values);
-    }
-
-    static String buildFuelPathStatusText(boolean mapPredictWorkflow,
-                                          EnumMap<ChannelRole, Double> values) {
-        return PassiveOverviewController.fuelPathStatus(
-                mapPredictWorkflow, values);
     }
 
     private double latest(ChannelRole role) {
@@ -844,7 +841,9 @@ public final class AeTunerPanel extends JPanel implements OutputChannelClient {
         return value == null ? Double.NaN : value.doubleValue();
     }
 
-    private static String normalize(String value) {
-        return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
-    }
+    int passiveSectionCountForTest() { return passiveNavigation.sectionCountForTest(); }
+    String passiveSectionTitleForTest(int index) { return passiveNavigation.sectionTitleForTest(index); }
+    String passiveSelectedSectionForTest() { return passiveNavigation.selectedSectionForTest(); }
+    void showPassiveNotesForTest() { passiveNavigation.showNotes(); }
+    void showPassiveGuidanceForTest() { passiveNavigation.showGuidance(); }
 }
