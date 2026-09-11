@@ -12,7 +12,7 @@ public final class GuidedAeMethodModulesRegressionTest {
 
     public static void main(String[] args) {
         everySelectorEntryHasOneModule();
-        implementedAeMethodsUseSeparatedImplementationClasses();
+        implementedAeMethodsUseFunctionalModules();
         plannedTasksUseNonFunctionalScaffolds();
         engagementDetectionDeclaresPassiveTimingEvidence();
         foundationThresholdDeclaresSensitivityEvidence();
@@ -35,13 +35,14 @@ public final class GuidedAeMethodModulesRegressionTest {
         }
     }
 
-    private static void implementedAeMethodsUseSeparatedImplementationClasses() {
-        Set<String> classes = new HashSet<String>();
+    private static void implementedAeMethodsUseFunctionalModules() {
         for (GuidedTuningRecipe recipe : GuidedTuningRecipe.values()) {
             if (!recipe.implemented) continue;
             GuidedAeMethodModule module = GuidedAeMethodModules.forRecipe(recipe);
-            require(classes.add(module.getClass().getName()),
-                    "two implemented AE methods share the same implementation class: " + recipe);
+            require(!(module instanceof PlannedGuidedTaskModule),
+                    "implemented AE task still routes through non-functional scaffold: " + recipe);
+            require(module.captureMode() != GuidedAeMethodModule.CaptureMode.ARCHITECTURE_ONLY,
+                    "implemented AE task has no live functional route: " + recipe);
         }
     }
 
@@ -203,7 +204,15 @@ public final class GuidedAeMethodModulesRegressionTest {
                 GuidedTuningRecipe.MAP_PREDICT,
                 GuidedTuningRecipe.MAP_ESTIMATE,
                 GuidedTuningRecipe.WALL_WETTING,
+                GuidedTuningRecipe.WALL_WETTING_ADVANCED,
+                GuidedTuningRecipe.WALL_WETTING_VALIDATION,
                 GuidedTuningRecipe.TPS_AE,
+                GuidedTuningRecipe.TPS_AE_COMPENSATION,
+                GuidedTuningRecipe.TPS_AE_COMPLETION,
+                GuidedTuningRecipe.TPS_AE_VALIDATION,
+                GuidedTuningRecipe.INSTANT_FUEL_SETUP,
+                GuidedTuningRecipe.INSTANT_FUEL_EVENT_STRENGTH,
+                GuidedTuningRecipe.INSTANT_FUEL_CONDITIONS,
                 GuidedTuningRecipe.INSTANT_FUEL
         };
         for (GuidedTuningRecipe recipe : probes) {
