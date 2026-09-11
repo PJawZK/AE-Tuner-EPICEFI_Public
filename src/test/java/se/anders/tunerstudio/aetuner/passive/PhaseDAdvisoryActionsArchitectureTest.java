@@ -41,6 +41,12 @@ public final class PhaseDAdvisoryActionsArchitectureTest {
             require(!source.contains(token),
                     "AeTunerPanel still contains advisory implementation token " + token);
         }
+        // These compatibility helpers had no independent runtime authority and
+        // should not return to the Passive shell after their retirement.
+        require(!source.contains("private double parseMapCap()")
+                        && !source.contains("private static String normalize(")
+                        && !source.contains("static String buildFuelPathStatusText("),
+                "AeTunerPanel revived retired compatibility helpers");
         require(source.contains("private void saveCsv()")
                         && source.contains("private void saveMapPredictReport()"),
                 "existing action-listener method boundaries were removed");

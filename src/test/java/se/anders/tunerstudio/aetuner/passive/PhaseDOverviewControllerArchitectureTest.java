@@ -49,6 +49,28 @@ public final class PhaseDOverviewControllerArchitectureTest {
                         && source.contains("recommendationHistory.observe(")
                         && source.contains("SessionReview.build("),
                 "overview controller does not own status/review/recommendation evaluation");
+        require(countOccurrences(source, "SessionReview.build(") == 1,
+                "overview refresh reintroduced duplicate SessionReview event scans");
+        require(!source.contains("countPredictionEvents(")
+                        && !source.contains("countRepeatedResetEvents(")
+                        && !source.contains("for (TransientEvent event : events)")
+                        && !source.contains("for (TransientEvent summary : events)"),
+                "overview controller reintroduced direct full-event refresh scans");
+        require(source.contains("review.predictionEvents()")
+                        && source.contains("review.repeatedResetEvents()")
+                        && source.contains("review.wallActiveEvents()")
+                        && source.contains("review.tpsAeFuelProvedEvents()"),
+                "overview controller does not consume the revision-cached SessionReview summary");
+    }
+
+    private static int countOccurrences(String text, String token) {
+        int count = 0;
+        int at = 0;
+        while ((at = text.indexOf(token, at)) >= 0) {
+            count++;
+            at += token.length();
+        }
+        return count;
     }
 
     private static String read(String path) throws Exception {

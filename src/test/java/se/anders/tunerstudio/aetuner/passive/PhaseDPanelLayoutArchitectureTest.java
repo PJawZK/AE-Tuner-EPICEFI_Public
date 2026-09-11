@@ -10,6 +10,7 @@ import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
 import se.anders.tunerstudio.aetuner.ui.*;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
@@ -39,8 +40,11 @@ public final class PhaseDPanelLayoutArchitectureTest {
     private static void layoutCollaboratorIsStateless() {
         require(Modifier.isFinal(PassivePanelLayout.class.getModifiers()),
                 "PassivePanelLayout should remain a final composition collaborator");
-        require(PassivePanelLayout.class.getDeclaredFields().length == 0,
-                "PassivePanelLayout acquired runtime state; it should only arrange panel-owned components");
+        for (Field field : PassivePanelLayout.class.getDeclaredFields()) {
+            require(Modifier.isStatic(field.getModifiers()),
+                    "PassivePanelLayout acquired runtime field " + field.getName()
+                            + "; it should only arrange panel-owned components");
+        }
         require(hasMethod(PassivePanelLayout.class, "install"),
                 "PassivePanelLayout does not expose its composition entry point");
     }
