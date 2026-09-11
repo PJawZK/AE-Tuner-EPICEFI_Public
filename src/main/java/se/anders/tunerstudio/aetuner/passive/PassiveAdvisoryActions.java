@@ -16,7 +16,6 @@ import java.util.EnumMap;
 import java.util.List;
 import javax.swing.JComponent;
 import javax.swing.JSpinner;
-import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingWorker;
@@ -35,7 +34,7 @@ final class PassiveAdvisoryActions {
 
     private final JComponent parent;
     private final JTextArea notes;
-    private final JTabbedPane lowerTabs;
+    private final Runnable showNotesAction;
     private final JSpinner mapMinimumSamples;
     private final JTextField mapCapField;
     private final MapEstimateCollector mapEstimateCollector;
@@ -47,7 +46,7 @@ final class PassiveAdvisoryActions {
 
     PassiveAdvisoryActions(JComponent parent,
                            JTextArea notes,
-                           JTabbedPane lowerTabs,
+                           Runnable showNotesAction,
                            JSpinner mapMinimumSamples,
                            JTextField mapCapField,
                            MapEstimateCollector mapEstimateCollector,
@@ -56,7 +55,9 @@ final class PassiveAdvisoryActions {
                            RecommendationHistory recommendationHistory) {
         this.parent = parent;
         this.notes = notes;
-        this.lowerTabs = lowerTabs;
+        this.showNotesAction = showNotesAction == null ? new Runnable() {
+            @Override public void run() { }
+        } : showNotesAction;
         this.mapMinimumSamples = mapMinimumSamples;
         this.mapCapField = mapCapField;
         this.mapEstimateCollector = mapEstimateCollector;
@@ -335,12 +336,10 @@ final class PassiveAdvisoryActions {
         }
     }
 
-    private void showNotes(String text, boolean showNotesTab) {
+    private void showNotes(String text, boolean showNotesView) {
         notes.setText(text == null ? "" : text);
         notes.setCaretPosition(0);
-        if (showNotesTab && lowerTabs.getTabCount() > 1) {
-            lowerTabs.setSelectedIndex(1);
-        }
+        if (showNotesView) showNotesAction.run();
     }
 
     private static final class PassiveExportResult {
