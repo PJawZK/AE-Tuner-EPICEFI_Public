@@ -4,34 +4,39 @@ AE Tuner is a TunerStudio plugin for EpicEFI transient-fuelling analysis and gui
 
 ## Public release
 
-Current release: **v0.4.3**
-Plugin: `ae-tuner-epicefi-0.4.3.jar`
-Java target: Java 8 bytecode
-SHA-256: `22492a065d41e3ca594485eb8c5ae70d88079cc4c6f879b444938ad4ede54143`
+Current release: **v0.4.4**  
+Plugin: `ae-tuner-epicefi-0.4.4.jar`  
+Java target: Java 8 bytecode  
+SHA-256: `1a60283a4414167142fbd8a96584780caf52a7eb8cbaba2ae88b466016df1bfd`
 
-v0.4.3 promotes the validated 0.4.3 vehicle-test development line into the public repository. The previous public release was `v0.4.2-rc.2`.
+v0.4.4 promotes the CI-validated `0.4.3-vehicle-test.31` runtime into the public release line. The previous public release was `v0.4.3`.
 
 ## Highlights
 
-- **AE Foundation 1 / TPS Movement & Timing** is mature for the current vehicle-test workflow, with retained 40 ms Delta Window and 60 ms Sample Length behavior, passive evidence capture, re-anchoring and driving-range qualification.
-- **AE Foundation 2 / Threshold & Sensitivity** now uses the physically validated Normal Correction / Acceleration Opening workflow, 80-sample + 1.5-second quiet lock, maneuver-quality rejection, independent count/separation completion, guarded controller-context verification and same-event OLD-vs-APPLIED A/B validation.
-- Archive46 physically accepted the guarded Foundation 2 Apply -> Read Working Tune -> fresh B -> KEEP lifecycle. The retained static threshold curve is 0.570 / 0.597 / 0.623 / 0.650 at 800 / 1600 / 2400 / 3200 RPM.
-- **MAP Predict / Blend Duration** now follows the final/upward-latched prediction-active `fallbackMap` target, exact physical MAP catch-up, current-curve Effective MAP replay and comparable-event grouping. The retired largest-gap/T90 numerical rule is no longer authoritative.
-- Blend Duration has a dedicated Driver Focus: **GET STEADY -> OPEN & SETTLE -> HOLD FOR MAP -> RESULT / REPEAT**. Numerical Blend Duration proposal/write generation remains intentionally withheld until the corrected measurement-to-setting conversion is physically validated.
-- Guarded Apply/Restore infrastructure and regression coverage were expanded. No automatic Burn path exists.
+- The normal **Guided v0.19 workspace** now carries the current task-based workflow for AE Foundation, TPS AE, MAP Predict, Wall Wetting, Instant Fuel and decel/transient work.
+- Capture lifecycle and evidence readiness are separate. Finishing too early no longer turns insufficient evidence into a review-ready result; **Continue Capture** resumes the same evidence window.
+- TPS AE, Wall Wetting and Instant Fuel use method-owned transient-event evidence instead of broad same-sample attribution, including delayed lambda-response attribution where appropriate.
+- Wall Tau automatic movement remains intentionally withheld until lambda transport delay is measured/aligned.
+- TPS closed-loop handoff automatic movement remains intentionally withheld without authoritative EGO/trim re-entry evidence.
+- Guided worker ownership, release/decel sample preservation, recommendation caching, MAP Estimate Focus invalidation and recovery/runtime behavior were hardened for long-running TunerStudio use.
+- The Foundation 2 / Threshold & Sensitivity workflow received a final real-vehicle process check before publication and behaved as intended. Broader method/recommendation validation remains ongoing.
 
 ## Safety boundary
 
-AE Tuner does not automatically Burn tune changes. Persistent changes must use explicit reviewed proposals through the guarded Apply -> readback -> Restore path. VE and ignition tuning remain outside AE Tuner tuning authority.
+Supported tune changes are explicit **working-tune/RAM** Apply operations from a reviewed `ProposalWritePlan`, followed by exact readback and a verified Restore path. AE Tuner does **not** Burn ECU changes. VE and ignition tuning remain outside AE Tuner tuning authority.
+
+Software validation and a successful workflow test do not imply that every numerical recommendation is physically validated. Vehicle `.mlg` evidence remains authoritative for tuning conclusions.
 
 ## Install
 
-1. Download `ae-tuner-epicefi-0.4.3.jar` from the GitHub Release.
-2. Install it using your normal TunerStudio plugin installation method.
-3. Restart TunerStudio and confirm AE Tuner reports version `0.4.3`.
+1. Download `ae-tuner-epicefi-0.4.4.jar` from the GitHub Release.
+2. Remove older `ae-tuner-epicefi-*.jar` versions from the TunerStudio plugin directory.
+3. Install the v0.4.4 JAR and restart TunerStudio.
+4. Confirm AE Tuner reports version `0.4.4`.
+5. Use **Read Working Tune** after enabling/disabling an AE method or after changing/applying/restoring tune settings.
 
 ## Building from source
 
 The TunerStudio Plugin API JAR is a third-party dependency and is intentionally not redistributed in this repository. See `lib/README.md` for local build setup.
 
-Full release details are in `CHANGELOG.md` and `docs/RELEASE_0.4.3.md`.
+Full release details are in `CHANGELOG.md` and `docs/RELEASE_0.4.4.md`.

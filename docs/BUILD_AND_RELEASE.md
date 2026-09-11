@@ -4,7 +4,9 @@
 
 - Source: Java
 - Bytecode target: Java 8
-- CI JDK: Temurin Java 17
+- CI validation JDK: Temurin Java 17
+
+Local builds require an authorized `lib/TunerStudioPluginAPI.jar`; that third-party dependency is intentionally not redistributed by this public repository.
 
 Deterministic repository build:
 
@@ -18,134 +20,49 @@ Output:
 dist/ae-tuner-epicefi-<version>.jar
 ```
 
-The build script is the JAR identity authority and prints SHA-256.
-
-`dist/` is a generic local build-output/staging directory. Generated JARs remain ignored; only `dist/README.md` is tracked. Public binaries belong in GitHub Releases.
-
 ## Validation
 
-Fast local check:
+Fast check: `bash scripts/check-fast.sh`  
+Full regression/static-write-safety validation: `bash scripts/validate.sh`  
+Real Swing integration: `bash scripts/synthetic-plugin-integration.sh`
 
-```bash
-bash scripts/check-fast.sh
-```
+The private engineering repository owns the permanent full CI lane because it contains the authorized build dependency. A public release is promoted only from an exact private source that has passed that full pipeline.
 
-Full regression/static-write-safety validation:
+## Public release gate
 
-```bash
-bash scripts/validate.sh
-```
+A stable or public-test release requires:
 
-Real synthetic Swing/plugin integration:
+- exact source identity;
+- complete full-validation PASS;
+- static/write-safety PASS;
+- automated guarded Apply/Restore PASS;
+- real Swing/Xvfb integration PASS;
+- exact deterministic JAR SHA-256;
+- public tree sanitation;
+- no private logs/tunes/recordings/recovery packages;
+- no TunerStudio Plugin API redistribution;
+- release wording that distinguishes software validation from numerical tuning maturity.
 
-```bash
-bash scripts/synthetic-plugin-integration.sh
-```
+## Current v0.4.4 provenance
 
-## GitHub Actions
-
-The private repository intentionally keeps one permanent workflow:
-
-`.github/workflows/build.yml`
-
-It runs on `main`, pull requests and manual dispatch. It:
-
-1. checks out the exact source;
-2. runs full validation;
-3. verifies a virtual display is available;
-4. exercises the real synthetic plugin panel;
-5. records the deterministic JAR checksum;
-6. uploads the validated JAR as a short-lived Actions artifact;
-7. records synthetic evidence checksums.
-
-There is no separate candidate-build branch/workflow.
+- validated runtime source: `23dfbfba15a99f453c242dd0c85bff4a7b1f3cbd`;
+- public-identity source: `3976f8e584efdfd9d0e4bd88b438098421596aba`;
+- CI #1511 / `34564608676`: PASS;
+- JAR: `ae-tuner-epicefi-0.4.4.jar`;
+- SHA-256: `1a60283a4414167142fbd8a96584780caf52a7eb8cbaba2ae88b466016df1bfd`.
 
 ## TunerStudio installation
 
 1. Remove older `ae-tuner-epicefi-*.jar` files from the TunerStudio plugin directory.
-2. Copy only the intended JAR into the plugin directory.
+2. Copy only the intended release JAR into the plugin directory.
 3. Restart TunerStudio.
-4. Confirm only one AE Tuner entry appears.
-5. Confirm displayed version.
-6. Read Working Tune and verify expected project/settings/channel resolution.
-
-For controlled testing, verify the local file SHA-256 against the recorded build/release identity.
-
-## RC/public-test release gate
-
-A public release candidate requires, at minimum:
-
-- exact source identity;
-- complete deterministic full-validation PASS;
-- static/write safety PASS;
-- synthetic real-plugin/Swing integration PASS;
-- existing width/long-session regressions PASS through the permanent workflow;
-- exact deterministic JAR SHA-256 from that validated source;
-- current safety/write boundary documented;
-- public tree sanitation verified;
-- no private vehicle logs/tunes/reports/videos in the public tree;
-- no private development dependency redistributed;
-- release wording that distinguishes validated software behavior from still-evolving tuning algorithms.
-
-Numerical tuning conclusions require their own physical evidence and are not implied by software release status.
-
-### Writable representations
-
-The generic guarded working-tune Apply/readback/Restore mechanism has already been physically proven across multiple representations.
-
-Current completed qualifications include:
-
-- Predictive MAP Blend Duration;
-- MAP Estimate indexed table cells;
-- Detector Delta Window scalar (`25 ms -> temporary value -> Apply/readback PASS -> Restore 25 ms PASS`).
-
-Sample Length and Fast Callback write experiments also worked during development, but they are now read-only context/prerequisite in normal AE Tuner product authority. Engagement Model representation research was completed, but Engagement Model editing itself was scrapped from the product path.
-
-Do not repeat completed representation tests unless the representation/host contract changes materially, and do not silently broaden write authority for release convenience.
+4. Confirm displayed version.
+5. Read Working Tune and verify expected project/settings/channel resolution.
 
 ## Public source/dependency boundary
 
 AE Tuner source and project documentation use Apache License 2.0.
 
-`lib/TunerStudioPluginAPI.jar` is a private build dependency. It is not covered by the AE Tuner license and must not be copied into the public repository, attached to the public release, or embedded inside the AE Tuner JAR.
+`lib/TunerStudioPluginAPI.jar` is a separately licensed third-party dependency. It must not be committed to the public repository, attached to public releases, or embedded inside the AE Tuner JAR.
 
-The public `lib/` directory should contain dependency instructions only.
-
-Audit the public repository tree independently before publishing; do not mirror the private repo blindly.
-
-## Release assets
-
-The release assets must be the exact validated JAR plus checksum file:
-
-- `ae-tuner-epicefi-<version>.jar`;
-- `SHA256SUMS.txt`.
-
-Release notes should include:
-
-- release/test maturity;
-- supported environment notes;
-- installation steps;
-- safety/write limitations;
-- known issues;
-- feedback request and useful evidence to include in bug reports.
-
-Source archives generated by GitHub inherit the public repository tree, so the public-tree dependency/sanitation policy must be satisfied before tagging.
-
-## RC2 publication contract
-
-`v0.4.2-rc.2` is a full release candidate published as a public test release.
-
-It supersedes `v0.4.2-rc.1` because RC1 retained temporary detector-research/editing surfaces and incorrectly described Delta Window physical qualification as pending. RC1 provenance must remain available and should be clearly marked superseded rather than deleted.
-
-The RC2 tag/release must refer to the exact sanitized public source corresponding to the exact fully validated private product source. The attached JAR must be the exact deterministic artifact validated from that private source, not a later independent rebuild of an unverified revision.
-
-## Versioning
-
-Keep these synchronized where applicable:
-
-- `pom.xml` version;
-- `AeTunerPlugin.VERSION`;
-- JAR filename;
-- manifest `Implementation-Version`.
-
-Use a clearly marked prerelease/test version when broad external feedback is the objective and tuning algorithms are still evolving.
+Release assets are the exact validated JAR plus checksum file. Source archives generated by GitHub inherit the sanitized public repository tree.
