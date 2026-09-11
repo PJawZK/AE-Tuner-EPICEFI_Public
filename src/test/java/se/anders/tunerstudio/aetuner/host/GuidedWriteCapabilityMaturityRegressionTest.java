@@ -4,7 +4,10 @@ import se.anders.tunerstudio.aetuner.guided.GuidedTuningRecipe;
 
 /**
  * The 816/816 physical campaign proved the common write layer. Product write
- * availability must therefore no longer be held back by unfinished tuning math.
+ * availability must therefore no longer be held back by recommendation maturity.
+ * PARTIAL means a real baseline evidence algorithm exists and still requires
+ * vehicle confirmation/refinement; it does not mean the controller surface is
+ * absent or unwritable.
  */
 public final class GuidedWriteCapabilityMaturityRegressionTest {
     private GuidedWriteCapabilityMaturityRegressionTest() { }
@@ -59,28 +62,37 @@ public final class GuidedWriteCapabilityMaturityRegressionTest {
                 GuidedControllerSettingInventory.RecommendationSupport.CURRENT);
         requireRecommendation(GuidedTuningRecipe.FOUNDATION_THRESHOLD,
                 GuidedControllerSettingInventory.RecommendationSupport.PARTIAL);
+
         requireRecommendation(GuidedTuningRecipe.TPS_AE,
                 GuidedControllerSettingInventory.RecommendationSupport.PARTIAL);
+        requireRecommendation(GuidedTuningRecipe.TPS_AE_COMPENSATION,
+                GuidedControllerSettingInventory.RecommendationSupport.PARTIAL);
+        requireRecommendation(GuidedTuningRecipe.TPS_AE_COMPLETION,
+                GuidedControllerSettingInventory.RecommendationSupport.PARTIAL);
+
         requireRecommendation(GuidedTuningRecipe.MAP_ESTIMATE,
                 GuidedControllerSettingInventory.RecommendationSupport.CURRENT);
         requireRecommendation(GuidedTuningRecipe.BLEND_DURATION,
                 GuidedControllerSettingInventory.RecommendationSupport.CURRENT);
+
         requireRecommendation(GuidedTuningRecipe.WALL_WETTING,
                 GuidedControllerSettingInventory.RecommendationSupport.PARTIAL);
         requireRecommendation(GuidedTuningRecipe.WALL_WETTING_ADVANCED,
-                GuidedControllerSettingInventory.RecommendationSupport.PLANNED);
+                GuidedControllerSettingInventory.RecommendationSupport.PARTIAL);
+
         requireRecommendation(GuidedTuningRecipe.DECEL_DETECTION,
-                GuidedControllerSettingInventory.RecommendationSupport.PLANNED);
+                GuidedControllerSettingInventory.RecommendationSupport.PARTIAL);
         requireRecommendation(GuidedTuningRecipe.DECEL_FUEL,
                 GuidedControllerSettingInventory.RecommendationSupport.PLANNED);
         requireRecommendation(GuidedTuningRecipe.DECEL_MAP_PREDICT,
                 GuidedControllerSettingInventory.RecommendationSupport.PLANNED);
+
         requireRecommendation(GuidedTuningRecipe.INSTANT_FUEL_SETUP,
-                GuidedControllerSettingInventory.RecommendationSupport.PLANNED);
+                GuidedControllerSettingInventory.RecommendationSupport.PARTIAL);
         requireRecommendation(GuidedTuningRecipe.INSTANT_FUEL_EVENT_STRENGTH,
-                GuidedControllerSettingInventory.RecommendationSupport.PLANNED);
+                GuidedControllerSettingInventory.RecommendationSupport.PARTIAL);
         requireRecommendation(GuidedTuningRecipe.INSTANT_FUEL_CONDITIONS,
-                GuidedControllerSettingInventory.RecommendationSupport.PLANNED);
+                GuidedControllerSettingInventory.RecommendationSupport.PARTIAL);
 
         for (GuidedControllerSettingInventory.TaskInventory item
                 : GuidedControllerSettingInventory.all()) {

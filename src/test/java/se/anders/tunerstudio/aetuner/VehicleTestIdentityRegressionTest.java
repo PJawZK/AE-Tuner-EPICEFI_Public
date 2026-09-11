@@ -9,31 +9,31 @@ import se.anders.tunerstudio.aetuner.recovery.*;
 import se.anders.tunerstudio.aetuner.ui.*;
 
 public final class VehicleTestIdentityRegressionTest {
-    private static final String EXPECTED_VERSION = "0.4.3";
+    private static final String EXPECTED_VERSION = "0.4.4";
     private static final String EXPECTED_PUBLIC_REPOSITORY =
             "https://github.com/PJawZK/AE-Tuner-EPICEFI_Public";
 
     public static void main(String[] args) {
         assertEquals(EXPECTED_VERSION, BuildIdentity.VERSION,
-                "small build-identity authority must identify the exact vehicle-test build");
+                "small build-identity authority must identify the exact public release");
         assertEquals(EXPECTED_VERSION, AeTunerPlugin.VERSION,
-                "source version must identify the exact vehicle-test build");
+                "source version must identify the exact public release");
         assertTrue(AeTunerPlugin.VEHICLE_TEST_BANNER.contains(EXPECTED_VERSION),
-                "banner must include the exact vehicle-test version");
+                "banner must include the exact public release version");
         assertTrue(AeTunerPlugin.VEHICLE_TEST_BANNER.contains("PUBLIC RELEASE"),
                 "public release banner must identify the release boundary");
         assertTrue(!AeTunerPlugin.VEHICLE_TEST_BANNER.contains("RELEASE CANDIDATE"),
-                "internal vehicle-test build must not masquerade as the published release candidate");
+                "public release must not masquerade as a release candidate");
         assertTrue(!AeTunerPlugin.VEHICLE_TEST_BANNER.contains("PUBLIC TEST"),
-                "internal vehicle-test build must not masquerade as the published public-test artifact");
+                "public release must not masquerade as a public-test artifact");
         assertTrue(AeTunerPlugin.VEHICLE_TEST_BANNER.contains("guarded Apply/Restore"),
-                "vehicle-test banner must preserve the guarded working-tune mutation boundary");
+                "public release banner must preserve the guarded working-tune mutation boundary");
         assertTrue(AeTunerPlugin.VEHICLE_TEST_BANNER.contains("NO BURN"),
                 "banner must preserve the no-burn boundary");
         assertTrue(AeTunerPlugin.VEHICLE_TEST_BANNER.length() <= 130,
-                "vehicle-test banner regressed to a long line likely to clip at the physical 1366 px test width");
+                "public release banner regressed to a long line likely to clip at the physical 1366 px test width");
         assertTrue(!AeTunerPlugin.VEHICLE_TEST_BANNER.contains("physically validated"),
-                "vehicle-test candidate must not claim broad physical validation beyond the scoped Foundation evidence");
+                "public release must not claim broad physical validation beyond scoped vehicle evidence");
         assertEquals(EXPECTED_PUBLIC_REPOSITORY, AeTunerPlugin.PUBLIC_REPOSITORY_URL,
                 "public repository constant changed unexpectedly");
 
@@ -50,7 +50,7 @@ public final class VehicleTestIdentityRegressionTest {
                     plugin.getVehicleTestBannerForTest(),
                     "visible Guided Tuning banner must match the source identity");
             assertEquals(EXPECTED_VERSION, plugin.getVersion(),
-                    "plugin API version must match the vehicle-test identity");
+                    "plugin API version must match the public release identity");
             assertEquals(EXPECTED_PUBLIC_REPOSITORY, plugin.getHelpUrl(),
                     "TunerStudio About plugin/help metadata must expose the public repository URL");
             assertTrue(plugin.areGuidedSoundCuesEnabledForTest(),
@@ -63,15 +63,15 @@ public final class VehicleTestIdentityRegressionTest {
                             == GuidedAudioCueController.Cue.values().length,
                     "Audio Cue Lab must expose every assignable workflow cue");
             assertTrue(plugin.evidenceDiagnosticsTabCountForTest() == 4,
-                    "Evidence / Diagnostics must expose four distinct diagnostic surfaces");
+                    "Evidence / Diagnostics must preserve four diagnostic surfaces inside its utility pop-out");
             assertEquals("Overview", plugin.evidenceDiagnosticsTabTitleForTest(0),
-                    "diagnostics Overview tab changed unexpectedly");
+                    "diagnostics Overview section changed unexpectedly");
             assertEquals("Channels / Runtime", plugin.evidenceDiagnosticsTabTitleForTest(1),
-                    "diagnostics runtime tab changed unexpectedly");
+                    "diagnostics runtime section changed unexpectedly");
             assertEquals("Audio Cue Lab", plugin.evidenceDiagnosticsTabTitleForTest(2),
-                    "diagnostics Audio Cue Lab tab changed unexpectedly");
+                    "diagnostics Audio Cue Lab section changed unexpectedly");
             assertEquals("Recovery / Audit", plugin.evidenceDiagnosticsTabTitleForTest(3),
-                    "diagnostics recovery/audit tab changed unexpectedly");
+                    "diagnostics recovery/audit section changed unexpectedly");
             assertTrue(!plugin.areVehicleTestOverridesEnabledForTest(),
                     "vehicle-test overrides must default OFF");
             assertTrue(!plugin.lifecycleActiveForTest(),
@@ -81,7 +81,7 @@ public final class VehicleTestIdentityRegressionTest {
             assertTrue(plugin.presentationSuspendedForTest(),
                     "presentation work must remain suspended before first host display");
             assertTrue(!plugin.guidedControllerPreparedForTest(),
-                    "Guided controller/read-write path must be deferred before Guided Tuning is selected");
+                    "controller/read-write path must remain deferred before host initialize/show");
         } finally {
             plugin.close();
             System.clearProperty("ae.tuner.recovery.dir");

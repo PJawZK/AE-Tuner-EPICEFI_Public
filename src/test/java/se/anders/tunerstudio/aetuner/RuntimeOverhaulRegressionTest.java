@@ -20,21 +20,42 @@ import java.nio.file.Paths;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
-/**
- * Regression coverage for the physical Guided/runtime lifecycle failures.
- *
- * These cases deliberately exercise the plugin host shell rather than only
- * testing Guided/audio/recovery components in isolation.
- */
+/** Regression coverage for the physical Guided/runtime lifecycle failures. */
 public final class RuntimeOverhaulRegressionTest {
     private RuntimeOverhaulRegressionTest() { }
 
     public static void main(String[] args) throws Exception {
+        sameControllerInitializeIsIdempotent();
         hiddenHostAttachmentCannotDestroyInitializedLifecycle();
         edtCloseCannotWaitOnDeferredRecoveryCheckpoint();
-        controlledSweepRestorePrecedesHideAndControllerTeardown();
-        validationLabIsExplicitAndRestoreGuarded();
+        retiredValidationLabCannotOwnLifecycle();
         System.out.println("RuntimeOverhaulRegressionTest passed");
+    }
+
+    private static void sameControllerInitializeIsIdempotent() throws Exception {
+        Path recovery = Files.createTempDirectory("ae-tuner-idempotent-init");
+        System.setProperty("ae.tuner.recovery.dir", recovery.toString());
+        AeTunerPlugin plugin = new AeTunerPlugin();
+        try {
+            plugin.initialize(null);
+            require(plugin.lifecycleActiveForTest(),
+                    "first initialize did not activate the plugin lifecycle");
+            require(plugin.initializeActivationCountForTest() == 1,
+                    "first initialize did not register exactly one lifecycle activation");
+            boolean suspended = plugin.presentationSuspendedForTest();
+            boolean guidedPrepared = plugin.guidedControllerPreparedForTest();
+
+            plugin.initialize(null);
+            require(plugin.initializeActivationCountForTest() == 1,
+                    "same ControllerAccess initialize performed a second lifecycle activation");
+            require(plugin.presentationSuspendedForTest() == suspended,
+                    "idempotent initialize reset presentation state");
+            require(plugin.guidedControllerPreparedForTest() == guidedPrepared,
+                    "idempotent initialize reset Guided controller ownership");
+        } finally {
+            plugin.close();
+            System.clearProperty("ae.tuner.recovery.dir");
+        }
     }
 
     private static void hiddenHostAttachmentCannotDestroyInitializedLifecycle()
@@ -43,11 +64,6 @@ public final class RuntimeOverhaulRegressionTest {
         System.setProperty("ae.tuner.recovery.dir", recovery.toString());
         AeTunerPlugin plugin = new AeTunerPlugin();
         try {
-            require("Apply/Restore Validation Lab (TEMP)".equals(
-                            plugin.validationLabButtonTextForTest()),
-                    "temporary physical validation Lab is not explicitly visible in Guided header");
-            require(plugin.validationLabButtonToolTipForTest().contains("no burn"),
-                    "validation Lab launcher does not visibly preserve no-burn safety boundary");
             setBoolean(plugin, "lifecycleActive", true);
 
             JTabbedPane tabs = (JTabbedPane) field(plugin, "rootTabs");
@@ -104,7 +120,6 @@ public final class RuntimeOverhaulRegressionTest {
         EvidenceRecoveryManager manager =
                 new EvidenceRecoveryManager(passive, guided, root);
         manager.resume();
-
         manager.requestCheckpoint();
 
         final AtomicLong elapsedMillis = new AtomicLong(Long.MAX_VALUE);
@@ -138,66 +153,54 @@ public final class RuntimeOverhaulRegressionTest {
         }
     }
 
-    private static void controlledSweepRestorePrecedesHideAndControllerTeardown()
-            throws Exception {
+    private static void retiredValidationLabCannotOwnLifecycle() throws Exception {
+        Path guidedRoot = Paths.get("src/main/java/se/anders/tunerstudio/aetuner/guided");
+        require(!Files.exists(guidedRoot.resolve("AeApplyRestoreValidationLabPanel.java"))
+                        && !Files.exists(guidedRoot.resolve("AeApplyRestoreValidationLabWindow.java")),
+                "retired Validation Lab Swing UI source returned");
+        requireClassMissing("se.anders.tunerstudio.aetuner.guided.AeApplyRestoreValidationLabPanel");
+        requireClassMissing("se.anders.tunerstudio.aetuner.guided.AeApplyRestoreValidationLabWindow");
+
         String source = new String(Files.readAllBytes(Paths.get(
                 "src/main/java/se/anders/tunerstudio/aetuner/AeTunerPlugin.java")), "UTF-8");
+        require(!source.contains("ValidationLab")
+                        && !source.contains("Apply/Restore Validation Lab (TEMP)"),
+                "retired physical Validation Lab still owns host runtime/lifecycle state");
+        require(!source.contains("EngagementDeltaWindowLifecycleGuard")
+                        && !source.contains("EngagementDeltaWindowSweepRuntime"),
+                "retired controlled-sweep lifecycle ownership reappeared in the plugin shell");
+
+        String engine = new String(Files.readAllBytes(Paths.get(
+                "src/main/java/se/anders/tunerstudio/aetuner/host/AeApplyRestoreValidationEngine.java")), "UTF-8");
+        require(engine.contains("new ProposalApplyCoordinator(access)")
+                        && engine.contains("ProposalApplyCoordinator.ApplyResult apply = coordinator.apply(activePlan)")
+                        && engine.contains("ProposalApplyCoordinator.ApplyResult restore = coordinator.restorePreviousApply()")
+                        && engine.contains("Automatic safety restore PASS")
+                        && engine.contains("Independent original-value readback PASS"),
+                "retained validation engine lost coordinator/readback/Restore safety authority");
 
         int hide = source.indexOf("private synchronized void suspendForHide()");
-        int hideGuard = source.indexOf(
-                "EngagementDeltaWindowLifecycleGuard.finishBeforeExternalLifecycleEnd()", hide);
         int hideSuspend = source.indexOf("guidedPanel.suspendPanel()", hide);
         int hideTerminate = source.indexOf("guidedPanel.terminateForClose()", hide);
-        require(hide >= 0 && hideGuard > hide
-                        && hideSuspend > hideGuard && hideTerminate > hideGuard,
-                "presentation hide can suspend/terminate Guided before the controlled-sweep restore guard");
+        require(hide >= 0 && hideSuspend > hide && hideTerminate > hideSuspend,
+                "plugin hide lost the current Guided suspend/termination lifecycle ordering");
 
         int close = source.indexOf("private synchronized boolean beginFinalClose()");
-        int closeGuard = source.indexOf(
-                "EngagementDeltaWindowLifecycleGuard.finishBeforeExternalLifecycleEnd()", close);
         int closeSuspend = source.indexOf("guidedPanel.suspendPanel()", close);
         int disconnect = source.indexOf("panel.disconnectController()", close);
         int closeTerminate = source.indexOf("guidedPanel.terminateForClose()", close);
-        require(close >= 0 && closeGuard > close
-                        && closeSuspend > closeGuard
-                        && disconnect > closeGuard
-                        && closeTerminate > closeGuard,
-                "plugin close can tear down sample/controller ownership before verified Delta Window restore");
-
-        String guardSource = new String(Files.readAllBytes(Paths.get(
-                "src/main/java/se/anders/tunerstudio/aetuner/guided/EngagementDeltaWindowLifecycleGuard.java")), "UTF-8");
-        require(guardSource.contains("return EngagementDeltaWindowSweepRuntime.finishForLifecycle();"),
-                "external lifecycle guard no longer delegates to the verified sweep finish/restore boundary");
+        require(close >= 0 && closeSuspend > close
+                        && disconnect > closeSuspend && closeTerminate > disconnect,
+                "plugin close lost the current controller/Guided teardown ordering");
     }
 
-    private static void validationLabIsExplicitAndRestoreGuarded() throws Exception {
-        String source = new String(Files.readAllBytes(Paths.get(
-                "src/main/java/se/anders/tunerstudio/aetuner/AeTunerPlugin.java")), "UTF-8");
-        require(source.contains("new JButton(\"Apply/Restore Validation Lab (TEMP)\")"),
-                "physical validation Lab launcher is no longer explicitly visible/temporary");
-        require(!source.contains("ae.tuner.validation.lab")
-                        && !source.contains("System.getenv(\"AE_TUNER_VALIDATION"),
-                "physical validation Lab became hidden behind a property/environment flag");
-
-        int hide = source.indexOf("private synchronized void suspendForHide()");
-        int hideValidation = source.indexOf(
-                "validationLabWindow.prepareForExternalLifecycleEnd()", hide);
-        int hideSweep = source.indexOf(
-                "EngagementDeltaWindowLifecycleGuard.finishBeforeExternalLifecycleEnd()", hide);
-        int hideSuspend = source.indexOf("guidedPanel.suspendPanel()", hide);
-        require(hide >= 0 && hideValidation > hide
-                        && hideSweep > hideValidation && hideSuspend > hideSweep,
-                "plugin hide does not restore Validation Lab before other teardown guards/resources");
-
-        int close = source.indexOf("private synchronized boolean beginFinalClose()");
-        int closeValidation = source.indexOf(
-                "validationLabWindow.prepareForExternalLifecycleEnd()", close);
-        int closeSweep = source.indexOf(
-                "EngagementDeltaWindowLifecycleGuard.finishBeforeExternalLifecycleEnd()", close);
-        int disconnect = source.indexOf("panel.disconnectController()", close);
-        require(close >= 0 && closeValidation > close
-                        && closeSweep > closeValidation && disconnect > closeSweep,
-                "plugin close can disconnect controller before Validation Lab exact Restore");
+    private static void requireClassMissing(String name) throws Exception {
+        try {
+            Class.forName(name);
+            throw new AssertionError("retired Validation Lab UI type is still loadable: " + name);
+        } catch (ClassNotFoundException expected) {
+            // Expected permanent architecture state.
+        }
     }
 
     private static void fire(JTabbedPane tabs, long flags) {

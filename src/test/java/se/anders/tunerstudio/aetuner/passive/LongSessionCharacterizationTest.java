@@ -55,10 +55,18 @@ public final class LongSessionCharacterizationTest {
             AeTunerPanel panel = panelWithEvents(project, events);
             Object overviewController = field(panel, "overviewController");
             double overviewColdMs = timedInvokeOnEdt(panel, "refreshUi");
+            Object cachedRefreshEvents = field(panel, "refreshEventSnapshot");
+            long cachedRefreshRevision = ((Long) field(panel,
+                    "refreshEventSnapshotRevision")).longValue();
             Object cachedReview = field(overviewController, "cachedEventReview");
             long cachedRevision = ((Long) field(overviewController,
                     "cachedEventReviewRevision")).longValue();
             double overviewCachedMs = timedInvokeOnEdt(panel, "refreshUi");
+            require(field(panel, "refreshEventSnapshot") == cachedRefreshEvents,
+                    "Unchanged event revision must reuse the exact Passive refresh event snapshot");
+            require(((Long) field(panel, "refreshEventSnapshotRevision")).longValue()
+                            == cachedRefreshRevision,
+                    "Passive refresh event snapshot revision changed without a new event");
             require(field(overviewController, "cachedEventReview") == cachedReview,
                     "Unchanged event revision must reuse the controller cached SessionReview");
             require(((Long) field(overviewController,
@@ -67,10 +75,15 @@ public final class LongSessionCharacterizationTest {
 
             started = System.nanoTime();
             Method guidanceMethod = overviewController.getClass().getDeclaredMethod(
-                    "sessionGuidanceText", AeProjectSnapshot.class, List.class);
+                    "sessionGuidanceText", AeProjectSnapshot.class, int.class, SessionReview.class);
             guidanceMethod.setAccessible(true);
+            SessionReview guidanceReview = (SessionReview) field(overviewController, "cachedEventReview");
+            require(guidanceReview.predictionEvents() == count,
+                    "Cached SessionReview prediction count drifted from retained event evidence");
+            require(guidanceReview.repeatedResetEvents() == 0,
+                    "Synthetic long-session events unexpectedly reported repeated resets");
             String guidance = (String) guidanceMethod.invoke(
-                    overviewController, project, events);
+                    overviewController, project, Integer.valueOf(events.size()), guidanceReview);
             double guidanceMs = elapsedMillis(started);
             require(guidance.length() > 0, "Guidance text must not be empty");
 
@@ -250,6 +263,13 @@ public final class LongSessionCharacterizationTest {
         @SuppressWarnings("unchecked")
         List<TransientEvent> events = (List<TransientEvent>) field(panel, "capturedEvents");
         require(events.isEmpty(), "Reset retained captured events");
+        @SuppressWarnings("unchecked")
+        List<TransientEvent> refreshSnapshot =
+                (List<TransientEvent>) field(panel, "refreshEventSnapshot");
+        require(refreshSnapshot.isEmpty()
+                        && ((Long) field(panel, "refreshEventSnapshotRevision")).longValue()
+                            == ((Long) field(panel, "eventRevision")).longValue(),
+                "Reset did not publish a fresh empty Passive refresh event snapshot");
         require(((Integer) field(panel, "acceptedEvents")).intValue() == 0
                         && ((Integer) field(panel, "rejectedEvents")).intValue() == 0,
                 "Reset retained event counters");
