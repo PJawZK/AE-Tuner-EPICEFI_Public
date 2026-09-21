@@ -1,0 +1,40 @@
+name: Import exact public 0.4.5 source repair
+
+on:
+  push:
+    branches:
+      - 20260921-release-v045
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Verify and extract exact qualified source repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat public-src-fix-transfer/part_* > /tmp/src-fix.b64
+          echo 'c2ee4d4193c2c10158bd98b4d574f725cb5705a09fc4f6389e14ff17628ae682  /tmp/src-fix.b64' | sha256sum -c -
+          base64 -d /tmp/src-fix.b64 > /tmp/src-fix.tar.xz
+          echo '19cd7a585e8cab3d8e816072c8e764a6c16cb26afc5ee5f56d129bb057cdd7c0  /tmp/src-fix.tar.xz' | sha256sum -c -
+          xz -dc /tmp/src-fix.tar.xz | tar -x
+          sha256sum -c public-src-fix-transfer/FILES.sha256
+
+      - name: Publish clean repaired release branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf public-src-fix-transfer
+          rm .github/workflows/import-public-src-fix-v045.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'release: restore exact qualified 0.4.5 source set'
+          git push --force-with-lease=refs/heads/20260921-release-v045:${GITHUB_SHA} origin HEAD:refs/heads/20260921-release-v045
