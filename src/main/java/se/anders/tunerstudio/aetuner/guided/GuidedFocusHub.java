@@ -97,8 +97,7 @@ public final class GuidedFocusHub {
     public static boolean canFinishCapture() {
         CaptureControl control = captureControl;
         GuidedCaptureState state = activeCaptureState();
-        return control != null && (state == GuidedCaptureState.CAPTURING
-                || state == GuidedCaptureState.PAUSED);
+        return control != null && state.isCaptureInProgress();
     }
 
     /**
@@ -148,6 +147,21 @@ public final class GuidedFocusHub {
         CaptureControl control = captureControl;
         if (control != null && isActiveEvidenceReviewReady()
                 && control.canExportEvidence()) control.exportEvidence();
+    }
+
+    /**
+     * Session export is a read-only snapshot of whatever has been collected so
+     * far. Unlike Export Evidence, it does not imply Review readiness and does
+     * not unlock Review or Apply.
+     */
+    public static boolean canExportActiveSession() {
+        CaptureControl control = captureControl;
+        return control != null && control.canExportEvidence();
+    }
+
+    public static void exportActiveSession() {
+        CaptureControl control = captureControl;
+        if (control != null && control.canExportEvidence()) control.exportEvidence();
     }
 
     public static void setMapEstimateConfigurationListener(

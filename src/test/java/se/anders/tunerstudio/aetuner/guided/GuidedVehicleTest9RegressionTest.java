@@ -3,7 +3,6 @@ package se.anders.tunerstudio.aetuner.guided;
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.guided.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
@@ -17,12 +16,12 @@ public final class GuidedVehicleTest9RegressionTest {
 
     public static void main(String[] args) {
         rollingBaselineAcceptsGradualRoadLoadChange();
-        controlledPedalPlateauInsideRequestedStepIsAccepted();
-        stablePlateauOutsideRequestedStepIsExcluded();
+        stableUsablePedalPlateauIsAccepted();
+        stableUsablePlateauIgnoresSuggestedStep();
         differentRoadLoadCreatesAnotherValidGroupInsteadOfExclusion();
         finalComparableEventSurvivesSeriesCompleteTransition();
         driverTargetBaselineAppearsOnlyAfterOpeningIsFrozen();
-        finalUpwardPredictionTargetReplacesEarlierAnchor();
+        latestPredictionTimerResetRemainsDiagnosticOnly();
         System.out.println("GuidedVehicleTest9RegressionTest passed");
     }
 
@@ -32,7 +31,6 @@ public final class GuidedVehicleTest9RegressionTest {
         require(session.snapshot().state == GuidedCaptureState.READY,
                 "trend-aware road baseline did not reach READY");
         double initial = session.baselineTpsForDisplay();
-
         for (int i = 1; i <= 8; i++) {
             double t = time + i * 0.05;
             session.accept(sampleDetailed(t, 2045.0 + i * 12.0,
@@ -47,45 +45,41 @@ public final class GuidedVehicleTest9RegressionTest {
                 "gradual READY road corrections must not create a chasing TPS target");
     }
 
-    private static void controlledPedalPlateauInsideRequestedStepIsAccepted() {
+    private static void stableUsablePedalPlateauIsAccepted() {
         BlendDurationGuidedSession session = session(3, 22.0);
         double time = settle(session, 0.0, 50.0, 8.0);
         opening(session, time, 50.0, 8.0, 30.0);
         GuidedOutcome outcome = session.drainOutcome();
         require(outcome != null && outcome.isValid(),
-                "controlled TPS-step plateau inside the requested range was not retained");
+                "stable physically usable TPS-step plateau was not retained");
         require("A".equals(outcome.groupId),
                 "first valid controlled road event did not establish group A");
         require(session.snapshot().result.contains("Controlled held TPS"),
                 "controlled result did not report measured hold");
-        require(session.snapshot().result.contains("TPS step: +"),
-                "controlled result did not report relative TPS step");
-        require(session.snapshot().result.contains("final prediction target"),
-                "corrected result did not report the final upward-latched prediction target");
+        require(session.snapshot().result.contains("Physical MAP 20->80 response duration"),
+                "physical response duration was not reported");
+        require(session.snapshot().result.contains("Prediction diagnostic only"),
+                "prediction context was not visibly demoted from physical authority");
+        require(outcome.trace.contains("physical_response_20_80_s="),
+                "trace omitted normalized physical response duration");
         require(outcome.durationSeconds > 0.25 && outcome.durationSeconds < 0.35,
-                "final-target catch-up duration did not start at the last upward target update");
+                "physical 20->80 response duration was not measured from the observed MAP step");
     }
 
-    private static void stablePlateauOutsideRequestedStepIsExcluded() {
+    private static void stableUsablePlateauIgnoresSuggestedStep() {
         BlendDurationGuidedSession session = session(3, 40.0);
         double time = settle(session, 0.0, 50.0, 8.0);
-
-        // A stable +22 opening remains outside the current +30..+40 target
-        // window for an operator-selected +40 step and must end as an explicit
-        // controlled-step exclusion.
-        session.accept(sampleDetailed(time + 0.05, 2000.0,
-                54.0, 18.0, 68.0, true, true, 2.0, 40.0));
-        for (int i = 2; i <= 23; i++) {
-            double t = time + i * 0.05;
-            session.accept(sampleDetailed(t, 2020.0,
-                    60.0, 30.0, 82.0, true, true, 2.0, 40.0));
-        }
+        opening(session, time, 50.0, 8.0, 30.0);
         GuidedOutcome outcome = session.drainOutcome();
-        require(outcome != null
-                        && outcome.decision == GuidedOutcome.Decision.EXCLUDED,
-                "stable +22 opening was not excluded from a requested +40 series");
-        require(outcome.details.contains("outside the requested +30.0 to +40.0 window"),
-                "controlled TPS-step exclusion did not explain the actual requested range");
+        require(outcome != null && outcome.isValid(),
+                "stable +22 opening was rejected because the coaching suggestion was +40");
+        require("A".equals(outcome.groupId) && outcome.groupCount == 1,
+                "first natural usable opening did not establish its own comparable group");
+        require(!outcome.details.contains("outside the requested"),
+                "retired fixed TPS acceptance-window rejection leaked into the outcome");
+        require(session.snapshot().result.contains(
+                        "suggested TPS step: +40.0 (coaching only)"),
+                "session summary does not expose the configured TPS value as coaching only");
     }
 
     private static void differentRoadLoadCreatesAnotherValidGroupInsteadOfExclusion() {
@@ -94,7 +88,6 @@ public final class GuidedVehicleTest9RegressionTest {
         time = opening(session, time, 50.0, 8.0, 30.0);
         GuidedOutcome first = session.drainOutcome();
         require(first != null && first.isValid(), "reference road event missing");
-
         time = settleAfterOutcome(session, time, 62.0, 10.0);
         opening(session, time, 62.0, 10.0, 32.0);
         GuidedOutcome second = session.drainOutcome();
@@ -110,13 +103,11 @@ public final class GuidedVehicleTest9RegressionTest {
         time = opening(session, time, 50.0, 8.0, 30.0);
         GuidedOutcome first = session.drainOutcome();
         require(first != null && first.isValid(), "first valid event missing");
-
         time = settleAfterOutcome(session, time, 62.0, 10.0);
         time = opening(session, time, 62.0, 10.0, 32.0);
         GuidedOutcome otherGroup = session.drainOutcome();
         require(otherGroup != null && otherGroup.isValid(),
                 "second load-group event missing");
-
         time = settleAfterOutcome(session, time, 51.5, 8.5);
         opening(session, time, 51.5, 8.5, 30.5);
         require(session.snapshot().state == GuidedCaptureState.COMPLETE,
@@ -124,8 +115,7 @@ public final class GuidedVehicleTest9RegressionTest {
         GuidedOutcome finalOutcome = session.drainOutcome();
         require(finalOutcome != null && finalOutcome.isValid(),
                 "final accepted event was swallowed by SERIES COMPLETE transition");
-        require("A".equals(finalOutcome.groupId)
-                        && finalOutcome.groupCount == 2,
+        require("A".equals(finalOutcome.groupId) && finalOutcome.groupCount == 2,
                 "final event did not enter the comparable group before completion");
         require(session.validCount() == 3,
                 "series completion lost a valid event from the session count");
@@ -139,7 +129,6 @@ public final class GuidedVehicleTest9RegressionTest {
                 "flat road baseline did not reach READY");
         require(Double.isNaN(session.baselineTpsForDisplay()),
                 "READY must not expose its rolling baseline as a driver target");
-
         session.accept(sampleDetailed(time + 0.05, 2000.0,
                 50.2, 9.2, 50.2, false, false, 2.0, 40.0));
         require(session.snapshot().state == GuidedCaptureState.OPENING_PENDING,
@@ -147,7 +136,6 @@ public final class GuidedVehicleTest9RegressionTest {
         double frozen = session.baselineTpsForDisplay();
         require(Double.isFinite(frozen),
                 "OPENING_PENDING must expose the now-frozen pre-opening baseline");
-
         session.accept(sampleDetailed(time + 0.10, 2005.0,
                 50.5, 9.5, 50.5, false, false, 2.0, 40.0));
         require(session.snapshot().state == GuidedCaptureState.OPENING_PENDING,
@@ -156,13 +144,12 @@ public final class GuidedVehicleTest9RegressionTest {
                 "frozen driver-target baseline moved with TPS during OPENING_PENDING");
     }
 
-    private static void finalUpwardPredictionTargetReplacesEarlierAnchor() {
+    private static void latestPredictionTimerResetRemainsDiagnosticOnly() {
         GuidedVehicleTestLimits.restoreCandidateDefaults();
         BlendDurationGuidedSession session = session(3, 22.0);
         double time = settleFlat(session, 0.0, 50.0, 8.0);
         require(session.snapshot().state == GuidedCaptureState.READY,
-                "final-target anchor regression did not reach READY");
-
+                "prediction diagnostic regression did not reach READY");
         session.accept(sampleDetailed(time + 0.05, 2000.0,
                 54.0, 18.0, 68.0, true, true, 2.0, 40.0));
         session.accept(sampleDetailed(time + 0.10, 2010.0,
@@ -179,22 +166,26 @@ public final class GuidedVehicleTest9RegressionTest {
                 82.0, 30.0, 82.0, false, false, 2.0, 40.0));
         session.accept(sampleDetailed(time + 0.50, 2090.0,
                 86.2, 30.0, 82.0, false, false, 2.0, 40.0));
-
+        session.accept(sampleDetailed(time + 0.60, 2100.0,
+                86.2, 30.0, 82.0, false, false, 2.0, 40.0));
+        session.accept(sampleDetailed(time + 0.70, 2110.0,
+                86.2, 30.0, 82.0, false, false, 2.0, 40.0));
+        session.accept(sampleDetailed(time + 0.80, 2120.0,
+                86.2, 30.0, 82.0, false, false, 2.0, 40.0));
         GuidedOutcome outcome = session.drainOutcome();
         require(outcome != null && outcome.isValid(),
-                "final upward-latched target event was not retained");
-        require(outcome.trace.contains("final_prediction_target_kpa=86.00"),
-                "later lower fallbackMap incorrectly replaced the final upward-latched target");
-        require(outcome.trace.contains("measurement_anchor_dt_s="),
-                "corrected trace lost the final target measurement anchor");
+                "physical event was not retained while prediction diagnostics were present");
+        require(outcome.trace.contains("prediction_target_diagnostic_kpa=82.00"),
+                "latest lower fallbackMap was not retained as diagnostic context");
+        require(outcome.trace.contains("physical_20pct_anchor_dt_s="),
+                "trace lost the physical 20-percent timing anchor");
         require(outcome.durationSeconds > 0.25 && outcome.durationSeconds < 0.35,
-                "duration was not measured from the 86-kPa upward target update to physical MAP catch-up");
+                "physical duration still followed prediction-target timing instead of normalized MAP response");
     }
 
     private static BlendDurationGuidedSession session(int targetCount, double desiredStep) {
         BlendDurationGuidedSession session = new BlendDurationGuidedSession();
-        session.start(new BlendDurationCaptureConfig(
-                2000.0, desiredStep, targetCount, 2, false));
+        session.start(new BlendDurationCaptureConfig(2000.0, desiredStep, targetCount, 2, false));
         return session;
     }
 
@@ -202,12 +193,9 @@ public final class GuidedVehicleTest9RegressionTest {
                                  double start, double map, double tps) {
         double time = start;
         for (int i = 0; i < 22; i++) {
-            session.accept(sampleDetailed(time,
-                    1940.0 + i * 5.0,
-                    map + i * 0.08,
-                    tps + i * 0.02,
-                    map + i * 0.08,
-                    false, false, 2.0, 40.0));
+            session.accept(sampleDetailed(time, 1940.0 + i * 5.0,
+                    map + i * 0.08, tps + i * 0.02,
+                    map + i * 0.08, false, false, 2.0, 40.0));
             time += 0.05;
         }
         return time;
@@ -232,32 +220,30 @@ public final class GuidedVehicleTest9RegressionTest {
     private static double opening(BlendDurationGuidedSession session,
                                   double time, double baseMap,
                                   double baseTps, double heldTps) {
-        double target = baseMap + 32.0;
+        double finalMap = baseMap + 32.0;
         session.accept(sampleDetailed(time + 0.05, 2000.0,
-                baseMap + 4.0, baseTps + 10.0, baseMap + 18.0,
-                true, true, 2.0, 40.0));
+                baseMap + 4.0, baseTps + 10.0, baseMap + 18.0, true, true, 2.0, 40.0));
         session.accept(sampleDetailed(time + 0.10, 2010.0,
-                baseMap + 8.0, heldTps - 2.5, baseMap + 25.0,
-                true, true, 2.0, 40.0));
+                baseMap + 8.0, heldTps - 2.5, baseMap + 25.0, true, true, 2.0, 40.0));
         session.accept(sampleDetailed(time + 0.15, 2025.0,
-                baseMap + 12.0, heldTps, baseMap + 30.0,
-                true, true, 2.0, 40.0));
+                baseMap + 12.0, heldTps, baseMap + 30.0, true, true, 2.0, 40.0));
         session.accept(sampleDetailed(time + 0.20, 2040.0,
-                baseMap + 16.0, heldTps + 0.5, target,
-                true, true, 2.0, 40.0));
+                baseMap + 16.0, heldTps + 0.5, finalMap, true, true, 2.0, 40.0));
         session.accept(sampleDetailed(time + 0.25, 2055.0,
-                baseMap + 20.0, heldTps - 0.2, target,
-                true, true, 2.0, 40.0));
+                baseMap + 20.0, heldTps - 0.2, finalMap, true, true, 2.0, 40.0));
         session.accept(sampleDetailed(time + 0.30, 2070.0,
-                baseMap + 24.0, heldTps, target,
-                true, true, 2.0, 40.0));
+                baseMap + 24.0, heldTps, finalMap, true, true, 2.0, 40.0));
         session.accept(sampleDetailed(time + 0.40, 2090.0,
-                baseMap + 28.0, heldTps, target,
-                false, false, 2.0, 40.0));
+                baseMap + 28.0, heldTps, finalMap, false, false, 2.0, 40.0));
         session.accept(sampleDetailed(time + 0.50, 2110.0,
-                target + 0.2, heldTps, target,
-                false, false, 2.0, 40.0));
-        return time + 0.50;
+                finalMap + 0.2, heldTps, finalMap, false, false, 2.0, 40.0));
+        session.accept(sampleDetailed(time + 0.60, 2120.0,
+                finalMap + 0.2, heldTps, finalMap, false, false, 2.0, 40.0));
+        session.accept(sampleDetailed(time + 0.70, 2130.0,
+                finalMap + 0.2, heldTps, finalMap, false, false, 2.0, 40.0));
+        session.accept(sampleDetailed(time + 0.80, 2140.0,
+                finalMap + 0.2, heldTps, finalMap, false, false, 2.0, 40.0));
+        return time + 0.80;
     }
 
     private static LiveSample sampleDetailed(double seconds, double rpm,
@@ -266,21 +252,19 @@ public final class GuidedVehicleTest9RegressionTest {
                                              boolean detector,
                                              boolean prediction,
                                              double gear, double vss) {
-        EnumMap<ChannelRole, Double> values =
-                new EnumMap<ChannelRole, Double>(ChannelRole.class);
+        EnumMap<ChannelRole, Double> values = new EnumMap<ChannelRole, Double>(ChannelRole.class);
         values.put(ChannelRole.RPM, rpm);
         values.put(ChannelRole.MAP, map);
         values.put(ChannelRole.TPS, tps);
         values.put(ChannelRole.FALLBACK_MAP, fallback);
-        values.put(ChannelRole.EFFECTIVE_MAP,
-                prediction ? map + (fallback - map) * 0.5 : map);
+        values.put(ChannelRole.EFFECTIVE_MAP, prediction ? map + (fallback - map) * 0.5 : map);
         values.put(ChannelRole.ENGINE_RUNNING, 1.0);
         values.put(ChannelRole.ENGINE_CRANKING, 0.0);
         values.put(ChannelRole.FUEL_CUT, 0.0);
         values.put(ChannelRole.TOTAL_SPARK_CUT, 0.0);
         values.put(ChannelRole.TRIGGER_ERROR, 0.0);
         values.put(ChannelRole.MAP_PRED_ACTIVE, prediction ? 1.0 : 0.0);
-        values.put(ChannelRole.MAP_PRED_RESET_CNT, prediction ? 10.0 : 10.0);
+        values.put(ChannelRole.MAP_PRED_RESET_CNT, 10.0);
         values.put(ChannelRole.MAP_PRED_EVENT_OVER, 4.0);
         values.put(ChannelRole.AE_ABOVE_THRESHOLD, detector ? 1.0 : 0.0);
         values.put(ChannelRole.SMOOTHED_DELTA_TPS, detector ? 3.0 : 0.0);
@@ -288,8 +272,7 @@ public final class GuidedVehicleTest9RegressionTest {
         values.put(ChannelRole.GEAR, gear);
         values.put(ChannelRole.VSS, vss);
         long nano = Math.round(seconds * 1000000000.0);
-        return new LiveSample(nano, seconds, values,
-                detector ? 60.0 : 0.0, 0.0);
+        return new LiveSample(nano, seconds, values, detector ? 60.0 : 0.0, 0.0);
     }
 
     private static void require(boolean condition, String message) {

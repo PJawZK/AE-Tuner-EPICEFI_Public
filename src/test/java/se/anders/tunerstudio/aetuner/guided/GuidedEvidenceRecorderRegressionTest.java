@@ -3,7 +3,6 @@ package se.anders.tunerstudio.aetuner.guided;
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.guided.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
@@ -67,6 +66,8 @@ public final class GuidedEvidenceRecorderRegressionTest {
                 "retired adaptive recipe wording remained in export");
         require(report.contains("Selected actual table RPM bin: 2600"),
                 "report did not identify the actual capture RPM bin");
+        require(report.contains("Suggested TPS step (coaching only): 22.0 points"),
+                "report still represents the configured TPS step as measurement authority");
         require(report.contains("Last Guided outcome"),
                 "report omitted last-outcome heading");
         require(report.contains("SESSION SUMMARY"),
@@ -116,6 +117,9 @@ public final class GuidedEvidenceRecorderRegressionTest {
                 "Guided event CSV row does not match its header width");
         require(eventLines[0].contains("duration_s"),
                 "event CSV omitted typed duration column");
+        require(eventLines[0].contains("configured_suggested_tps_step")
+                        && !eventLines[0].contains("configured_desired_tps_step"),
+                "event CSV still labels the coaching TPS step as a desired acceptance target");
         require(eventLines[1].contains("RETAINED_IN_CONTROLLED_MEASUREMENT_GROUPS"),
                 "normal retained measurement disposition was blank in spreadsheet export");
         require(eventLines[1].contains("VALID ROAD EVENT | Baseline and event detail"),

@@ -49,18 +49,20 @@ public final class BlendDurationFocusCoachingRegressionTest {
                 "live Blend Duration samples stopped feeding Guided Focus");
         require(ready.blendDuration.phase == BlendDurationFocusModel.DriverPhase.OPEN_AND_SETTLE,
                 "settled road baseline did not transition Driver Focus to the opening action");
-        require(ready.blendDuration.instruction.contains("OPEN SMOOTHLY")
+        require(ready.blendDuration.instruction.contains("OPEN ONCE")
                         && ready.blendDuration.status.contains("Matching events 0/5")
-                        && ready.blendDuration.rpmInRange,
+                        && ready.blendDuration.rpmInRange
+                        && Math.abs(ready.blendDuration.rpmTolerance - 300.0) < 1.0e-9,
                 "READY Focus does not give the driver one clear opening/progress instruction");
 
         BlendDurationGuidedFocusPanel panel = new BlendDurationGuidedFocusPanel();
         panel.updateModel(ready.blendDuration, "engineering fallback");
-        require(panel.instructionForTest().contains("OPEN SMOOTHLY")
+        require(panel.instructionForTest().contains("OPEN ONCE")
                         && panel.eventProgressForTest().contains("MATCHING EVENTS 0/5")
                         && panel.rpmTextForTest().contains("target 2600")
-                        && panel.tpsTextForTest().contains("accepted +10 to +30")
-                        && panel.detailsForTest().contains("Numerical Blend Duration Apply remains intentionally withheld"),
+                        && panel.tpsTextForTest().contains("usable +10 to +40")
+                        && panel.detailsForTest().contains("Numerical Blend Duration Apply remains intentionally withheld")
+                        && ready.blendDuration.currentTrace != null,
                 "dedicated Blend Duration Focus card lost driver progress or engineering boundary");
     }
 

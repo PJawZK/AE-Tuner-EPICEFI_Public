@@ -3,7 +3,6 @@ package se.anders.tunerstudio.aetuner.guided;
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.guided.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
@@ -19,10 +18,10 @@ public final class MapCatchupMeasurementRegressionTest {
 
     public static void main(String[] args) {
         inactiveFallbackGapNeverDefinesAnchor();
-        higherPredictionTargetReplacesAnchorAndUsesExactTarget();
+        laterTimerResetReplacesAnchorAndUsesExactTarget();
         catchupBuffersPhysicalMeasurementBeforePlateauValidation();
-        laterHigherTargetInvalidatesEarlierBufferedCatch();
-        timeoutRestartsAtLastUpwardTargetUpdate();
+        laterTimerResetInvalidatesEarlierBufferedCatch();
+        timeoutRestartsAtLatestTimerReset();
         effectiveMapReplayUsesCurrentRpmCurveAndFirmwareFormula();
         System.out.println("MapCatchupMeasurementRegressionTest passed");
     }
@@ -45,17 +44,17 @@ public final class MapCatchupMeasurementRegressionTest {
                 "final target must be exact fallbackMap, not a 90-percent threshold");
     }
 
-    private static void higherPredictionTargetReplacesAnchorAndUsesExactTarget() {
+    private static void laterTimerResetReplacesAnchorAndUsesExactTarget() {
         MapCatchupMeasurement measurement = configured();
-        LiveSample first = sample(1.00, 2000.0, 50.0, 70.0, 70.0, true);
-        LiveSample higher = sample(1.20, 2000.0, 56.0, 82.0, 82.0, true);
+        LiveSample first = sample(1.00, 2000.0, 50.0, 70.0, 70.0, true, 10.0);
+        LiveSample higher = sample(1.20, 2000.0, 56.0, 82.0, 82.0, true, 11.0);
         measurement.observePredictionGap(first);
         measurement.observePredictionGap(higher);
         measurement.beginCatchup(new ArrayList<LiveSample>(), 1.20);
         require(measurement.measurementAnchor() == higher,
-                "higher prediction-active fallback target did not replace the anchor");
+                "later firmware timer reset did not replace the anchor");
         close(measurement.finalPredictionTarget(), 82.0, 0.001,
-                "final upward-latched target changed");
+                "final timer-reset target changed");
         close(measurement.bestGap(), 26.0, 0.001,
                 "gap was not recomputed at the final target update");
 
@@ -70,7 +69,7 @@ public final class MapCatchupMeasurementRegressionTest {
         require(measurement.catchSample() == caught,
                 "live catch-up did not expose a completion sample");
         close(measurement.catchupDurationSeconds(), 0.30, 0.001,
-                "catch-up duration no longer starts at the last upward target update");
+                "catch-up duration no longer starts at the latest timer reset");
     }
 
     private static void catchupBuffersPhysicalMeasurementBeforePlateauValidation() {
@@ -98,9 +97,9 @@ public final class MapCatchupMeasurementRegressionTest {
                 "later hold validation corrupted the earlier physical catch-up duration");
     }
 
-    private static void laterHigherTargetInvalidatesEarlierBufferedCatch() {
+    private static void laterTimerResetInvalidatesEarlierBufferedCatch() {
         MapCatchupMeasurement measurement = configured();
-        LiveSample first = sample(2.50, 2000.0, 50.0, 70.0, 70.0, true);
+        LiveSample first = sample(2.50, 2000.0, 50.0, 70.0, 70.0, true, 10.0);
         LiveSample firstCatch = sample(2.56, 2000.0, 71.0, 70.0, 71.0, false);
         measurement.observePredictionGap(first);
         List<LiveSample> buffered = new ArrayList<LiveSample>();
@@ -110,30 +109,30 @@ public final class MapCatchupMeasurementRegressionTest {
         require(measurement.physicalCatchSample() == firstCatch,
                 "first physical catch was not buffered");
 
-        LiveSample higher = sample(2.60, 2000.0, 60.0, 82.0, 82.0, true);
+        LiveSample higher = sample(2.60, 2000.0, 60.0, 82.0, 82.0, true, 11.0);
         measurement.observePredictionGap(higher);
         require(measurement.measurementAnchor() == higher,
-                "later upward firmware target did not replace the anchor");
+                "later firmware timer reset did not replace the anchor");
         require(measurement.physicalCatchSample() == null,
-                "catch against an obsolete lower target survived a later upward target reset");
+                "catch against an obsolete target survived a later timer reset");
         require(measurement.catchSample() == null,
-                "completion against an obsolete lower target survived a later upward target reset");
+                "completion against an obsolete target survived a later timer reset");
     }
 
-    private static void timeoutRestartsAtLastUpwardTargetUpdate() {
+    private static void timeoutRestartsAtLatestTimerReset() {
         MapCatchupMeasurement measurement = configured();
-        LiveSample first = sample(3.00, 2000.0, 50.0, 75.0, 75.0, true);
+        LiveSample first = sample(3.00, 2000.0, 50.0, 75.0, 75.0, true, 10.0);
         measurement.observePredictionGap(first);
         measurement.beginCatchup(new ArrayList<LiveSample>(), 1.20);
         require(!measurement.timedOut(sample(4.10, 2000.0, 60.0, 75.0, 70.0, false), 1.20),
                 "catch-up timed out too early from first target");
 
-        LiveSample higher = sample(4.15, 2000.0, 60.0, 90.0, 90.0, true);
+        LiveSample higher = sample(4.15, 2000.0, 60.0, 90.0, 90.0, true, 11.0);
         measurement.observePredictionGap(higher);
         require(!measurement.timedOut(sample(5.20, 2000.0, 70.0, 90.0, 80.0, false), 1.20),
-                "timeout did not restart at the later firmware-shaped target update");
+                "timeout did not restart at the later firmware timer reset");
         require(measurement.timedOut(sample(5.40, 2000.0, 70.0, 90.0, 80.0, false), 1.20),
-                "timeout no longer starts at the final target anchor");
+                "timeout no longer starts at the final timer-reset anchor");
     }
 
     private static void effectiveMapReplayUsesCurrentRpmCurveAndFirmwareFormula() {
@@ -178,6 +177,12 @@ public final class MapCatchupMeasurementRegressionTest {
     private static LiveSample sample(double seconds, double rpm, double map,
                                      double fallback, double effective,
                                      boolean prediction) {
+        return sample(seconds, rpm, map, fallback, effective, prediction, 10.0);
+    }
+
+    private static LiveSample sample(double seconds, double rpm, double map,
+                                     double fallback, double effective,
+                                     boolean prediction, double resetCounter) {
         EnumMap<ChannelRole, Double> values =
                 new EnumMap<ChannelRole, Double>(ChannelRole.class);
         values.put(ChannelRole.RPM, rpm);
@@ -185,7 +190,7 @@ public final class MapCatchupMeasurementRegressionTest {
         values.put(ChannelRole.FALLBACK_MAP, fallback);
         values.put(ChannelRole.EFFECTIVE_MAP, effective);
         values.put(ChannelRole.MAP_PRED_ACTIVE, prediction ? 1.0 : 0.0);
-        values.put(ChannelRole.MAP_PRED_RESET_CNT, 10.0);
+        values.put(ChannelRole.MAP_PRED_RESET_CNT, resetCounter);
         values.put(ChannelRole.MAP_PRED_EVENT_OVER, 4.0);
         long nano = Math.round(seconds * 1000000000.0);
         return new LiveSample(nano, seconds, values, 0.0, 0.0);

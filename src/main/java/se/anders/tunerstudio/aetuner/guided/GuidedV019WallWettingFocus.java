@@ -100,15 +100,19 @@ final class GuidedV019WallWettingFocus extends GuidedV019FocusBase {
         guidance.setCaretPosition(0);
         stateValue.setText(String.valueOf(capture));
         boolean complete = capture == GuidedCaptureState.COMPLETE;
-        reviewValue.setText(complete ? "READY" : "LOCKED");
-        review.setEnabled(complete);
+        boolean reviewReady = complete && GuidedFocusHub.isActiveEvidenceReviewReady();
+        reviewValue.setText(reviewReady ? "READY" : "LOCKED");
         betaAuthority.setText("bounded automatic");
         tauAuthority.setText("context / read only");
 
-        if (complete) {
+        if (reviewReady) {
             cue.setText("● REVIEW READY");
             cue.setForeground(AeUiTheme.focusGreen());
             action.setText("Review clean tip-in evidence and the bounded Basic Beta proposal. Keep Tau unchanged.");
+        } else if (complete) {
+            cue.setText("● MORE EVIDENCE NEEDED");
+            cue.setForeground(AeUiTheme.focusAmber());
+            action.setText("Capture stopped before the evidence gate was satisfied. Press Continue Capture and retain the current evidence window.");
         } else if (capture == GuidedCaptureState.PAUSED) {
             cue.setText("● PAUSED");
             cue.setForeground(AeUiTheme.focusAmber());

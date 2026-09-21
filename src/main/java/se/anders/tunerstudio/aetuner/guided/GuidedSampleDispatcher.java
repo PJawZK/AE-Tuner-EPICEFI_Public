@@ -1,18 +1,13 @@
 package se.anders.tunerstudio.aetuner.guided;
 
-import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
-import se.anders.tunerstudio.aetuner.model.*;
-import se.anders.tunerstudio.aetuner.proposal.*;
-import se.anders.tunerstudio.aetuner.recovery.*;
-import se.anders.tunerstudio.aetuner.ui.*;
-import se.anders.tunerstudio.aetuner.AeTunerPlugin;
+import se.anders.tunerstudio.aetuner.model.ChannelRole;
+import se.anders.tunerstudio.aetuner.model.LiveSample;
 
 import java.util.ArrayDeque;
 import java.util.Iterator;
 
 /**
- * Bounded single-worker handoff from the passive TunerStudio callback path to
+ * Bounded single-worker handoff from the TunerStudio live callback path to
  * Guided processing.
  *
  * offer() never invokes Guided code and never waits for the worker. Under
@@ -21,19 +16,10 @@ import java.util.Iterator;
  * retained in order as far as the bounded queue permits. Exhaustion is visible
  * in diagnostics rather than turning into an unbounded queue or blocking the
  * ECU callback.
- *
- * The worker is intentionally created lazily on first resume(). Constructing a
- * plugin instance must not itself create a GC root that can retain a complete
- * stale plugin/classloader graph during TunerStudio hot replacement.
  */
 public final class GuidedSampleDispatcher implements AutoCloseable {
     interface Listener {
         GuidedCaptureState onGuidedSample(LiveSample sample);
-
-        /**
-         * Dedicated transient-critical ownership. Generic session lifecycle
-         * states such as CAPTURING must not be interpreted as transient state.
-         */
         default boolean transientCritical() { return false; }
     }
 
@@ -42,17 +28,10 @@ public final class GuidedSampleDispatcher implements AutoCloseable {
     static final long TRANSIENT_PROTECT_NS = 2000000000L;
 
     static final class Diagnostics {
-        final long offered;
-        final long delivered;
-        final long coalesced;
-        final long dropped;
-        final long criticalDropped;
-        final long suspendedCleared;
-        final long listenerFailures;
-        final int queueDepth;
-        final int highWaterMark;
-        final boolean accepting;
-        final boolean closed;
+        final long offered, delivered, coalesced, dropped, criticalDropped,
+                suspendedCleared, listenerFailures;
+        final int queueDepth, highWaterMark;
+        final boolean accepting, closed;
 
         Diagnostics(long offered, long delivered, long coalesced,
                     long dropped, long criticalDropped,
@@ -85,10 +64,31 @@ public final class GuidedSampleDispatcher implements AutoCloseable {
         }
     }
 
+    /** Public immutable projection used by bounded performance diagnostics. */
+    public static final class RuntimeStats {
+        public final long offered, delivered, coalesced, dropped, criticalDropped,
+                suspendedCleared, listenerFailures;
+        public final int queueDepth, highWaterMark;
+        public final boolean accepting, closed;
+
+        RuntimeStats(Diagnostics diagnostics) {
+            this.offered = diagnostics.offered;
+            this.delivered = diagnostics.delivered;
+            this.coalesced = diagnostics.coalesced;
+            this.dropped = diagnostics.dropped;
+            this.criticalDropped = diagnostics.criticalDropped;
+            this.suspendedCleared = diagnostics.suspendedCleared;
+            this.listenerFailures = diagnostics.listenerFailures;
+            this.queueDepth = diagnostics.queueDepth;
+            this.highWaterMark = diagnostics.highWaterMark;
+            this.accepting = diagnostics.accepting;
+            this.closed = diagnostics.closed;
+        }
+    }
+
     private static final class Entry {
         final LiveSample sample;
         final boolean critical;
-
         Entry(LiveSample sample, boolean critical) {
             this.sample = sample;
             this.critical = critical;
@@ -99,24 +99,16 @@ public final class GuidedSampleDispatcher implements AutoCloseable {
     private final ArrayDeque<Entry> queue = new ArrayDeque<Entry>();
     private final Listener listener;
     private Thread worker;
-
     private volatile boolean criticalMode;
     private long transientProtectUntilNano;
     private boolean accepting;
     private boolean closed;
-    private long offered;
-    private long delivered;
-    private long coalesced;
-    private long dropped;
-    private long criticalDropped;
-    private long suspendedCleared;
-    private long listenerFailures;
+    private long offered, delivered, coalesced, dropped, criticalDropped,
+            suspendedCleared, listenerFailures;
     private int highWaterMark;
 
     GuidedSampleDispatcher(Listener listener) {
-        if (listener == null) {
-            throw new IllegalArgumentException("listener must not be null");
-        }
+        if (listener == null) throw new IllegalArgumentException("listener must not be null");
         this.listener = listener;
     }
 
@@ -132,10 +124,7 @@ public final class GuidedSampleDispatcher implements AutoCloseable {
     private void ensureWorkerLocked() {
         if (worker != null && worker.isAlive()) return;
         worker = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                runWorker();
-            }
+            @Override public void run() { runWorker(); }
         }, "AE-Tuner-Guided-worker");
         worker.setDaemon(true);
         worker.start();
@@ -202,10 +191,10 @@ public final class GuidedSampleDispatcher implements AutoCloseable {
         }
     }
 
+    public RuntimeStats runtimeStats() { return new RuntimeStats(diagnostics()); }
+
     boolean workerAliveForTest() {
-        synchronized (lock) {
-            return worker != null && worker.isAlive();
-        }
+        synchronized (lock) { return worker != null && worker.isAlive(); }
     }
 
     @Override
@@ -251,22 +240,17 @@ public final class GuidedSampleDispatcher implements AutoCloseable {
                 if (closed) return;
                 entry = queue.pollFirst();
             }
-
             if (entry == null) continue;
             try {
                 listener.onGuidedSample(entry.sample);
                 criticalMode = listener.transientCritical();
             } catch (RuntimeException ex) {
                 criticalMode = false;
-                synchronized (lock) {
-                    listenerFailures++;
-                }
+                synchronized (lock) { listenerFailures++; }
                 System.err.println("AE Tuner Guided worker failed: " + ex.getMessage());
                 ex.printStackTrace(System.err);
             } finally {
-                synchronized (lock) {
-                    delivered++;
-                }
+                synchronized (lock) { delivered++; }
             }
         }
     }
@@ -274,15 +258,11 @@ public final class GuidedSampleDispatcher implements AutoCloseable {
     private static boolean looksTransient(LiveSample sample) {
         if (sample.bool(ChannelRole.MAP_PRED_ACTIVE)
                 || sample.bool(ChannelRole.AE_ABOVE_THRESHOLD)
-                || sample.bool(ChannelRole.TPS_DECEL_ACTIVE)) {
-            return true;
-        }
+                || sample.bool(ChannelRole.TPS_DECEL_ACTIVE)) return true;
         double change = sample.get(ChannelRole.SMOOTHED_DELTA_TPS);
         double limit = sample.get(ChannelRole.ACCEL_THRESHOLD);
         if (Double.isFinite(change) && Double.isFinite(limit)
-                && limit > 0.0 && Math.abs(change) > Math.abs(limit)) {
-            return true;
-        }
+                && limit > 0.0 && Math.abs(change) > Math.abs(limit)) return true;
         return Double.isFinite(sample.getTpsDot()) && Math.abs(sample.getTpsDot()) >= 5.0;
     }
 }

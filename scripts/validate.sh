@@ -19,15 +19,12 @@ bash scripts/compile-tests.sh
 
 if [[ -d src/test/java ]]; then
   for test_class in \
-    se.anders.tunerstudio.aetuner.passive.SessionMonitorRegressionTest \
-    se.anders.tunerstudio.aetuner.passive.CoherentLiveSampleAssemblerRegressionTest \
-    se.anders.tunerstudio.aetuner.passive.OutputChannelResolutionRegressionTest \
-    se.anders.tunerstudio.aetuner.passive.RecommendationHistoryRegressionTest \
     se.anders.tunerstudio.aetuner.proposal.BlendDurationPolicyRegressionTest \
     se.anders.tunerstudio.aetuner.proposal.MapBlendSuggestionRegressionTest \
     se.anders.tunerstudio.aetuner.proposal.ProposalWritePlanRegressionTest \
     se.anders.tunerstudio.aetuner.proposal.AeTableSuggestionMemoizationRegressionTest \
     se.anders.tunerstudio.aetuner.proposal.SessionExportSupportRegressionTest \
+    se.anders.tunerstudio.aetuner.host.OutputChannelResolutionRegressionTest \
     se.anders.tunerstudio.aetuner.host.AeTuningParameterCatalogRegressionTest \
     se.anders.tunerstudio.aetuner.host.AeApplyRestoreValidationTargetsRegressionTest \
     se.anders.tunerstudio.aetuner.host.GuidedWriteCapabilityMaturityRegressionTest \
@@ -57,9 +54,16 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.guided.GuidedEventGearIntegrationRegressionTest \
     se.anders.tunerstudio.aetuner.guided.PedalOpeningDetectorRegressionTest \
     se.anders.tunerstudio.aetuner.guided.BlendDurationComparabilityGroupsRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.BlendDurationRpmBinLatchRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.BlendDurationMultiBinGroupingRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedV019BlendBinSelectorRegressionTest \
     se.anders.tunerstudio.aetuner.guided.PhaseBGuidedArchitectureRegressionTest \
     se.anders.tunerstudio.aetuner.guided.BlendDurationGuidedSummaryRegressionTest \
     se.anders.tunerstudio.aetuner.guided.BlendDurationFocusCoachingRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.BlendDurationFocusTraceRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.BlendDurationFirmwareContractRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.BlendRuntimePresentationRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.FoundationLiveGraphPresentationRegressionTest \
     se.anders.tunerstudio.aetuner.guided.PhaseA2AdaptiveTypeMigrationTest \
     se.anders.tunerstudio.aetuner.guided.GuidedMethodProbeSessionRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedEvidenceReadinessRegressionTest \
@@ -102,10 +106,8 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.VehicleTestIdentityRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedSampleDispatcherRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedSampleDispatcherHardeningRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedLiveSampleSourceCoherenceRegressionTest \
     se.anders.tunerstudio.aetuner.guided.PhaseCSampleDispatchArchitectureTest \
-    se.anders.tunerstudio.aetuner.passive.PhaseDPanelLayoutArchitectureTest \
-    se.anders.tunerstudio.aetuner.passive.PhaseDAdvisoryActionsArchitectureTest \
-    se.anders.tunerstudio.aetuner.passive.PhaseDOverviewControllerArchitectureTest \
     se.anders.tunerstudio.aetuner.ui.AeUtilityWorkspaceRegressionTest \
     se.anders.tunerstudio.aetuner.model.AeProjectSnapshotDecelSettingsRegressionTest \
     se.anders.tunerstudio.aetuner.model.MapPredictionMetricsRegressionTest \
@@ -129,13 +131,9 @@ if [[ -d src/test/java ]]; then
   do
     java -cp "target/classes:target/test-classes:lib/TunerStudioPluginAPI.jar" "$test_class"
   done
-
-  java -Djava.awt.headless=true \
-    -cp "target/classes:target/test-classes:lib/TunerStudioPluginAPI.jar" \
-    se.anders.tunerstudio.aetuner.passive.LongSessionCharacterizationTest
 fi
 
 bash scripts/validation-tooling-regression.sh
 bash scripts/package-dev-plugin.sh
 
-echo "Full validation passed for AE Tuner (EPICEFI)"
+echo "Full Guided-only validation passed for AE Tuner (EPICEFI)"

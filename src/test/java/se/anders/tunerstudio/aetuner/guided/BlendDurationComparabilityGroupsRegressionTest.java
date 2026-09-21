@@ -2,7 +2,6 @@ package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.guided.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
@@ -16,6 +15,8 @@ public final class BlendDurationComparabilityGroupsRegressionTest {
 
     public static void main(String[] args) {
         nearbyAttemptsJoinSameGroup();
+        fiveSimilarNaturalStepsBuildOneSetWithoutAbsoluteTarget();
+        tpsGroupCannotDriftPastFivePointSpread();
         differentRoadLoadCreatesAnotherGroup();
         nearBoundaryWarnsWithoutDiscarding();
         rebuildPreservesBestGroupEvidence();
@@ -37,6 +38,34 @@ public final class BlendDurationComparabilityGroupsRegressionTest {
         require(second.description.contains("VALID — ADVANCES LEADING GROUP A")
                         && second.description.contains("2 comparable events"),
                 "driver feedback does not identify a valid event that advanced the leading group");
+    }
+
+    private static void fiveSimilarNaturalStepsBuildOneSetWithoutAbsoluteTarget() {
+        BlendDurationComparabilityGroups groups = new BlendDurationComparabilityGroups();
+        double[] held = new double[]{20.0, 21.5, 22.5, 23.0, 24.0};
+        for (int i = 0; i < held.length; i++) {
+            BlendDurationComparabilityGroups.Assignment next =
+                    groups.assign(attempt(i + 1, 2000.0 + i * 20.0,
+                            50.0 + i * 0.5, 8.0, held[i], 20.0 + i * 0.4, "RISING"));
+            require("A".equals(next.groupId),
+                    "similar natural TPS openings were split because they did not match the configured suggestion");
+        }
+        require(groups.bestGroupCount() == 5,
+                "five similar natural openings did not complete one comparable set");
+        require(Math.abs(groups.bestGroupMeanStep() - 14.2) < 0.01,
+                "leading-group TPS reference did not follow the actual captured openings");
+    }
+
+    private static void tpsGroupCannotDriftPastFivePointSpread() {
+        BlendDurationComparabilityGroups groups = new BlendDurationComparabilityGroups();
+        groups.assign(attempt(1, 2000.0, 50.0, 8.0, 18.0, 20.0, "RISING")); // +10
+        groups.assign(attempt(2, 2020.0, 50.5, 8.0, 23.0, 20.5, "RISING")); // +15
+        BlendDurationComparabilityGroups.Assignment drift =
+                groups.assign(attempt(3, 2040.0, 51.0, 8.0, 25.5, 21.0, "RISING")); // +17.5
+        require("B".equals(drift.groupId),
+                "mean-based grouping allowed TPS steps to drift beyond a five-point whole-group spread");
+        require(groups.bestGroupCount() == 2,
+                "TPS drift event incorrectly advanced the established comparable set");
     }
 
     private static void differentRoadLoadCreatesAnotherGroup() {

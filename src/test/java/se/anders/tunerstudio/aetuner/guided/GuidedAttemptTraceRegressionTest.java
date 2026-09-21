@@ -3,7 +3,6 @@ package se.anders.tunerstudio.aetuner.guided;
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.guided.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
@@ -26,10 +25,10 @@ public final class GuidedAttemptTraceRegressionTest {
     private static void preservesCompactTraceShapeAndAnchors() {
         List<LiveSample> samples = new ArrayList<LiveSample>();
         samples.add(sample(1.00, 2000.0, 50.0, 8.0, 50.0, false, false));
-        LiveSample measurement = sample(1.10, 2020.0, 55.0, 20.0, 78.0, true, true);
+        LiveSample physicalLow = sample(1.10, 2020.0, 55.0, 20.0, 78.0, true, true);
         LiveSample hold = sample(1.20, 2040.0, 65.0, 29.5, 80.0, false, true);
         LiveSample outcome = sample(1.55, 2100.0, 78.0, 30.0, 80.0, false, false);
-        samples.add(measurement);
+        samples.add(physicalLow);
         samples.add(hold);
         samples.add(outcome);
 
@@ -38,18 +37,18 @@ public final class GuidedAttemptTraceRegressionTest {
                 new BlendDurationCaptureConfig(2000.0, 22.0, 5, 2, false),
                 GuidedVehicleTestLimits.defaults(false),
                 0.75, 0.20, 5.0, 8.0,
-                measurement, 23.0, hold, outcome);
+                physicalLow, 23.0, hold, outcome);
 
         require(trace.startsWith("Compact attempt trace (VALID)\n"),
                 "trace disposition header changed");
         require(trace.contains("adaptive_baseline_s,0.75\n"),
                 "baseline metadata changed");
-        require(trace.contains("desired_tps_step,22.0\n"),
-                "TPS-step metadata changed");
-        require(trace.contains("dt_s,rpm,tps,map,fallbackMap,effectiveMap,gap,tpsdot,detector,prediction,predResetCnt,predExpired,gear,vss\n"),
-                "firmware-validation trace columns changed");
-        require(trace.contains("measurement_anchor_dt_s=0.100,gap_kpa=23.00\n"),
-                "measurement anchor metadata changed");
+        require(trace.contains("suggested_tps_step,22.0\n"),
+                "TPS coaching metadata changed");
+        require(trace.contains("dt_s,rpm,tps,map,fallbackMap,effectiveMap,predictionGap,tpsdot,detector,prediction,predResetCnt,predExpired,gear,vss\n"),
+                "physical/prediction diagnostic trace columns changed");
+        require(trace.contains("physical_20pct_anchor_dt_s=0.100,physical_map_step_kpa=23.00\n"),
+                "physical 20-percent anchor metadata changed");
         require(trace.contains("natural_hold_dt_s=0.200,tps=29.5\n"),
                 "hold anchor metadata changed");
         require(trace.contains("outcome_dt_s=0.550\n"),
@@ -72,9 +71,9 @@ public final class GuidedAttemptTraceRegressionTest {
                 null, Double.NaN, null, samples.get(samples.size() - 1));
         String[] lines = trace.split("\\n");
         require(lines.length < 180,
-                "bounded firmware-validation trace expanded unexpectedly: " + lines.length + " lines");
+                "bounded physical-response trace expanded unexpectedly: " + lines.length + " lines");
         require(trace.length() < 20000,
-                "bounded firmware-validation trace exceeded export size guard: " + trace.length());
+                "bounded physical-response trace exceeded export size guard: " + trace.length());
         require(trace.contains("outcome_dt_s=3.190"),
                 "final outcome timing missing from bounded trace");
     }

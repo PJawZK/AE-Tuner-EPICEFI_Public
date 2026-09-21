@@ -3,7 +3,6 @@ package se.anders.tunerstudio.aetuner.guided;
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.guided.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
@@ -18,7 +17,8 @@ public final class PedalOpeningDetectorRegressionTest {
 
     public static void main(String[] args) {
         smallMovementEntersPendingThenCanAbortSilently();
-        detectorOrUsableLocalRiseConfirmsPendingOpening();
+        firmwareEvidenceAloneCannotConfirmSmallPendingOpening();
+        suppliedRpmToleranceControlsPendingBoundary();
         smallNonTriggeredTimeoutAbortsSilentlyButSafetyReturnsToBaseline();
         System.out.println("PedalOpeningDetectorRegressionTest passed");
     }
@@ -41,35 +41,57 @@ public final class PedalOpeningDetectorRegressionTest {
                 "returned small pedal movement did not silently restore READY");
     }
 
-    private static void detectorOrUsableLocalRiseConfirmsPendingOpening() {
+    private static void firmwareEvidenceAloneCannotConfirmSmallPendingOpening() {
         RoadBaselineTracker.Baseline baseline =
                 new RoadBaselineTracker.Baseline(2600.0, 50.0, 8.0);
         PedalOpeningDetector detector = new PedalOpeningDetector();
         LiveSample first = sample(2.00, 2600.0, 50.2, 9.2, false, false, true);
         detector.beginPending(first);
-        LiveSample ecu = sample(2.05, 2610.0, 52.0, 10.0, true, true, true);
-        require(detector.observePending(ecu, baseline, 2600.0,
-                        GuidedVehicleTestLimits.defaults(false)).type
-                        == PedalOpeningDetector.DecisionType.CONFIRM,
-                "ECU detector/prediction evidence did not confirm opening");
-        List<LiveSample> early = detector.consumePendingSamples();
-        require(early.size() == 2,
-                "pending pre-confirmation samples were not retained");
 
-        detector.beginPending(first);
-        LiveSample tooSmall = sample(2.05, 2610.0, 51.0, 17.9,
-                false, false, true);
-        require(detector.observePending(tooSmall, baseline, 2600.0,
+        LiveSample ecuSmall = sample(2.05, 2610.0, 52.0, 10.0, true, true, true);
+        require(detector.observePending(ecuSmall, baseline, 2600.0,
                         GuidedVehicleTestLimits.defaults(false)).type
                         == PedalOpeningDetector.DecisionType.WAIT,
-                "sub-10 TPS local movement confirmed a Guided opening");
+                "firmware detector/prediction evidence promoted a +2 TPS road correction into a counted attempt");
 
-        LiveSample local = sample(2.08, 2610.0, 51.5, 18.1,
+        LiveSample stillSmall = sample(2.20, 2615.0, 52.2, 11.0, true, true, true);
+        require(detector.observePending(stillSmall, baseline, 2600.0,
+                        GuidedVehicleTestLimits.defaults(false)).type
+                        == PedalOpeningDetector.DecisionType.WAIT,
+                "continued firmware activity bypassed the broad local opening threshold");
+
+        LiveSample local = sample(2.25, 2620.0, 53.0, 18.1,
                 false, false, true);
         require(detector.observePending(local, baseline, 2600.0,
                         GuidedVehicleTestLimits.defaults(false)).type
                         == PedalOpeningDetector.DecisionType.CONFIRM,
-                "usable +10 TPS local rise did not confirm pending opening");
+                "usable +10 TPS local rise did not confirm the pending opening");
+
+        List<LiveSample> early = detector.consumePendingSamples();
+        require(early.size() == 4,
+                "pending firmware evidence was not retained when a real opening followed");
+    }
+
+    private static void suppliedRpmToleranceControlsPendingBoundary() {
+        RoadBaselineTracker.Baseline baseline =
+                new RoadBaselineTracker.Baseline(1500.0, 50.0, 8.0);
+        GuidedVehicleTestLimits.Snapshot limits =
+                GuidedVehicleTestLimits.defaults(false);
+        PedalOpeningDetector detector = new PedalOpeningDetector();
+        detector.beginPending(sample(2.50, 1500.0, 50.0, 9.2,
+                false, true, true));
+        LiveSample insideBlendWindow = sample(2.55, 1725.0, 51.0, 10.0,
+                true, true, true);
+        require(detector.observePending(insideBlendWindow, baseline, 1500.0,
+                        limits, 300.0).type == PedalOpeningDetector.DecisionType.WAIT,
+                "explicit ±300 Blend pending window was replaced by the legacy ±200 READY constant");
+
+        detector.reset();
+        detector.beginPending(sample(3.00, 1500.0, 50.0, 9.2,
+                false, true, true));
+        require(detector.observePending(insideBlendWindow, baseline, 1500.0,
+                        limits, 200.0).type == PedalOpeningDetector.DecisionType.RETURN_TO_BASELINE,
+                "explicit tighter pending RPM tolerance was ignored");
     }
 
     private static void smallNonTriggeredTimeoutAbortsSilentlyButSafetyReturnsToBaseline() {

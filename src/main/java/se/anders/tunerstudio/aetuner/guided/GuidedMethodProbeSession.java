@@ -4,7 +4,7 @@ import se.anders.tunerstudio.aetuner.guided.method.GuidedAeMethodModule;
 import se.anders.tunerstudio.aetuner.model.AeProjectSnapshot;
 import se.anders.tunerstudio.aetuner.model.ChannelRole;
 import se.anders.tunerstudio.aetuner.model.LiveSample;
-import se.anders.tunerstudio.aetuner.passive.MapEstimateCollector;
+import se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateCollector;
 import se.anders.tunerstudio.aetuner.proposal.AeTableSuggestion;
 import se.anders.tunerstudio.aetuner.proposal.MapEstimateSuggestion;
 import se.anders.tunerstudio.aetuner.proposal.ProposalWritePlan;

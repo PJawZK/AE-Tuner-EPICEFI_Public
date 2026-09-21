@@ -1,7 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -26,6 +25,7 @@ final class GuidedEvidenceRecorder {
     private String startedAt = "not-started";
     private String finishedAt = "";
     private double startRpm = Double.NaN;
+    private double[] armedRpmBins = new double[0];
     private double heldTps = Double.NaN;
     private int targetCount;
     private String gearMode = "unknown";
@@ -37,12 +37,22 @@ final class GuidedEvidenceRecorder {
                                     int configuredTargetCount,
                                     String configuredGearMode,
                                     long identityNano) {
+        startAdaptive(new double[]{configuredStartRpm}, configuredDesiredStep,
+                configuredTargetCount, configuredGearMode, identityNano);
+    }
+
+    synchronized void startAdaptive(double[] configuredRpmBins,
+                                    double configuredDesiredStep,
+                                    int configuredTargetCount,
+                                    String configuredGearMode,
+                                    long identityNano) {
         records.clear();
         sequence = 0;
         sessionId = "guided-" + Long.toHexString(identityNano);
         startedAt = nowIso();
         finishedAt = "";
-        startRpm = configuredStartRpm;
+        armedRpmBins = configuredRpmBins == null ? new double[0] : configuredRpmBins.clone();
+        startRpm = armedRpmBins.length == 1 ? armedRpmBins[0] : Double.NaN;
         heldTps = configuredDesiredStep;
         targetCount = configuredTargetCount;
         gearMode = configuredGearMode == null ? "unknown" : configuredGearMode;
@@ -56,6 +66,7 @@ final class GuidedEvidenceRecorder {
         startedAt = "not-started";
         finishedAt = "";
         startRpm = Double.NaN;
+        armedRpmBins = new double[0];
         heldTps = Double.NaN;
         targetCount = 0;
         gearMode = "unknown";
@@ -113,8 +124,12 @@ final class GuidedEvidenceRecorder {
                 .append("Capture boundary: Guided measurement/capture is read-only. Explicit reviewed Apply/Restore may write only declared TunerStudio working-tune RAM values when a validated recipe exposes a write plan; automatic application and ECU burn remain prohibited.\n\n")
                 .append("SESSION SUMMARY\n")
                 .append("===============\n")
-                .append("Selected actual table RPM bin: ").append(format(startRpm, 0)).append('\n')
-                .append("Configured desired TPS step: ")
+                .append(armedRpmBins.length == 1
+                        ? "Selected actual table RPM bin: "
+                        : "Armed actual table RPM bins: ")
+                .append(rpmBinsText(armedRpmBins)).append("\n")
+                .append("RPM-bin selection: automatic per-event latch after stable dwell; latch is immutable through each event.\n")
+                .append("Suggested TPS step (coaching only): ")
                 .append(format(heldTps, 1)).append(" points\n")
                 .append("Comparable-event target: ").append(targetCount).append('\n')
                 .append("Gear mode: ").append(gearMode).append('\n')
@@ -192,7 +207,7 @@ final class GuidedEvidenceRecorder {
         StringBuilder out = new StringBuilder();
         out.append("session_id,plugin_version,recipe_id,sequence,sample_time_s,duration_s,decision,")
                 .append("included_in_controlled_series,recorded_in_audit_ledger,disposition,")
-                .append("accepted_count_after_event,configured_start_rpm,configured_desired_tps_step,")
+                .append("accepted_count_after_event,configured_start_rpm,configured_suggested_tps_step,")
                 .append("group_id,group_count,target_count,gear_mode,detail\n");
         for (Record record : records) {
             out.append(csv(sessionId)).append(',')
@@ -206,7 +221,7 @@ final class GuidedEvidenceRecorder {
                     .append("true,")
                     .append(csv(record.disposition)).append(',')
                     .append(record.acceptedCount).append(',')
-                    .append(format(startRpm, 0)).append(',')
+                    .append(format(recordConfiguredRpm(record), 0)).append(',')
                     .append(format(heldTps, 1)).append(',')
                     .append(csv(record.groupId)).append(',')
                     .append(record.groupCount).append(',')
@@ -389,6 +404,32 @@ final class GuidedEvidenceRecorder {
     private static String indent(String value) {
         if (value == null || value.length() == 0) return "  No event detail available.";
         return "  " + value.replace("\n", "\n  ");
+    }
+
+    private double recordConfiguredRpm(Record record) {
+        if (record != null && record.trace != null) {
+            String key = "configured_start_rpm=";
+            int at = record.trace.indexOf(key);
+            if (at >= 0) {
+                int start = at + key.length();
+                int end = record.trace.indexOf('\n', start);
+                String value = (end < 0 ? record.trace.substring(start)
+                        : record.trace.substring(start, end)).trim();
+                try { return Double.parseDouble(value); }
+                catch (RuntimeException ignored) { }
+            }
+        }
+        return startRpm;
+    }
+
+    private static String rpmBinsText(double[] bins) {
+        if (bins == null || bins.length == 0) return "none";
+        StringBuilder out = new StringBuilder();
+        for (double rpm : bins) {
+            if (out.length() > 0) out.append(" / ");
+            out.append(format(rpm, 0));
+        }
+        return out.toString();
     }
 
     private static String singleLine(String value) {

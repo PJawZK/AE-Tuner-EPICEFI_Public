@@ -28,7 +28,7 @@ public final class BlendDurationGuidedFocusPanel extends JPanel {
     private final JProgressBar mapProgress = new JProgressBar(0, 1000);
     private final JLabel rpmText = new JLabel("RPM: n/a", SwingConstants.CENTER);
     private final JLabel tpsText = new JLabel("TPS step: n/a", SwingConstants.CENTER);
-    private final JLabel mapText = new JLabel("MAP catch-up: waiting", SwingConstants.CENTER);
+    private final JLabel mapText = new JLabel("Physical MAP response: waiting", SwingConstants.CENTER);
     private final JLabel comparability = new JLabel(" ", SwingConstants.CENTER);
     private final JLabel lastResult = new JLabel(" ", SwingConstants.CENTER);
     private final JLabel methodBoundary = new JLabel(
@@ -66,7 +66,7 @@ public final class BlendDurationGuidedFocusPanel extends JPanel {
         driver.add(spacer(9));
         driver.add(metricPanel("PEDAL STEP", tpsText, tpsProgress));
         driver.add(spacer(9));
-        driver.add(metricPanel("MAP CATCH-UP", mapText, mapProgress));
+        driver.add(metricPanel("PHYSICAL MAP RESPONSE", mapText, mapProgress));
         driver.add(spacer(14));
         comparability.setAlignmentX(CENTER_ALIGNMENT);
         driver.add(comparability);
@@ -137,49 +137,91 @@ public final class BlendDurationGuidedFocusPanel extends JPanel {
     private void updateRpm() {
         if (!Double.isFinite(model.liveRpm) || !Double.isFinite(model.targetRpm)) {
             rpmProgress.setValue(0);
-            rpmProgress.setString("waiting for RPM");
-            rpmText.setText("RPM: n/a");
+            rpmProgress.setString("AUTO LATCH — WAITING FOR AN ARMED BIN");
+            rpmText.setText(Double.isFinite(model.liveRpm)
+                    ? "Live " + f0(model.liveRpm) + " RPM — move near one armed table bin"
+                    : "RPM: waiting for live signal");
             return;
         }
         double tolerance = Math.max(1.0, model.rpmTolerance);
         double fraction = 1.0 - Math.min(1.0, Math.abs(model.rpmError) / tolerance);
         rpmProgress.setValue((int) Math.round(fraction * 1000.0));
-        rpmProgress.setString(model.rpmInRange ? "IN TARGET WINDOW" : "MOVE TOWARD TARGET");
+        boolean latched = model.captureState == GuidedCaptureState.READY
+                || model.captureState == GuidedCaptureState.OPENING_PENDING
+                || model.captureState == GuidedCaptureState.CAPTURING
+                || model.captureState == GuidedCaptureState.ACCEPTED
+                || model.captureState == GuidedCaptureState.WARNING
+                || model.captureState == GuidedCaptureState.EXCLUDED
+                || model.captureState == GuidedCaptureState.RETURNING;
+        rpmProgress.setString(latched
+                ? "LATCHED FOR THIS EVENT"
+                : model.rpmInRange ? "AUTO CANDIDATE — HOLD STEADY" : "MOVE TOWARD CANDIDATE");
         rpmText.setText(String.format(java.util.Locale.ROOT,
-                "%.0f RPM — target %.0f ±%.0f", model.liveRpm, model.targetRpm, tolerance));
+                "%s target %.0f RPM — live %.0f — entry window ±%.0f",
+                latched ? "LATCHED" : "CANDIDATE", model.targetRpm,
+                model.liveRpm, tolerance));
     }
 
     private void updateTps() {
         if (!Double.isFinite(model.liveTpsStep)) {
             tpsProgress.setValue(0);
             tpsProgress.setString("waiting for opening");
-            tpsText.setText("Target step: +" + f0(model.desiredTpsStep)
-                    + " (accepted +" + f0(model.tpsStepLow) + " to +" + f0(model.tpsStepHigh) + ")");
+            tpsText.setText("Suggested +" + f0(model.desiredTpsStep)
+                    + " (guide only) — usable +" + f0(model.tpsStepLow)
+                    + " to +" + f0(model.tpsStepHigh));
             return;
         }
-        double center = (model.tpsStepLow + model.tpsStepHigh) * 0.5;
-        double half = Math.max(1.0, (model.tpsStepHigh - model.tpsStepLow) * 0.5);
-        double fraction = 1.0 - Math.min(1.0, Math.abs(model.liveTpsStep - center) / half);
-        tpsProgress.setValue((int) Math.round(Math.max(0.0, fraction) * 1000.0));
-        tpsProgress.setString(model.tpsStepInRange ? "STEP IN WINDOW — HOLD" : "SETTLE INTO WINDOW");
+        double fraction;
+        if (model.liveTpsStep < model.tpsStepLow) {
+            fraction = Math.max(0.0, model.liveTpsStep / Math.max(1.0, model.tpsStepLow));
+        } else if (model.liveTpsStep <= model.tpsStepHigh) {
+            fraction = 1.0;
+        } else {
+            fraction = Math.max(0.0, 1.0
+                    - (model.liveTpsStep - model.tpsStepHigh)
+                    / Math.max(1.0, model.tpsStepHigh));
+        }
+        tpsProgress.setValue((int) Math.round(Math.min(1.0, fraction) * 1000.0));
+        tpsProgress.setString(model.tpsStepInRange
+                ? "USABLE STEP — HOLD"
+                : (model.liveTpsStep < model.tpsStepLow
+                    ? "OPEN A LITTLE MORE" : "ABOVE BROAD ROAD RANGE"));
         tpsText.setText("Current step +" + f1(model.liveTpsStep)
-                + " — accepted +" + f0(model.tpsStepLow) + " to +" + f0(model.tpsStepHigh));
+                + " — usable +" + f0(model.tpsStepLow) + " to +" + f0(model.tpsStepHigh)
+                + "; repeatability groups similar steps");
     }
 
     private void updateMap() {
-        if (!Double.isFinite(model.predictionTarget) || !Double.isFinite(model.liveMap)) {
+        if (!Double.isFinite(model.liveMap)) {
             mapProgress.setValue(0);
-            mapProgress.setString("waiting for prediction target");
-            mapText.setText("MAP catch-up: waiting for final upward-latched target");
+            mapProgress.setString("waiting for MAP");
+            mapText.setText("Physical MAP response: waiting for measured MAP");
             return;
         }
-        double initialGap = Math.max(0.1, Math.abs(model.targetGap));
-        double remaining = Math.max(0.0, model.predictionTarget - model.liveMap);
-        double fraction = 1.0 - Math.min(1.0, remaining / initialGap);
-        mapProgress.setValue((int) Math.round(fraction * 1000.0));
-        mapProgress.setString(remaining <= 0.01 ? "TARGET REACHED" : "HOLD — MAP CATCHING UP");
-        mapText.setText("Measured " + f1(model.liveMap) + " kPa → target "
-                + f1(model.predictionTarget) + " kPa — remaining " + f1(remaining) + " kPa");
+        if (!model.softPlateauAcquired || !Double.isFinite(model.physicalBaselineMap)) {
+            mapProgress.setValue(0);
+            mapProgress.setString("waiting for stable pedal hold");
+            mapText.setText("Measured " + f1(model.liveMap)
+                    + " kPa — physical timing begins after the pedal settles");
+            return;
+        }
+        if (model.physicalResponseComplete && Double.isFinite(model.physicalResponseSeconds)) {
+            mapProgress.setValue(1000);
+            mapProgress.setString("PHYSICAL RESPONSE MEASURED");
+            mapText.setText("20→80 response " + millis(model.physicalResponseSeconds)
+                    + " — physical step +" + f1(model.physicalMapStep) + " kPa"
+                    + (model.boundedLateWindow ? " (bounded estimate)" : ""));
+            return;
+        }
+        double elapsed = Double.isFinite(model.physicalObservationSeconds)
+                ? model.physicalObservationSeconds : 0.0;
+        double fraction = Math.min(0.95, Math.max(0.0, elapsed / 1.20));
+        mapProgress.setValue((int)Math.round(fraction * 1000.0));
+        mapProgress.setString("HOLD — OBSERVING REAL MAP");
+        double rise = model.liveMap - model.physicalBaselineMap;
+        mapText.setText("Measured " + f1(model.liveMap) + " kPa — baseline "
+                + f1(model.physicalBaselineMap) + " — current rise "
+                + (Double.isFinite(rise) && rise >= 0.0 ? "+" : "") + f1(rise) + " kPa");
     }
 
     private static String shortResult(String text) {
@@ -206,6 +248,10 @@ public final class BlendDurationGuidedFocusPanel extends JPanel {
     }
     private static String f1(double value) {
         return Double.isFinite(value) ? String.format(java.util.Locale.ROOT, "%.1f", value) : "n/a";
+    }
+    private static String millis(double seconds) {
+        return Double.isFinite(seconds)
+                ? String.format(java.util.Locale.ROOT, "~%.0f ms", seconds * 1000.0) : "n/a";
     }
 
     String instructionForTest() { return instruction.getText(); }

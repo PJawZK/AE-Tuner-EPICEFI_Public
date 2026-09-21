@@ -1,14 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
-import se.anders.tunerstudio.aetuner.AeTunerPlugin;
-
-import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
-import se.anders.tunerstudio.aetuner.guided.*;
-import se.anders.tunerstudio.aetuner.model.*;
-import se.anders.tunerstudio.aetuner.proposal.*;
-import se.anders.tunerstudio.aetuner.recovery.*;
-import se.anders.tunerstudio.aetuner.ui.*;
+import se.anders.tunerstudio.aetuner.recovery.EvidenceRecoveryManager;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,7 +19,7 @@ public final class GuidedLifecycleRegressionTest {
 
     private static void guidedPanelIsInertUntilResumedAndFullyDisconnects() {
         GuidedCapturePanel panel = new GuidedCapturePanel();
-        GuidedSampleDispatcher dispatcher = panel.sampleDispatcherForPassivePanel();
+        GuidedSampleDispatcher dispatcher = panel.guidedSampleDispatcher();
         require(!panel.isSampleDispatcherActiveForTest(),
                 "Guided panel must be inert before lifecycle resume");
         require(!dispatcher.diagnostics().accepting,
@@ -86,10 +78,8 @@ public final class GuidedLifecycleRegressionTest {
 
     private static void recoveryWorkerStopsAndCanReopenCleanly() throws Exception {
         Path root = Files.createTempDirectory("ae-tuner-lifecycle-recovery");
-        AeTunerPanel passive = new AeTunerPanel();
         GuidedCapturePanel guided = new GuidedCapturePanel();
-        EvidenceRecoveryManager manager =
-                new EvidenceRecoveryManager(passive, guided, root);
+        EvidenceRecoveryManager manager = new EvidenceRecoveryManager(guided, root);
         require(!manager.isRunningForTest(),
                 "recovery worker must not start in constructor");
         manager.resume();
@@ -103,7 +93,6 @@ public final class GuidedLifecycleRegressionTest {
                 "recovery worker did not recreate after reopen");
         manager.flushAndClose();
         guided.disposePanel();
-        passive.disposePanel();
     }
 
     private static void require(boolean condition, String message) {

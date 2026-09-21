@@ -1,7 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -153,6 +152,7 @@ public final class GuidedCapturePanel extends JPanel {
     private volatile boolean exportInProgress;
     private volatile LiveSample latestSharedSample;
     private volatile GuidedTuningRecipe activeRecipe = GuidedTuningRecipe.ENGAGEMENT_DETECTION;
+    private volatile double[] v019ArmedBlendRpmBins = new double[0];
     private boolean updatingTuningNavigation;
     private volatile boolean probeEvidenceExported = true;
     private volatile String applyStatus =
@@ -197,7 +197,9 @@ public final class GuidedCapturePanel extends JPanel {
         tuningTask.setToolTipText(
                 "Choose a task inside the selected tuning area. MAP Predict tasks have a local dependency order; other AE areas are independent/combinable strategies.");
         startRpm.setToolTipText(
-                "Blend Duration capture RPM is locked to the selected actual table bin; choose another Table point to change it.");
+                "Legacy single-bin control. The v0.19 workspace exposes a prominent 1-4 bin selector and automatically latches the actual event bin from stable live RPM.");
+        heldTps.setToolTipText(
+                "Coaching only. This value does not accept or reject Blend events. Any stable opening inside the broad usable range may be valid; the five-event repeatability set is formed by adaptive comparability.");
         gear.setToolTipText(
                 "Manual gear is authoritative operator metadata; ECU detected gear is informational only. Automatic detected latches stable session evidence and records sustained event-local mismatches separately.");
         probeTargetCount.setToolTipText(
@@ -254,7 +256,7 @@ public final class GuidedCapturePanel extends JPanel {
         tuningPathGuidance.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
         task.add(tuningPathGuidance, BorderLayout.SOUTH);
 
-        liveValuesPanel.setBorder(BorderFactory.createTitledBorder("Live Blend Duration driver targets"));
+        liveValuesPanel.setBorder(BorderFactory.createTitledBorder("Live Blend Duration driver context"));
         liveValuesPanel.add(liveTps);
         liveValuesPanel.add(liveRpm);
 
@@ -309,7 +311,7 @@ public final class GuidedCapturePanel extends JPanel {
         setup.add(tablePoint);
         setup.add(new JLabel("Capture RPM (from table)"));
         setup.add(startRpm);
-        setup.add(new JLabel("Desired TPS step"));
+        setup.add(new JLabel("Suggested TPS step (guide)"));
         setup.add(heldTps);
         setup.add(new JLabel("Comparable events"));
         setup.add(targetCount);
@@ -882,7 +884,14 @@ public final class GuidedCapturePanel extends JPanel {
             return;
         }
 
-        double configuredRpm = point.rpm;
+        double[] configuredBins = validatedV019BlendBins();
+        if (configuredBins.length == 0) {
+            // Legacy production surface remains compatible with its single table
+            // point selector. v0.19 never relies on this fallback because its
+            // Capture card blocks Start until 1..4 visible bins are selected.
+            configuredBins = new double[]{point.rpm};
+        }
+        double configuredRpm = configuredBins[0];
         syncStartRpmToSelectedPoint();
         int selected = gear.getSelectedIndex();
         int manualGear = selected >= 1 && selected <= 5 ? selected : 0;
@@ -893,15 +902,22 @@ public final class GuidedCapturePanel extends JPanel {
                 ? String.valueOf(gear.getItemAt(selected)) : "unknown";
 
         applyStatus = "New Guided capture started; guarded Apply is available whenever the reviewed Blend Duration logic produces a supported changed value. No burn.";
-        evidence.startAdaptive(configuredRpm, configuredStep, configuredCount,
-                gearMode + " | actual table point " + Math.round(point.rpm) + " RPM",
+        evidence.startAdaptive(configuredBins, configuredStep, configuredCount,
+                gearMode + " | automatic RPM-bin latch",
                 System.nanoTime());
-        proposalTracker.start(projectSnapshot, point.index);
+        if (configuredBins.length == 1) {
+            int proposalPoint = blendPointIndex(configuredBins[0]);
+            if (proposalPoint >= 0) proposalTracker.start(projectSnapshot, proposalPoint);
+            else proposalTracker.reset();
+        } else {
+            // A multi-bin session deliberately has no single write target.
+            proposalTracker.reset();
+        }
         session.start(new BlendDurationCaptureConfig(
                 configuredRpm, configuredStep, configuredCount,
                 manualGear, automatic,
                 projectSnapshot.getBlendDurationRpmBins(),
-                projectSnapshot.getBlendDurationValues()));
+                projectSnapshot.getBlendDurationValues(), configuredBins));
         recoveryDirtyAction.run();
         refresh();
     }
@@ -1161,7 +1177,6 @@ public final class GuidedCapturePanel extends JPanel {
         final int fileCount = applyManifest.length() == 0 ? 3 : 4;
 
         exportInProgress = true;
-        saveReport.setText("Exporting Guided Session...");
         saveReport.setEnabled(false);
         connection.setText("Guided Session export in progress — do not close TunerStudio until completion is reported");
 
@@ -1188,7 +1203,6 @@ public final class GuidedCapturePanel extends JPanel {
 
             @Override protected void done() {
                 exportInProgress = false;
-                saveReport.setText("Export Guided Session");
                 try {
                     GuidedExportResult export = get();
                     connection.setText("Guided Session export complete: "
@@ -1218,7 +1232,6 @@ public final class GuidedCapturePanel extends JPanel {
         final String methodName = captured.recipe().displayName;
 
         exportInProgress = true;
-        saveReport.setText("Exporting " + methodName + "...");
         saveReport.setEnabled(false);
         connection.setText("Guided " + methodName
                 + " export in progress — do not close TunerStudio until completion is reported");
@@ -1853,7 +1866,7 @@ public final class GuidedCapturePanel extends JPanel {
         });
     }
 
-    public GuidedSampleDispatcher sampleDispatcherForPassivePanel() {
+    public GuidedSampleDispatcher guidedSampleDispatcher() {
         return sampleDispatcher;
     }
 
@@ -1986,6 +1999,71 @@ public final class GuidedCapturePanel extends JPanel {
     double selectedTablePointRpmForTest() {
         GuidedBlendProposal.PointChoice point = selectedPoint();
         return point == null ? Double.NaN : point.rpm;
+    }
+
+    void setBlendArmedRpmBinsForV019(double[] bins) {
+        if (blendCaptureActive()) return;
+        if (bins == null || bins.length == 0) {
+            v019ArmedBlendRpmBins = new double[0];
+            return;
+        }
+        if (bins.length > BlendDurationCaptureConfig.MAX_ARMED_RPM_BINS) {
+            throw new IllegalArgumentException("Select at most "
+                    + BlendDurationCaptureConfig.MAX_ARMED_RPM_BINS + " Blend RPM bins");
+        }
+        if (projectSnapshot == null) {
+            throw new IllegalStateException("Read Working Tune before selecting Blend RPM bins");
+        }
+        double[] actual = projectSnapshot.getBlendDurationRpmBins();
+        double[] normalized = new double[bins.length];
+        int used = 0;
+        for (double requested : bins) {
+            int match = indexOfRpm(actual, requested);
+            if (match < 0) {
+                throw new IllegalArgumentException("Blend RPM bin " + requested
+                        + " is not an actual Working Tune table point");
+            }
+            double value = actual[match];
+            boolean duplicate = false;
+            for (int i = 0; i < used; i++) {
+                if (Math.abs(normalized[i] - value) <= 0.5) duplicate = true;
+            }
+            if (!duplicate) normalized[used++] = value;
+        }
+        double[] result = new double[used];
+        System.arraycopy(normalized, 0, result, 0, used);
+        v019ArmedBlendRpmBins = result;
+    }
+
+    double[] blendArmedRpmBinsForV019() {
+        return v019ArmedBlendRpmBins.clone();
+    }
+
+    private double[] validatedV019BlendBins() {
+        if (projectSnapshot == null || v019ArmedBlendRpmBins.length == 0) {
+            return new double[0];
+        }
+        double[] actual = projectSnapshot.getBlendDurationRpmBins();
+        for (double selected : v019ArmedBlendRpmBins) {
+            if (indexOfRpm(actual, selected) < 0) return new double[0];
+        }
+        return v019ArmedBlendRpmBins.clone();
+    }
+
+    private int blendPointIndex(double rpm) {
+        List<GuidedBlendProposal.PointChoice> points = GuidedBlendProposal.points(projectSnapshot);
+        for (GuidedBlendProposal.PointChoice candidate : points) {
+            if (Math.abs(candidate.rpm - rpm) <= 0.5) return candidate.index;
+        }
+        return -1;
+    }
+
+    private static int indexOfRpm(double[] bins, double rpm) {
+        if (bins == null || !Double.isFinite(rpm)) return -1;
+        for (int i = 0; i < bins.length; i++) {
+            if (Double.isFinite(bins[i]) && Math.abs(bins[i] - rpm) <= 0.5) return i;
+        }
+        return -1;
     }
 
     int checksCaretPolicyForTest() {

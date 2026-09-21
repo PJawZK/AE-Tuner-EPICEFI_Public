@@ -1,7 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -21,5 +20,15 @@ enum GuidedCaptureState {
     RETURNING,
     RECOVERING,
     PAUSED,
-    COMPLETE
+    COMPLETE;
+
+    /**
+     * A Guided session owns capture/navigation from start until it is explicitly
+     * finished. Blend Duration deliberately moves through several maneuver and
+     * outcome states while that same session remains live, so CAPTURING/PAUSED
+     * alone must never be used as the generic "session active" test.
+     */
+    boolean isCaptureInProgress() {
+        return this != IDLE && this != COMPLETE;
+    }
 }

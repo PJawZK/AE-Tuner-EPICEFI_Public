@@ -75,6 +75,7 @@ final class GuidedV019ApplyResultViews {
         JPanel root=shell();
         boolean restore=bridge.restoreEnabled();
         boolean evidenceReady=bridge.evidenceReady(task);
+        boolean applyReady=bridge.applyEnabled();
         String state=applied?"APPLIED / VERIFY":evidenceReady?"NO-WRITE RESULT":"EVIDENCE INCOMPLETE";
         Color stateColor=applied?AeUiTheme.blue():evidenceReady?(task==GuidedProductionTask.BLEND_DURATION?AeUiTheme.amber():AeUiTheme.green()):AeUiTheme.amber();
         String subtitle=applied
@@ -85,7 +86,7 @@ final class GuidedV019ApplyResultViews {
         root.add(header(task.displayName+" — Result",subtitle,state,stateColor),BorderLayout.NORTH);
         JPanel summaries=new JPanel(new GridLayout(1,4,8,0));summaries.setOpaque(false);
         if(applied){summaries.add(summary("Apply",restore?"READBACK / SNAPSHOT READY":"COORDINATOR RETURNED","Existing production path",restore?AeUiTheme.green():AeUiTheme.amber()));summaries.add(summary("Validation","USER / VEHICLE","Evaluate the applied result",AeUiTheme.blue()));summaries.add(summary("Restore",restore?"AVAILABLE":"CHECK STATE","Verified pre-write snapshot",restore?AeUiTheme.blue():AeUiTheme.amber()));summaries.add(summary("Decision","KEEP / RESTORE","Explicit user choice",AeUiTheme.amber()));}
-        else if(evidenceReady){summaries.add(summary("Review",task==GuidedProductionTask.BLEND_DURATION?"EVIDENCE ONLY":"NO WRITE","Production Review outcome",stateColor));summaries.add(summary("Write","NONE","Apply was not required",AeUiTheme.muted()));summaries.add(summary("Evidence","RETAINED",tune==null?"production session":tune.getConfigurationName(),AeUiTheme.blue()));summaries.add(summary("Restore","NOT REQUIRED","No controller mutation",AeUiTheme.green()));}
+        else if(evidenceReady){summaries.add(summary("Review",task==GuidedProductionTask.BLEND_DURATION&&!applyReady?"EVIDENCE ONLY":"NO WRITE","Production Review outcome",stateColor));summaries.add(summary("Write","NONE","Apply was not required",AeUiTheme.muted()));summaries.add(summary("Evidence","RETAINED",tune==null?"production session":tune.getConfigurationName(),AeUiTheme.blue()));summaries.add(summary("Restore","NOT REQUIRED","No controller mutation",AeUiTheme.green()));}
         else {summaries.add(summary("Review","BLOCKED","Evidence target not satisfied",AeUiTheme.amber()));summaries.add(summary("Write","NONE","No review authority",AeUiTheme.muted()));summaries.add(summary("Evidence","INCOMPLETE","Continue the same capture",AeUiTheme.amber()));summaries.add(summary("Restore","NOT REQUIRED","No controller mutation",AeUiTheme.green()));}
         JPanel content=new JPanel(new BorderLayout(8,8));content.setOpaque(false);content.add(summaries,BorderLayout.NORTH);content.add(resultBody(task,applied,evidenceReady,bridge),BorderLayout.CENTER);root.add(content,BorderLayout.CENTER);root.add(resultFooter(applied&&restore,evidenceReady||applied,listener),BorderLayout.SOUTH);return root;
     }
@@ -99,7 +100,40 @@ final class GuidedV019ApplyResultViews {
     private static JComponent resultBody(GuidedProductionTask task,boolean applied,boolean evidenceReady,GuidedV019ProductionBridge bridge){
         GuidedFocusHub.State s=GuidedFocusHub.snapshot();
         if(!applied&&task==GuidedProductionTask.TPS_MOVEMENT_TIMING){EngagementPassiveCapture.Snapshot p=EngagementPassiveCapture.snapshot();return titled(evidenceReady?"Retained timing evidence":"Incomplete timing evidence",kv(new String[][]{{"Comparable movements",p.comparableEvents+" / "+p.targetComparable},{"Rejected",String.valueOf(p.rejectedSmall+p.rejectedLarge+p.rejectedDuration)},{"Pre-event RPM span",fmt0(p.roadRpmSpan)+" RPM"},{"Write","NONE"},{"Evidence",evidenceReady?"retained":"incomplete — continue capture"}}));}
-        if(!applied&&task==GuidedProductionTask.BLEND_DURATION&&s!=null&&s.blendDuration!=null){BlendDurationFocusModel m=s.blendDuration;JPanel p=new JPanel(new GridLayout(1,2,8,0));p.setOpaque(false);p.add(titled(evidenceReady?"Retained response evidence":"Incomplete response evidence",kv(new String[][]{{"Current Blend",fmtMillis(m.currentBlendDuration)},{"Final prediction target",fmt(m.predictionTarget)+" kPa"},{"Target gap",fmt(m.targetGap)+" kPa"},{"Physical MAP catch-up",fmtMillis(m.physicalCatchupSeconds)},{"Comparable events",m.matchingEvents+" / "+m.targetEvents}})));JPanel o=new JPanel();o.setOpaque(false);o.setLayout(new BoxLayout(o,BoxLayout.Y_AXIS));o.add(big(evidenceReady?"MEASUREMENT ACCEPTED — PROPOSAL WITHHELD":"MORE EVIDENCE NEEDED",AeUiTheme.amber()));o.add(Box.createVerticalStrut(10));o.add(note(evidenceReady?"Evidence retained":"Evidence incomplete",evidenceReady?m.comparabilityHint:"Continue Capture until the comparable-event target is satisfied. No Review/Apply authority is granted by stopping early."));o.add(Box.createVerticalStrut(8));o.add(note("Why no Apply",evidenceReady?"Production authority does not yet convert the measured catch-up relationship into a numerical Blend Duration change.":"The task has not reached review-ready evidence."));p.add(titled("Outcome",o));return p;}
+        if(!applied&&task==GuidedProductionTask.BLEND_DURATION&&s!=null&&s.blendDuration!=null){
+            BlendDurationFocusModel m=s.blendDuration;
+            JPanel p=new JPanel(new BorderLayout(8,0));
+            p.setOpaque(false);
+
+            JPanel evidenceColumn=new JPanel(new BorderLayout());
+            evidenceColumn.setOpaque(false);
+            evidenceColumn.setPreferredSize(new Dimension(390,0));
+            evidenceColumn.add(titled(evidenceReady?"Retained response evidence":"Incomplete response evidence",
+                    compactKv(new String[][]{{"Current Blend",fmtMillis(m.currentBlendDuration)},
+                            {"Final prediction target",fmt(m.predictionTarget)+" kPa"},
+                            {"Target gap",fmt(m.targetGap)+" kPa"},
+                            {"Physical MAP catch-up",fmtMillis(m.physicalCatchupSeconds)},
+                            {"Comparable events",m.matchingEvents+" / "+m.targetEvents}})),BorderLayout.NORTH);
+            p.add(evidenceColumn,BorderLayout.WEST);
+
+            JPanel outcomeColumn=new JPanel(new BorderLayout());
+            outcomeColumn.setOpaque(false);
+            JPanel outcomeStack=new JPanel();
+            outcomeStack.setOpaque(false);
+            outcomeStack.setLayout(new BoxLayout(outcomeStack,BoxLayout.Y_AXIS));
+            outcomeStack.add(bigText(evidenceReady?"MEASUREMENT ACCEPTED — PROPOSAL WITHHELD":"MORE EVIDENCE NEEDED",AeUiTheme.amber()));
+            outcomeStack.add(Box.createVerticalStrut(10));
+            outcomeStack.add(resultNote(evidenceReady?"Evidence retained":"Evidence incomplete",
+                    evidenceReady?m.comparabilityHint:"Continue Capture until the comparable-event target is satisfied. No Review/Apply authority is granted by stopping early."));
+            if(evidenceReady&&!bridge.applyEnabled()){
+                outcomeStack.add(Box.createVerticalStrut(8));
+                outcomeStack.add(resultNote("Why no Apply",
+                        "Production authority does not yet convert the measured catch-up relationship into a numerical Blend Duration change."));
+            }
+            outcomeColumn.add(outcomeStack,BorderLayout.NORTH);
+            p.add(titled("Outcome",outcomeColumn),BorderLayout.CENTER);
+            return p;
+        }
         if(applied)return titled("Applied production result",kv(new String[][]{{"Coordinator","existing ProposalApplyCoordinator"},{"Exact readback","production authority"},{"Restore snapshot",bridge.restoreEnabled()?"AVAILABLE":"check coordinator state"},{"Burn","NEVER"},{"Next","validate then Keep / Restore"}}));
         return titled(evidenceReady?"Result summary":"Incomplete capture summary",kv(new String[][]{{"Review",evidenceReady?"complete":"blocked"},{"Write","NONE"},{"Evidence",evidenceReady?"retained":"incomplete — continue capture"},{"Restore","not required"}}));
     }
@@ -114,6 +148,9 @@ final class GuidedV019ApplyResultViews {
     private static JPanel titled(String title,JComponent body){JPanel p=card(new BorderLayout(0,6));p.setBorder(new CompoundBorder(new LineBorder(AeUiTheme.border()),new EmptyBorder(8,9,8,9)));p.add(label(title,13,Font.BOLD,AeUiTheme.text()),BorderLayout.NORTH);p.add(body,BorderLayout.CENTER);return p;}
     private static JPanel summary(String title,String main,String sub,Color accent){JPanel p=card(new BorderLayout(4,4));p.setBorder(new CompoundBorder(new LineBorder(AeUiTheme.border()),new EmptyBorder(7,9,7,9)));p.add(label(title,11,Font.BOLD,AeUiTheme.text()),BorderLayout.NORTH);p.add(label("<html>"+main+"</html>",14,Font.BOLD,accent),BorderLayout.CENTER);p.add(wrapArea(sub,9,AeUiTheme.muted()),BorderLayout.SOUTH);return p;}
     private static JPanel note(String title,String text){JPanel p=card(new BorderLayout(0,4));p.setBorder(new CompoundBorder(new LineBorder(AeUiTheme.border()),new EmptyBorder(7,8,7,8)));p.add(label(title,11,Font.BOLD,AeUiTheme.text()),BorderLayout.NORTH);p.add(wrapArea(text,10,AeUiTheme.muted()),BorderLayout.CENTER);return p;}
+    private static JPanel resultNote(String title,String text){JPanel p=card(new BorderLayout(0,5));p.setBorder(new CompoundBorder(new LineBorder(AeUiTheme.border()),new EmptyBorder(9,10,9,10)));p.setAlignmentX(Component.LEFT_ALIGNMENT);p.add(label(title,13,Font.BOLD,AeUiTheme.text()),BorderLayout.NORTH);p.add(wrapArea(text,13,AeUiTheme.text()),BorderLayout.CENTER);return p;}
+    private static JPanel compactKv(String[][] rows){JPanel p=new JPanel();p.setOpaque(false);p.setLayout(new BoxLayout(p,BoxLayout.Y_AXIS));for(int i=0;i<rows.length;i++){String[]r=rows[i];JPanel row=new JPanel(new BorderLayout(12,0));row.setOpaque(false);row.setAlignmentX(Component.LEFT_ALIGNMENT);JLabel key=label(r[0],12,Font.PLAIN,AeUiTheme.muted());key.setPreferredSize(new Dimension(170,key.getPreferredSize().height));row.add(key,BorderLayout.WEST);row.add(label(r[1],12,Font.BOLD,AeUiTheme.text()),BorderLayout.CENTER);row.setMaximumSize(new Dimension(Integer.MAX_VALUE,26));p.add(row);if(i+1<rows.length)p.add(Box.createVerticalStrut(6));}return p;}
+    private static JTextArea bigText(String t,Color c){JTextArea a=wrapArea(t,16,c);a.setFont(new Font("Dialog",Font.BOLD,16));a.setAlignmentX(Component.LEFT_ALIGNMENT);return a;}
     private static JPanel step(String n,String title,String status,Color c){JPanel p=card(new BorderLayout(7,0));JLabel no=label(n,14,Font.BOLD,c);no.setHorizontalAlignment(SwingConstants.CENTER);no.setPreferredSize(new Dimension(28,28));JPanel text=new JPanel(new BorderLayout());text.setOpaque(false);text.add(label(title,11,Font.BOLD,AeUiTheme.text()),BorderLayout.NORTH);text.add(label(status,9,Font.BOLD,c),BorderLayout.SOUTH);p.add(no,BorderLayout.WEST);p.add(text,BorderLayout.CENTER);return p;}
     private static JLabel big(String t,Color c){JLabel l=label(t,16,Font.BOLD,c);l.setAlignmentX(Component.LEFT_ALIGNMENT);return l;}
     private static JPanel card(LayoutManager lm){JPanel p=new JPanel(lm);p.setBackground(AeUiTheme.card());return p;}

@@ -1,14 +1,10 @@
-package se.anders.tunerstudio.aetuner.passive;
+package se.anders.tunerstudio.aetuner.guided.mapestimate;
 
-import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.guided.*;
-import se.anders.tunerstudio.aetuner.model.*;
-import se.anders.tunerstudio.aetuner.proposal.*;
-import se.anders.tunerstudio.aetuner.recovery.*;
-import se.anders.tunerstudio.aetuner.ui.*;
-import se.anders.tunerstudio.aetuner.AeTunerPlugin;
+import se.anders.tunerstudio.aetuner.model.AeProjectSnapshot;
+import se.anders.tunerstudio.aetuner.model.ChannelRole;
+import se.anders.tunerstudio.aetuner.model.LiveSample;
 
-/** Collects steady RPM/TPS/MAP samples for a conservative MAP Estimate draft. */
+/** Collects steady RPM/TPS/MAP samples for Guided MAP Estimate evidence. */
 public final class MapEstimateCollector {
     private static final long MIN_ACCEPT_GAP_NS = 40000000L; // 25 Hz max
     private static final long MAX_CONTIGUOUS_EVIDENCE_GAP_NS = 250000000L;
@@ -53,7 +49,6 @@ public final class MapEstimateCollector {
     private double[][] acceptedSeconds = new double[0][0];
     private long lastAcceptedNano;
     private long acceptedSamples;
-
     private long lastEvidenceNano;
     private int lastEvidenceRow = -1;
     private int lastEvidenceCol = -1;
@@ -101,7 +96,6 @@ public final class MapEstimateCollector {
         resetLiveState(LiveEligibility.NO_TABLE);
     }
 
-    /** Presentation-only pause when the enclosing Guided route lacks a required channel. */
     public synchronized void pauseForIncompleteRequiredData(LiveSample sample) {
         if (sample != null) {
             lastLiveRpm = sample.get(ChannelRole.RPM);
@@ -139,30 +133,21 @@ public final class MapEstimateCollector {
             lastMappedCol = -1;
         }
 
-        if (!Double.isFinite(rpm) || !Double.isFinite(tps) || !Double.isFinite(map)) {
+        if (!Double.isFinite(rpm) || !Double.isFinite(tps) || !Double.isFinite(map))
             return reject(LiveEligibility.MISSING_CORE);
-        }
-        if (rpm < 500.0) {
-            return reject(LiveEligibility.RPM_BELOW_MINIMUM);
-        }
-        if (Math.abs(sample.getTpsDot()) > MAX_STABLE_TPS_DOT) {
+        if (rpm < 500.0) return reject(LiveEligibility.RPM_BELOW_MINIMUM);
+        if (Math.abs(sample.getTpsDot()) > MAX_STABLE_TPS_DOT)
             return reject(LiveEligibility.TPS_MOVING);
-        }
-        if (Math.abs(sample.getMapDot()) > MAX_STABLE_MAP_DOT) {
+        if (Math.abs(sample.getMapDot()) > MAX_STABLE_MAP_DOT)
             return reject(LiveEligibility.MAP_MOVING);
-        }
-        if (sample.bool(ChannelRole.DFCO) || sample.bool(ChannelRole.FUEL_CUT)) {
+        if (sample.bool(ChannelRole.DFCO) || sample.bool(ChannelRole.FUEL_CUT))
             return reject(LiveEligibility.DFCO_OR_FUEL_CUT);
-        }
-        if (sample.bool(ChannelRole.MAP_PRED_ACTIVE)) {
+        if (sample.bool(ChannelRole.MAP_PRED_ACTIVE))
             return reject(LiveEligibility.MAP_PREDICT_ACTIVE);
-        }
-        if (sample.bool(ChannelRole.AE_ABOVE_THRESHOLD) || sample.bool(ChannelRole.AE_EXTRA_SHOT)) {
+        if (sample.bool(ChannelRole.AE_ABOVE_THRESHOLD) || sample.bool(ChannelRole.AE_EXTRA_SHOT))
             return reject(LiveEligibility.TPS_AE_ACTIVE);
-        }
-        if (Math.abs(zeroIfNaN(sample.get(ChannelRole.INSTANT_PULSE_PW))) > 0.0001) {
+        if (Math.abs(zeroIfNaN(sample.get(ChannelRole.INSTANT_PULSE_PW))) > 0.0001)
             return reject(LiveEligibility.INSTANT_FUEL_ACTIVE);
-        }
 
         if (sample.getNanoTime() - lastAcceptedNano < MIN_ACCEPT_GAP_NS) {
             lastEligibility = LiveEligibility.ELIGIBLE_RATE_LIMITED;
@@ -190,11 +175,7 @@ public final class MapEstimateCollector {
 
     public synchronized int getCoveredCells(int minimumSamples) {
         int covered = 0;
-        for (long[] row : counts) {
-            for (long count : row) {
-                if (count >= minimumSamples) covered++;
-            }
-        }
+        for (long[] row : counts) for (long count : row) if (count >= minimumSamples) covered++;
         return covered;
     }
 
@@ -217,9 +198,8 @@ public final class MapEstimateCollector {
         double[][] means = new double[sums.length][];
         for (int row = 0; row < sums.length; row++) {
             means[row] = new double[sums[row].length];
-            for (int col = 0; col < sums[row].length; col++) {
+            for (int col = 0; col < sums[row].length; col++)
                 means[row][col] = counts[row][col] > 0 ? sums[row][col] / counts[row][col] : Double.NaN;
-            }
         }
         return means;
     }
@@ -248,8 +228,7 @@ public final class MapEstimateCollector {
             values[row] = new double[sums[row].length];
             for (int col = 0; col < sums[row].length; col++) {
                 values[row][col] = counts[row][col] > 0
-                        ? maximums[row][col] - minimums[row][col]
-                        : Double.NaN;
+                        ? maximums[row][col] - minimums[row][col] : Double.NaN;
             }
         }
         return values;
@@ -276,9 +255,8 @@ public final class MapEstimateCollector {
 
     private double evidenceSeconds(long now, int row, int col) {
         double nominal = MIN_ACCEPT_GAP_NS / 1000000000.0;
-        if (now <= 0L || lastEvidenceNano <= 0L || row != lastEvidenceRow || col != lastEvidenceCol) {
+        if (now <= 0L || lastEvidenceNano <= 0L || row != lastEvidenceRow || col != lastEvidenceCol)
             return nominal;
-        }
         long gap = now - lastEvidenceNano;
         if (gap < MIN_ACCEPT_GAP_NS || gap > MAX_CONTIGUOUS_EVIDENCE_GAP_NS) return nominal;
         return gap / 1000000000.0;
@@ -317,9 +295,7 @@ public final class MapEstimateCollector {
 
     private static boolean sameAxis(double[] a, double[] b) {
         if (a == null || b == null || a.length != b.length) return false;
-        for (int i = 0; i < a.length; i++) {
-            if (Math.abs(a[i] - b[i]) > 1.0e-6) return false;
-        }
+        for (int i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > 1.0e-6) return false;
         return true;
     }
 

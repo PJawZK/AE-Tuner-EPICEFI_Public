@@ -11,9 +11,11 @@ import se.anders.tunerstudio.aetuner.model.AeProjectSnapshot;
  * validation. When the method is ON, each implemented/bound task is available
  * according to its normal production maturity.
  *
- * A live Guided capture also owns navigation until it is paused/finished. This
- * prevents the v0.19 selector from visually switching to another task while the
- * hidden production session is still collecting evidence for the previous one.
+ * A live Guided capture owns navigation until it is explicitly finished. This
+ * includes Blend Duration's settling/ready/outcome/re-arm states, not only the
+ * literal CAPTURING/PAUSED states. It prevents the v0.19 selector from visually
+ * switching to another task while the hidden production session still owns the
+ * capture lifecycle.
  */
 public final class GuidedTaskAvailabilityAdapter {
     private GuidedTaskAvailabilityAdapter() { }
@@ -24,8 +26,7 @@ public final class GuidedTaskAvailabilityAdapter {
 
         GuidedCaptureState liveState = GuidedFocusHub.activeCaptureState();
         GuidedTuningRecipe liveRecipe = GuidedFocusHub.activeCaptureRecipe();
-        if ((liveState == GuidedCaptureState.CAPTURING
-                || liveState == GuidedCaptureState.PAUSED)
+        if (liveState.isCaptureInProgress()
                 && task.productionRecipe != liveRecipe) {
             return unavailable("CAPTURE ACTIVE",
                     (liveRecipe == null ? "Another Guided task" : liveRecipe.displayName)

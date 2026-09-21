@@ -1,7 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -17,7 +16,23 @@ final class BlendDurationAttempt {
     final double baseTps;
     final double heldTps;
     final double tpsStep;
+
+    /** Primary physical comparability dimension: observed event-relative MAP rise. */
+    final double physicalMapStep;
+    final double physicalLateMap;
+    final double responseLowMap;
+    final double responseHighMap;
+    final boolean boundedLateWindow;
+
+    /** Diagnostic prediction context only; never physical validity authority. */
+    final double predictionGap;
+
+    /**
+     * Compatibility alias used by older helpers/tests. In the physical-response
+     * model this is the observed physical MAP step, not fallbackMap-MAP.
+     */
     final double gap;
+
     final String trend;
     final BlendDurationCaptureConfig settings;
 
@@ -45,7 +60,8 @@ final class BlendDurationAttempt {
                          int gearMin, int gearMax,
                          boolean gearOscillation, boolean vssBad) {
         this(number, duration, baseRpm, baseMap, baseTps, heldTps,
-                gap, trend, settings,
+                gap, baseMap + gap, Double.NaN, Double.NaN,
+                Double.NaN, false, trend, settings,
                 gearMin != Integer.MAX_VALUE && gearMin == gearMax ? gearMin : 0,
                 gearMin != Integer.MAX_VALUE && gearMin == gearMax,
                 gearOscillation, vssBad, 0, false, "");
@@ -53,7 +69,10 @@ final class BlendDurationAttempt {
 
     private BlendDurationAttempt(int number, double duration, double baseRpm,
                                  double baseMap, double baseTps, double heldTps,
-                                 double gap, String trend,
+                                 double physicalMapStep, double physicalLateMap,
+                                 double responseLowMap, double responseHighMap,
+                                 double predictionGap, boolean boundedLateWindow,
+                                 String trend,
                                  BlendDurationCaptureConfig settings,
                                  int detectedGear, boolean detectedGearLatched,
                                  boolean gearOscillation, boolean vssBad,
@@ -67,7 +86,13 @@ final class BlendDurationAttempt {
         this.baseTps = baseTps;
         this.heldTps = heldTps;
         this.tpsStep = heldTps - baseTps;
-        this.gap = gap;
+        this.physicalMapStep = physicalMapStep;
+        this.physicalLateMap = physicalLateMap;
+        this.responseLowMap = responseLowMap;
+        this.responseHighMap = responseHighMap;
+        this.predictionGap = predictionGap;
+        this.boundedLateWindow = boundedLateWindow;
+        this.gap = physicalMapStep;
         this.trend = trend;
         this.settings = settings;
         this.detectedGear = detectedGear;
@@ -115,8 +140,38 @@ final class BlendDurationAttempt {
                                       int vssSamples,
                                       int captureSamples,
                                       GuidedEventGearEvidence.Result eventGear) {
-        double delta = end.get(ChannelRole.RPM)
-                - measurementAnchor.get(ChannelRole.RPM);
+        double legacyGap = measurementAnchor == null ? Double.NaN
+                : measurementAnchor.get(ChannelRole.FALLBACK_MAP)
+                    - measurementAnchor.get(ChannelRole.MAP);
+        return buildPhysical(number, baseRpm, baseMap, baseTps,
+                measurementAnchor, holdAnchor, end, duration, settings,
+                detectedGear, badVss, vssSamples, captureSamples, eventGear,
+                legacyGap, baseMap + legacyGap, Double.NaN, Double.NaN,
+                legacyGap, false);
+    }
+
+    static BlendDurationAttempt buildPhysical(int number,
+                                              double baseRpm,
+                                              double baseMap,
+                                              double baseTps,
+                                              LiveSample responseAnchor,
+                                              LiveSample holdAnchor,
+                                              LiveSample end,
+                                              double duration,
+                                              BlendDurationCaptureConfig settings,
+                                              int detectedGear,
+                                              int badVss,
+                                              int vssSamples,
+                                              int captureSamples,
+                                              GuidedEventGearEvidence.Result eventGear,
+                                              double physicalMapStep,
+                                              double physicalLateMap,
+                                              double responseLowMap,
+                                              double responseHighMap,
+                                              double predictionGap,
+                                              boolean boundedLateWindow) {
+        double delta = end == null || responseAnchor == null
+                ? 0.0 : end.get(ChannelRole.RPM) - responseAnchor.get(ChannelRole.RPM);
         String trend = delta > 40.0 ? "RISING"
                 : delta < -40.0 ? "FALLING" : "STABLE";
         boolean gearLatched = detectedGear >= 1 && detectedGear <= 8;
@@ -130,9 +185,10 @@ final class BlendDurationAttempt {
         int eventGearValue = evidence.mismatch ? evidence.dominantGear : 0;
         return new BlendDurationAttempt(number, duration,
                 baseRpm, baseMap, baseTps,
-                holdAnchor.get(ChannelRole.TPS),
-                measurementAnchor.get(ChannelRole.FALLBACK_MAP)
-                        - measurementAnchor.get(ChannelRole.MAP),
+                holdAnchor == null ? Double.NaN : holdAnchor.get(ChannelRole.TPS),
+                physicalMapStep, physicalLateMap,
+                responseLowMap, responseHighMap,
+                predictionGap, boundedLateWindow,
                 trend, settings, detectedGear, gearLatched,
                 gearWarning, vssWarning,
                 eventGearValue, evidence.mismatch, evidence.text());

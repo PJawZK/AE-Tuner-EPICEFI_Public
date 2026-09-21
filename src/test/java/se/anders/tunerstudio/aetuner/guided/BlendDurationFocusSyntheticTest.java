@@ -57,10 +57,10 @@ public final class BlendDurationFocusSyntheticTest {
             require("blend-duration".equals(focus.visibleCardForTest()),
                     "Blend Duration still routes to generic coach card");
             BlendDurationGuidedFocusPanel panel = focus.blendDurationPanelForTest();
-            require(panel.instructionForTest().contains("OPEN SMOOTHLY")
+            require(panel.instructionForTest().contains("OPEN ONCE")
                             && panel.eventProgressForTest().contains("MATCHING EVENTS 0/5")
                             && panel.rpmTextForTest().contains("target 2600")
-                            && panel.tpsTextForTest().contains("accepted +10 to +30"),
+                            && panel.tpsTextForTest().contains("usable +10 to +40"),
                     "Blend Duration Driver Focus lost one-action/progress coaching");
             render(focus.getRootPane(), new File(out,
                     "workspace-guided-focus-blend-duration-driver-1180.png"));
@@ -71,7 +71,7 @@ public final class BlendDurationFocusSyntheticTest {
                     focus.validate();
                 }
             });
-            require(panel.instructionForTest().contains("OPEN SMOOTHLY")
+            require(panel.instructionForTest().contains("OPEN ONCE")
                             && panel.eventProgressForTest().contains("MATCHING EVENTS"),
                     "Blend Duration critical Driver guidance disappeared at 820px width");
             render(focus.getRootPane(), new File(out,

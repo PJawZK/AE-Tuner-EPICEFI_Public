@@ -1,7 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -80,20 +79,20 @@ final class GuidedTargetGauge extends JPanel {
     }
 
     void setTpsAdaptive(double nextValue, double baselineTps,
-                        double desiredStep) {
+                        double suggestedStep) {
         value = nextValue;
         minimum = 0.0;
         maximum = 100.0;
         boolean hasFrozenBaseline = Double.isFinite(baselineTps);
-        double acceptedStepLow = BlendDurationCaptureConfig.targetStepLow(desiredStep);
-        double acceptedStepHigh = BlendDurationCaptureConfig.targetStepHigh(desiredStep);
+        double usableStepLow = PedalPlateauDetector.MIN_USABLE_STEP;
+        double usableStepHigh = PedalPlateauDetector.MAX_USABLE_STEP;
         target = hasFrozenBaseline
-                ? clamp(baselineTps + desiredStep, minimum, maximum)
+                ? clamp(baselineTps + suggestedStep, minimum, maximum)
                 : Double.NaN;
         innerLow = hasFrozenBaseline
-                ? clamp(baselineTps + acceptedStepLow, minimum, maximum) : Double.NaN;
+                ? clamp(baselineTps + usableStepLow, minimum, maximum) : Double.NaN;
         innerHigh = hasFrozenBaseline
-                ? clamp(baselineTps + acceptedStepHigh, minimum, maximum) : Double.NaN;
+                ? clamp(baselineTps + usableStepHigh, minimum, maximum) : Double.NaN;
         outerLow = innerLow;
         outerHigh = innerHigh;
         double actualStep = Double.isFinite(nextValue) && hasFrozenBaseline
@@ -102,15 +101,17 @@ final class GuidedTargetGauge extends JPanel {
             label.setText("TPS " + format(nextValue, 1) + "% — frozen baseline "
                     + format(baselineTps, 1) + "% — actual step "
                     + (Double.isFinite(actualStep) && actualStep >= 0.0 ? "+" : "")
-                    + format(actualStep, 1) + " — target step +" + format(desiredStep, 1)
-                    + " — accepted +" + format(acceptedStepLow, 1)
-                    + " to +" + format(acceptedStepHigh, 1));
+                    + format(actualStep, 1) + " — suggested step +" + format(suggestedStep, 1)
+                    + " (guide only) — usable +" + format(usableStepLow, 1)
+                    + " to +" + format(usableStepHigh, 1)
+                    + " — comparable set spread ≤"
+                    + format(BlendDurationComparabilityGroups.TPS_STEP_LIMIT, 1));
         } else {
-            label.setText("TPS " + format(nextValue, 1) + "% — target step +"
-                    + format(desiredStep, 1)
-                    + " — accepted +" + format(acceptedStepLow, 1)
-                    + " to +" + format(acceptedStepHigh, 1)
-                    + " — target marker waits for frozen opening baseline");
+            label.setText("TPS " + format(nextValue, 1) + "% — suggested step +"
+                    + format(suggestedStep, 1)
+                    + " (guide only) — usable +" + format(usableStepLow, 1)
+                    + " to +" + format(usableStepHigh, 1)
+                    + " — suggested marker waits for frozen opening baseline");
         }
         track.repaint();
     }
@@ -118,17 +119,18 @@ final class GuidedTargetGauge extends JPanel {
     void setRpmAdaptive(double nextValue, double nextTarget) {
         value = nextValue;
         target = nextTarget;
-        double view = Math.max(500.0, RoadBaselineTracker.RPM_CAPTURE_TOLERANCE + 200.0);
+        double tolerance = BlendDurationGuidedSession.ENTRY_RPM_TOLERANCE;
+        double view = Math.max(500.0, tolerance + 200.0);
         minimum = Math.max(0.0, nextTarget - view);
         maximum = nextTarget + view;
-        innerLow = nextTarget - RoadBaselineTracker.RPM_ACQUIRE_TOLERANCE;
-        innerHigh = nextTarget + RoadBaselineTracker.RPM_ACQUIRE_TOLERANCE;
-        outerLow = nextTarget - RoadBaselineTracker.RPM_CAPTURE_TOLERANCE;
-        outerHigh = nextTarget + RoadBaselineTracker.RPM_CAPTURE_TOLERANCE;
+        innerLow = nextTarget - tolerance;
+        innerHigh = nextTarget + tolerance;
+        outerLow = innerLow;
+        outerHigh = innerHigh;
         label.setText("RPM " + format(nextValue, 0) + " — actual table bin "
-                + format(nextTarget, 0) + " — READY ±"
-                + format(RoadBaselineTracker.RPM_ACQUIRE_TOLERANCE, 0)
-                + "; capture ±" + format(RoadBaselineTracker.RPM_CAPTURE_TOLERANCE, 0));
+                + format(nextTarget, 0) + " — entry/READY ±"
+                + format(tolerance, 0)
+                + "; no post-start RPM ceiling");
         track.repaint();
     }
 

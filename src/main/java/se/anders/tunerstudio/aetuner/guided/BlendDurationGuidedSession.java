@@ -1,7 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -17,26 +16,34 @@ import java.util.Locale;
  *
  * The driver performs one controlled throttle opening. The engine maintains a
  * rolling pre-opening baseline, freezes it when the opening begins, requires a
- * stable plateau inside the selected relative TPS-step window, and retains
- * every physically valid final-target MAP measurement. Valid events are then
- * assigned to comparable groups after capture.
+ * stable plateau inside broad natural-pedal usability bounds, and times the
+ * central 20->80% portion of the event's own physical MAP rise. Predictive MAP
+ * target/replay data is retained as diagnostics only and cannot define whether
+ * a physical timing measurement exists. The configured TPS step is coaching
+ * only; valid events are assigned to comparable groups after capture.
  */
 final class BlendDurationGuidedSession {
     private static final double OUTCOME_DISPLAY_SECONDS = 0.80;
     private static final double RECOVERY_SECONDS = 1.50;
     private static final double TARGET_CUE_MIN_SECONDS = 0.12;
-    private static final double MIN_GAP = 4.0;
     private static final double MAJOR_PEDAL_MOVE = 8.0;
+    static final double ENTRY_RPM_TOLERANCE = 300.0;
 
     private final RoadBaselineTracker roadBaseline = new RoadBaselineTracker();
+    /** Prediction/fallback/Effective-MAP diagnostics only. */
     private final MapCatchupMeasurement mapCatchup = new MapCatchupMeasurement();
+    /** Primary physical Blend timing authority. */
+    private final PhysicalMapResponseMeasurement physicalResponse =
+            new PhysicalMapResponseMeasurement();
     private final PedalOpeningDetector openingDetector = new PedalOpeningDetector();
     private final GuidedAttemptEvidence attemptEvidence = new GuidedAttemptEvidence();
     private final List<BlendDurationAttempt> validAttempts =
             new ArrayList<BlendDurationAttempt>();
     private final BlendDurationComparabilityGroups groups = new BlendDurationComparabilityGroups();
+    private final BlendDurationRpmBinLatch rpmBinLatch = new BlendDurationRpmBinLatch();
 
     private BlendDurationCaptureConfig settings = new BlendDurationCaptureConfig(2000.0, 20.0, 5, 0, false);
+    private BlendDurationCaptureConfig eventSettings;
     private GuidedVehicleTestLimits.Snapshot limits =
             GuidedVehicleTestLimits.defaults(false);
     private GuidedCaptureState state = GuidedCaptureState.IDLE;
@@ -58,6 +65,15 @@ final class BlendDurationGuidedSession {
     private int excluded;
     private int returnedToBaseline;
     private GuidedOutcome pendingOutcome;
+
+    // Presentation-only bounded traces. These never participate in capture
+    // validity, timing, proposal generation or controller writes.
+    private BlendDurationFocusTrace lastOutcomeFocusTrace = BlendDurationFocusTrace.empty();
+    private BlendDurationFocusTrace lastAcceptedFocusTrace = BlendDurationFocusTrace.empty();
+    private BlendDurationFocusTrace previousAcceptedFocusTrace = BlendDurationFocusTrace.empty();
+    private BlendDurationFocusTrace cachedLiveFocusTrace = BlendDurationFocusTrace.empty();
+    private long cachedLiveFocusTraceNano;
+
     private GuidedWorkflowEvent.Listener workflowEvents = GuidedWorkflowEvent.NONE;
 
     synchronized void setWorkflowEventListener(GuidedWorkflowEvent.Listener listener) {
@@ -67,8 +83,12 @@ final class BlendDurationGuidedSession {
     synchronized void start(BlendDurationCaptureConfig next) {
         settings = next == null ? settings : next;
         mapCatchup.configure(settings);
+        rpmBinLatch.configure(settings.armedRpmBins());
+        eventSettings = null;
         limits = GuidedVehicleTestLimits.beginSession();
         roadBaseline.clear();
+        rpmBinLatch.release();
+        eventSettings = null;
         validAttempts.clear();
         groups.rebuild(validAttempts);
         attempts = 0;
@@ -78,17 +98,25 @@ final class BlendDurationGuidedSession {
         pendingOutcome = null;
         lastAttemptTrace = "";
         lastSessionGearEvidence = "";
+        clearFocusTraceHistory();
         clearReadyAndCapture();
-        latestResult = "Session started. Drive smoothly near the selected actual Blend Duration RPM bin."
-                + "\nControlled TPS step: target +" + f1(settings.desiredTpsStep)
-                + " points; accepted +" + f1(settings.targetStepLow())
-                + " to +" + f1(settings.targetStepHigh()) + " points."
-                + "\nBlend measurement follows EPICEFI's upward-latched fallbackMap target: "
-                + "a higher prediction-active target replaces the earlier one and restarts measurement timing."
-                + "\nEffective MAP tell-tale replay: "
+        latestResult = "Session started. Armed actual Blend Duration RPM bins: "
+                + settings.armedRpmText() + " RPM."
+                + "\nAutomatic RPM-bin latch: enter one armed bin ±"
+                + f0(ENTRY_RPM_TOLERANCE) + " RPM and remain there for ~"
+                + f2(BlendDurationRpmBinLatch.LATCH_DWELL_SECONDS)
+                + " s while the road baseline is smooth. The bin then stays immutable through that event."
+                + "\nTPS opening: +" + f1(settings.desiredTpsStep)
+                + " points is a coaching suggestion only. Any stable +"
+                + f1(settings.usableStepLow()) + " to +" + f1(settings.usableStepHigh())
+                + " point opening can form a physically valid event; repeatability is decided by comparable-event grouping."
+                + "\nRPM only qualifies the entry: the automatically latched armed bin is the event's table point. Once the opening is confirmed there is no RPM ceiling and the latch cannot migrate."
+                + "\nPrimary Blend timing is prediction-independent: after the pedal settles, hold steady while real MAP develops its own late response level. The central 20->80% of that observed physical MAP rise is timed."
+                + "\nPredictive/fallback MAP target, timer resets and current-tune Effective MAP replay remain diagnostic context only; they cannot accept, reject, time, or group a physical event."
+                + "\nCurrent-tune Effective MAP replay diagnostic: "
                 + (settings.hasBlendCurve()
-                    ? "armed from the current working Blend Duration curve."
-                    : "curve unavailable; event will retain a model-validation warning.")
+                    ? "available as context only."
+                    : "curve unavailable; physical measurement authority is unchanged.")
                 + "\nVehicle-test timing limits: " + limits.summary();
         instruction = baselineInstruction();
         state = GuidedCaptureState.SETTLING;
@@ -102,6 +130,8 @@ final class BlendDurationGuidedSession {
                     "Controlled Guided session reset", System.nanoTime());
         }
         roadBaseline.clear();
+        rpmBinLatch.release();
+        eventSettings = null;
         validAttempts.clear();
         groups.rebuild(validAttempts);
         attempts = 0;
@@ -111,6 +141,7 @@ final class BlendDurationGuidedSession {
         pendingOutcome = null;
         lastAttemptTrace = "";
         lastSessionGearEvidence = "";
+        clearFocusTraceHistory();
         clearReadyAndCapture();
         GuidedVehicleTestLimits.endSession();
         limits = GuidedVehicleTestLimits.current();
@@ -125,10 +156,14 @@ final class BlendDurationGuidedSession {
                 || state == GuidedCaptureState.COMPLETE) return;
         if (state == GuidedCaptureState.PAUSED) {
             clearReadyAndCapture();
+            rpmBinLatch.release();
+            eventSettings = null;
             state = GuidedCaptureState.SETTLING;
             instruction = baselineInstruction();
         } else {
             clearReadyAndCapture();
+            rpmBinLatch.release();
+            eventSettings = null;
             state = GuidedCaptureState.PAUSED;
             instruction = "Guided capture paused. Passive logging remains active.";
             emit(GuidedWorkflowEvent.PAUSED, instruction, System.nanoTime());
@@ -140,8 +175,10 @@ final class BlendDurationGuidedSession {
         if (state == GuidedCaptureState.IDLE
                 || state == GuidedCaptureState.COMPLETE) return;
         clearReadyAndCapture();
+        rpmBinLatch.release();
+        eventSettings = null;
         state = GuidedCaptureState.COMPLETE;
-        instruction = "Review the comparable measurement groups. No ECU value was written.";
+        instruction = "Review the comparable physical-response groups. No ECU value was written.";
         GuidedVehicleTestLimits.endSession();
         emit(GuidedWorkflowEvent.SESSION_ENDED, instruction, System.nanoTime());
         publishFocus(null);
@@ -181,24 +218,52 @@ final class BlendDurationGuidedSession {
                 if (seconds(lastOutcome, sample.getNanoTime())
                         < OUTCOME_DISPLAY_SECONDS) return;
                 clearReadyAndCapture();
+                // The event is already immutable in retained evidence. Release
+                // only after its outcome display has completed, before recovery
+                // begins, so the next event may acquire a different armed bin.
+                rpmBinLatch.release();
+                eventSettings = null;
                 state = GuidedCaptureState.RECOVERING;
-                instruction = "Return to normal light throttle; the next rolling baseline will establish automatically.";
+                instruction = "Return to normal light throttle; the next armed RPM bin will be acquired automatically after recovery.";
             }
 
             if (state == GuidedCaptureState.RECOVERING) {
+                double candidateRpm = rpmBinLatch.observe(
+                        sample.get(ChannelRole.RPM), sample.getNanoTime());
+                if (!Double.isFinite(candidateRpm)) {
+                    checkText = rpmBinLatch.statusText(
+                            sample.get(ChannelRole.RPM), sample.getNanoTime());
+                    return;
+                }
                 RoadBaselineTracker.AcquireCheck check = roadBaseline.acquireCheck(
-                        sample, settings.startRpm, lastOutcome, RECOVERY_SECONDS);
-                checkText = check.text;
+                        sample, candidateRpm, lastOutcome, RECOVERY_SECONDS,
+                        ENTRY_RPM_TOLERANCE);
+                checkText = rpmBinLatch.statusText(sample.get(ChannelRole.RPM),
+                        sample.getNanoTime()) + "\n" + check.text;
                 if (!check.recovered) return;
                 state = GuidedCaptureState.SETTLING;
                 instruction = baselineInstruction();
             }
 
             if (state == GuidedCaptureState.SETTLING) {
+                double candidateRpm = rpmBinLatch.observe(
+                        sample.get(ChannelRole.RPM), sample.getNanoTime());
+                if (!Double.isFinite(candidateRpm)) {
+                    checkText = rpmBinLatch.statusText(
+                            sample.get(ChannelRole.RPM), sample.getNanoTime());
+                    instruction = baselineInstruction();
+                    return;
+                }
                 RoadBaselineTracker.AcquireCheck check = roadBaseline.acquireCheck(
-                        sample, settings.startRpm, lastOutcome, RECOVERY_SECONDS);
-                checkText = check.text;
-                if (check.ready) {
+                        sample, candidateRpm, lastOutcome, RECOVERY_SECONDS,
+                        ENTRY_RPM_TOLERANCE);
+                checkText = rpmBinLatch.statusText(sample.get(ChannelRole.RPM),
+                        sample.getNanoTime()) + "\n" + check.text;
+                if (check.ready && rpmBinLatch.candidateStable(sample.getNanoTime())) {
+                    double latched = rpmBinLatch.latch(sample.getNanoTime());
+                    if (!Double.isFinite(latched)) return;
+                    eventSettings = settings.withStartRpm(latched);
+                    mapCatchup.configure(eventSettings);
                     rollingBaseline = roadBaseline.baseline(false);
                     state = GuidedCaptureState.READY;
                     instruction = readyInstruction();
@@ -209,24 +274,38 @@ final class BlendDurationGuidedSession {
             }
 
             if (state == GuidedCaptureState.READY) {
-                if (triggered(sample) || openingDetector.localTipInStarted(
-                        sample, rollingBaseline == null ? Double.NaN : rollingBaseline.tps,
-                        limits.localTpsOnsetRise)) {
+                double eventRpm = rpmBinLatch.latchedRpm();
+                if (!Double.isFinite(eventRpm)) {
+                    rollingBaseline = null;
+                    eventSettings = null;
+                    state = GuidedCaptureState.SETTLING;
+                    instruction = baselineInstruction();
+                    return;
+                }
+                double readyBaselineTps = rollingBaseline == null
+                        ? Double.NaN : rollingBaseline.tps;
+                if (openingDetector.localTipInStarted(
+                        sample, readyBaselineTps, limits.localTpsOnsetRise)) {
                     beginConfirmed(sample);
                     return;
                 }
-                if (openingDetector.movementStarted(
-                        sample, rollingBaseline == null ? Double.NaN : rollingBaseline.tps)) {
+                if (triggered(sample) || sample.bool(ChannelRole.MAP_PRED_ACTIVE)
+                        || openingDetector.movementStarted(sample, readyBaselineTps)) {
                     beginOpeningPending(sample);
                     return;
                 }
                 RoadBaselineTracker.ReadyCheck ready =
-                        roadBaseline.readyCheck(sample, settings.startRpm);
-                checkText = ready.text;
+                        roadBaseline.readyCheck(sample, eventRpm,
+                                ENTRY_RPM_TOLERANCE);
+                checkText = rpmBinLatch.statusText(sample.get(ChannelRole.RPM),
+                        sample.getNanoTime()) + "\n" + ready.text;
                 if (!ready.ready) {
                     rollingBaseline = null;
+                    rpmBinLatch.release();
+                    eventSettings = null;
                     state = GuidedCaptureState.SETTLING;
-                    instruction = ready.instruction;
+                    instruction = ready.instruction
+                            + " Automatic RPM-bin latch released; reacquire any armed bin.";
                 } else {
                     RoadBaselineTracker.Baseline next = roadBaseline.baseline(true);
                     if (next.valid()) rollingBaseline = next;
@@ -300,18 +379,34 @@ final class BlendDurationGuidedSession {
     }
 
     private String baselineInstruction() {
-        return "Drive smoothly near the actual selected table bin " + f0(settings.startRpm)
-                + " RPM (READY ±" + f0(RoadBaselineTracker.RPM_ACQUIRE_TOLERANCE)
-                + " RPM). Small hill/road corrections are allowed; READY uses a rolling trend-aware baseline.";
+        double target = rpmBinLatch.displayTargetRpm();
+        if (Double.isFinite(target)) {
+            return "Hold smooth RPM near candidate Blend Duration bin " + f0(target)
+                    + " RPM (entry ±" + f0(ENTRY_RPM_TOLERANCE)
+                    + " RPM) until the automatic latch completes. Armed bins: "
+                    + settings.armedRpmText() + " RPM.";
+        }
+        return "Drive smoothly near any armed Blend Duration bin: "
+                + settings.armedRpmText() + " RPM (entry ±"
+                + f0(ENTRY_RPM_TOLERANCE)
+                + " RPM). Hold there briefly; the event bin latches automatically.";
     }
 
     private String readyInstruction() {
-        return "At the selected " + f0(settings.startRpm)
-                + " RPM table bin, make one smooth throttle opening when safe to target +"
-                + f1(settings.desiredTpsStep) + " TPS points. Accepted step: +"
-                + f1(settings.targetStepLow()) + " to +" + f1(settings.targetStepHigh())
-                + ". Let your foot settle naturally and hold approximately steady until the cue."
-                + " Capture may drift ±" + f0(RoadBaselineTracker.RPM_CAPTURE_TOLERANCE) + " RPM.";
+        double groupStep = groups.bestGroupMeanStep();
+        String stepGuidance = Double.isFinite(groupStep)
+                ? " Repeat close to the leading group's +" + f1(groupStep)
+                    + " TPS step so the next event can join that comparable set."
+                : " The suggested +" + f1(settings.desiredTpsStep)
+                    + " TPS step is guidance only; the first valid event establishes the repeatable set.";
+        double eventRpm = rpmBinLatch.latchedRpm();
+        return "LATCHED " + f0(eventRpm)
+                + " RPM table bin — make one smooth clear throttle opening when safe."
+                + stepGuidance
+                + " Broad usable opening: +" + f1(settings.usableStepLow())
+                + " to +" + f1(settings.usableStepHigh()) + " TPS points."
+                + " Stop increasing the pedal, then hold that position while the real MAP response is observed."
+                + " Once the opening starts, RPM may rise freely; there is no post-start RPM ceiling.";
     }
 
     private void beginConfirmed(LiveSample sample) {
@@ -326,11 +421,17 @@ final class BlendDurationGuidedSession {
             lastSessionGearEvidence = baseline.sessionGearEvidence();
         }
         clearAttemptOnly();
+        lastOutcomeFocusTrace = BlendDurationFocusTrace.empty();
+        cachedLiveFocusTrace = BlendDurationFocusTrace.empty();
+        cachedLiveFocusTraceNano = 0L;
         lastAttemptTrace = "";
         detectorSeen = triggered(sample) || sample.bool(ChannelRole.MAP_PRED_ACTIVE);
         openingStarted = sample.getNanoTime();
         peakTps = sample.get(ChannelRole.TPS);
         for (LiveSample earlySample : early) {
+            if (triggered(earlySample) || earlySample.bool(ChannelRole.MAP_PRED_ACTIVE)) {
+                detectorSeen = true;
+            }
             attemptEvidence.add(earlySample);
             mapCatchup.observePredictionGap(earlySample);
         }
@@ -342,8 +443,8 @@ final class BlendDurationGuidedSession {
         }
         state = GuidedCaptureState.CAPTURING;
         instruction = detectorSeen
-                ? "Opening detected. Settle inside the requested TPS-step window and hold."
-                : "Opening detected locally; waiting briefly for ECU detector/prediction evidence while you settle inside the requested TPS-step window.";
+                ? "Opening detected. Settle into one stable pedal plateau and hold."
+                : "Opening detected locally; waiting briefly for ECU detector/prediction evidence while you settle into one stable pedal plateau.";
     }
 
     private void beginOpeningPending(LiveSample sample) {
@@ -355,8 +456,10 @@ final class BlendDurationGuidedSession {
     }
 
     private void monitorOpeningPending(LiveSample sample) {
+        double eventRpm = rpmBinLatch.latchedRpm();
         PedalOpeningDetector.Decision decision = openingDetector.observePending(
-                sample, rollingBaseline, settings.startRpm, limits);
+                sample, rollingBaseline, eventRpm, limits,
+                ENTRY_RPM_TOLERANCE);
         switch (decision.type) {
             case CONFIRM:
                 beginConfirmed(sample);
@@ -376,18 +479,6 @@ final class BlendDurationGuidedSession {
 
     private void capture(LiveSample sample) {
         attemptEvidence.add(sample);
-        double rpm = sample.get(ChannelRole.RPM);
-        if (!Double.isFinite(rpm)
-                || Math.abs(rpm - settings.startRpm)
-                > RoadBaselineTracker.RPM_CAPTURE_TOLERANCE) {
-            exclude(sample,
-                    "RPM left the selected " + f0(settings.startRpm)
-                            + " RPM table-bin capture window (±"
-                            + f0(RoadBaselineTracker.RPM_CAPTURE_TOLERANCE)
-                            + " RPM). Current RPM: " + f0(rpm) + ".",
-                    "Repeat from the selected actual table RPM bin using a gear/opening that keeps the event inside the capture window.");
-            return;
-        }
         mapCatchup.observePredictionGap(sample);
         if (!plateauAcquired) {
             acquirePlateau(sample);
@@ -426,33 +517,20 @@ final class BlendDurationGuidedSession {
 
         PedalPlateauDetector.Result plateau = PedalPlateauDetector.evaluate(
                 attemptEvidence.samples(), baseline.tps, sample.getNanoTime());
-        if (plateau.usable && settings.acceptsTpsStep(plateau.step)) {
+        if (plateau.usable) {
             holdAnchor = plateau.anchor;
             plateauAcquired = true;
             plateauAcquiredNano = sample.getNanoTime();
+            physicalResponse.begin(baseline.map, plateauAcquiredNano);
+            physicalResponse.observe(attemptEvidence.samples(), sample,
+                    limits.mapCatchupSeconds);
+            // Preserve prediction/fallback catch-up only as diagnostic context.
             mapCatchup.beginCatchup(attemptEvidence.samples(), limits.mapCatchupSeconds);
-            if (mapCatchup.measurementAnchor() == null
-                    || !Double.isFinite(mapCatchup.bestGap())) {
-                exclude(sample, "No prediction-active fallbackMap target was captured.",
-                        "Repeat one controlled opening after READY; MAP prediction must become active.");
-                return;
-            }
-            if (!mapCatchup.predictionOverlappedHoldWindow(holdAnchor.getNanoTime())) {
-                exclude(sample,
-                        "MAP prediction ended before the controlled TPS-step hold window began.",
-                        "Use one clearer opening into the requested TPS-step window so the predictive event overlaps the target hold.");
-                return;
-            }
-            if (mapCatchup.bestGap() < MIN_GAP) {
-                exclude(sample, "Final prediction-target anchor gap was only "
-                                + f2(mapCatchup.bestGap()) + " kPa.",
-                        "Use a clearer controlled opening after READY so the final prediction target meaningfully leads measured MAP.");
-                return;
-            }
-            instruction = "Pedal hold acquired around " + f1(plateau.medianTps)
+            instruction = "Pedal stopped around " + f1(plateau.medianTps)
                     + "% (step +" + f1(plateau.step)
-                    + "). Hold steady while measured MAP approaches the final upward-latched prediction target."
-                    + " Later higher prediction-active fallbackMap values restart the measurement anchor.";
+                    + "). Keep that pedal position steady while the real MAP response develops."
+                    + " The event's own late MAP level defines the physical step; 20->80% of that step is timed."
+                    + " Predictive/fallback MAP is diagnostic only. RPM may continue rising; it is measurement metadata, not an exclusion gate.";
             emit(GuidedWorkflowEvent.TARGET_ACQUIRED,
                     instruction, sample.getNanoTime());
             return;
@@ -460,12 +538,7 @@ final class BlendDurationGuidedSession {
 
         if (elapsed > limits.targetAcquisitionSeconds) {
             String reason;
-            if (plateau.usable && !settings.acceptsTpsStep(plateau.step)) {
-                reason = "The stable pedal step was +" + f1(plateau.step)
-                        + " TPS points, outside the requested +"
-                        + f1(settings.targetStepLow()) + " to +"
-                        + f1(settings.targetStepHigh()) + " window.";
-            } else if (plateau.step < PedalPlateauDetector.MIN_USABLE_STEP) {
+            if (plateau.step < PedalPlateauDetector.MIN_USABLE_STEP) {
                 reason = "The opening settled at only +" + f1(plateau.step)
                         + " TPS points; at least +" + f1(PedalPlateauDetector.MIN_USABLE_STEP)
                         + " is needed for this recipe.";
@@ -480,17 +553,21 @@ final class BlendDurationGuidedSession {
                         + " points).";
             }
             exclude(sample, reason,
-                    "Repeat one smooth opening and settle inside the displayed requested TPS-step window.");
+                    "Repeat one smooth clear opening and settle into one stable pedal plateau; comparable valid events are grouped automatically.");
             return;
         }
 
         double actualStep = tps - baseline.tps;
         instruction = "Opening detected. Current step +" + f1(actualStep)
-                + " TPS; settle inside +" + f1(settings.targetStepLow())
-                + " to +" + f1(settings.targetStepHigh()) + " and hold.";
+                + " TPS; settle into a stable plateau and hold. Broad usable range +"
+                + f1(settings.usableStepLow()) + " to +" + f1(settings.usableStepHigh())
+                + "; matching to the five-event set happens after capture.";
     }
 
     private void monitorCatchup(LiveSample sample) {
+        // Prediction/fallback evidence remains useful diagnostics, but physical
+        // event timing no longer waits for or targets fallbackMap.
+        mapCatchup.observePredictionGap(sample);
         double tps = sample.get(ChannelRole.TPS);
         double held = holdAnchor == null
                 ? Double.NaN : holdAnchor.get(ChannelRole.TPS);
@@ -498,76 +575,103 @@ final class BlendDurationGuidedSession {
             if (tps < held - MAJOR_PEDAL_MOVE) {
                 exclude(sample,
                         "Throttle backed off " + f1(held - tps)
-                                + " points before final-target MAP catch-up completed.",
+                                + " points before the physical MAP response measurement completed.",
                         "Small pedal motion is allowed; avoid a distinct release until the completion cue.");
                 return;
             }
             if (tps > held + MAJOR_PEDAL_MOVE) {
                 exclude(sample,
                         "A second throttle opening of " + f1(tps - held)
-                                + " points occurred before final-target MAP catch-up completed.",
+                                + " points occurred before the physical MAP response measurement completed.",
                         "Use one opening per Guided event.");
                 return;
             }
         }
 
+        // Retain old predicted-target catch-up as diagnostic evidence only.
         mapCatchup.observeCatchup(sample);
-        if (mapCatchup.timedOut(sample, limits.mapCatchupSeconds)) {
+        physicalResponse.observe(attemptEvidence.samples(), sample,
+                limits.mapCatchupSeconds);
+        if (physicalResponse.isFailed()) {
             exclude(sample,
-                    "Measured MAP did not reach the final latched prediction target "
-                            + f2(mapCatchup.finalPredictionTarget()) + " kPa within "
-                            + f2(limits.mapCatchupSeconds)
-                            + " seconds after the last upward fallbackMap target update.",
-                    "Do not infer Blend Duration from this event. Repeat once under the same conditions; if it repeats, review MAP Estimate plausibility for this TPS/RPM region.");
+                    physicalResponse.failureReason(),
+                    "Repeat one clear opening and steady hold. The physical MAP step must be large enough to define a useful 20->80% response; do not chase fallbackMap.");
             return;
         }
-        LiveSample caught = mapCatchup.catchSample();
-        if (caught != null
+        if (physicalResponse.isComplete()
                 && seconds(plateauAcquiredNano, sample.getNanoTime())
                 >= TARGET_CUE_MIN_SECONDS) {
-            complete(caught, mapCatchup.catchupDurationSeconds());
+            complete(physicalResponse.completionSample(),
+                    physicalResponse.durationSeconds());
         }
     }
 
     private void complete(LiveSample completedAt, double duration) {
-        BlendDurationAttempt candidate = attemptEvidence.buildAttempt(
-                attempts, baseline, mapCatchup.measurementAnchor(),
-                holdAnchor, completedAt, duration, settings);
+        BlendDurationCaptureConfig retainedEventSettings = eventSettings();
+        BlendDurationAttempt candidate = attemptEvidence.buildPhysicalAttempt(
+                attempts, baseline, physicalResponse.lowCrossSample(),
+                holdAnchor, completedAt, duration, retainedEventSettings,
+                physicalResponse.mapStep(), physicalResponse.lateMap(),
+                physicalResponse.lowThreshold(), physicalResponse.highThreshold(),
+                mapCatchup.bestGap(), physicalResponse.usedBoundedLateWindow());
 
         BlendDurationComparabilityGroups.Assignment assignment = groups.assign(candidate);
         validAttempts.add(candidate);
-        boolean modelWarning = !mapCatchup.effectiveMapModelConsistent();
-        boolean warning = candidate.gearReliabilityWarning() || modelWarning
-                || assignment.nearBoundary;
+        boolean replayConsistent = mapCatchup.effectiveMapModelConsistent();
+        boolean warning = candidate.gearReliabilityWarning()
+                || assignment.nearBoundary
+                || physicalResponse.usedBoundedLateWindow();
         lastAttemptTrace = compactTrace(
                 warning ? "VALID_WITH_WARNING" : "VALID", completedAt);
+        BlendDurationFocusTrace acceptedFocusTrace = buildFocusTrace(
+                completedAt, true, warning ? "VALID WITH WARNING" : "VALID");
+        previousAcceptedFocusTrace = lastAcceptedFocusTrace;
+        lastAcceptedFocusTrace = acceptedFocusTrace;
+        lastOutcomeFocusTrace = acceptedFocusTrace;
+        cachedLiveFocusTrace = acceptedFocusTrace;
+        cachedLiveFocusTraceNano = completedAt.getNanoTime();
         lastOutcome = completedAt.getNanoTime();
+
+        String predictionContext = Double.isFinite(mapCatchup.finalPredictionTarget())
+                ? "latest timer-reset prediction target " + f2(mapCatchup.finalPredictionTarget())
+                    + " kPa | prediction target-anchor gap " + f2(mapCatchup.bestGap()) + " kPa"
+                : "prediction target unavailable for this event";
+
         latestResult = (warning ? "VALID ROAD EVENT WITH WARNING" : "VALID ROAD EVENT")
-                + "\nFinal-target catch-up duration: " + f3(duration) + " s"
+                + "\nPhysical MAP 20->80 response duration: " + f3(duration) + " s"
+                + "\nPhysical MAP response: " + f2(candidate.baseMap) + " -> "
+                + f2(candidate.physicalLateMap) + " kPa"
+                + " | step " + f2(candidate.physicalMapStep) + " kPa"
+                + " | 20% " + f2(candidate.responseLowMap)
+                + " -> 80% " + f2(candidate.responseHighMap) + " kPa"
                 + "\nBaseline: " + f0(candidate.baseRpm) + " RPM / "
                 + f2(candidate.baseMap) + " kPa / "
                 + f1(candidate.baseTps) + "% TPS"
                 + "\nControlled held TPS: " + f1(candidate.heldTps) + "%"
                 + " | TPS step: +" + f1(candidate.tpsStep) + " points"
-                + " | final prediction target: " + f2(mapCatchup.finalPredictionTarget()) + " kPa"
-                + " | target-anchor gap: " + f2(candidate.gap) + " kPa"
                 + " | RPM trend: " + candidate.trend
+                + "\nPrediction diagnostic only: " + predictionContext
                 + "\nGear: " + candidate.gearText()
+                + "\n" + physicalResponse.evidenceText()
                 + "\n" + mapCatchup.modelEvidenceText()
                 + "\n" + mapCatchup.counterEvidenceText()
                 + "\nGroup: " + assignment.groupId + " | "
                 + assignment.description
-                + "\nAll valid groups are retained; only comparable events in one group are combined for repeatability review."
-                + "\nNumerical Blend Duration Apply is intentionally withheld while the corrected firmware-faithful proposal rule is being validated.";
+                + "\nAll valid groups are retained; only comparable physical-response events in one group are combined for repeatability review."
+                + "\nNumerical Blend Duration Apply is intentionally withheld while the physical-response-to-curve conversion is being validated.";
+        if (physicalResponse.usedBoundedLateWindow()) {
+            latestResult += "\nAdvisory: MAP was still moving enough that the bounded observation horizon supplied the late physical level. The event is retained as lower-confidence evidence; repeatability across the group decides usefulness.";
+        }
         if (candidate.gearReliabilityWarning()) {
             latestResult += "\nAdvisory: automatic gear/VSS evidence did not establish a reliable latch. Manual gear mode treats operator-selected gear as authoritative metadata.";
         }
-        if (modelWarning) {
-            latestResult += "\nAdvisory: Effective MAP firmware replay is missing or inconsistent; retain the raw event but review diagnostics before treating it as model-validation evidence.";
+        if (!replayConsistent) {
+            latestResult += "\nDiagnostic only: current-tune Effective MAP replay is missing or inconsistent."
+                    + " This does not change physical event validity, warning state, measured duration, or repeatability authority.";
         }
         state = warning ? GuidedCaptureState.WARNING
                 : GuidedCaptureState.ACCEPTED;
-        instruction = "Valid final-target event captured. Return to normal light throttle; another road baseline will acquire automatically.";
+        instruction = "Valid physical MAP-response event captured. Return to normal light throttle; another road baseline will acquire automatically.";
         pendingOutcome = new GuidedOutcome(
                 warning ? GuidedOutcome.Decision.VALID_WITH_WARNING
                         : GuidedOutcome.Decision.VALID,
@@ -577,14 +681,24 @@ final class BlendDurationGuidedSession {
         emit(GuidedWorkflowEvent.EVENT_ACCEPTED,
                 instruction, completedAt.getNanoTime());
 
-        if (groups.bestGroupCount() >= settings.targetCount) {
+        double completedBin = retainedEventSettings.startRpm;
+        int binProgress = groups.bestGroupCountForBin(completedBin);
+        if (groups.targetsReached(settings.armedRpmBins(), settings.targetCount)) {
             state = GuidedCaptureState.COMPLETE;
-            instruction = "SERIES COMPLETE — group "
-                    + groups.bestGroupId() + " reached "
-                    + groups.bestGroupCount() + " comparable final-target events. Review repeatability and diagnostics; numerical Apply remains withheld in this correction stage.";
+            instruction = "SERIES COMPLETE — every armed RPM bin reached "
+                    + settings.targetCount + " comparable physical-response events. "
+                    + groups.binProgress(settings.armedRpmBins(), settings.targetCount)
+                    + ". Review each bin independently; numerical Apply remains withheld in this validation stage.";
+            rpmBinLatch.release();
+            eventSettings = null;
             GuidedVehicleTestLimits.endSession();
             emit(GuidedWorkflowEvent.SERIES_COMPLETE,
                     instruction, completedAt.getNanoTime());
+        } else {
+            instruction = "Valid event stored at latched " + f0(completedBin)
+                    + " RPM bin (" + binProgress + "/" + settings.targetCount
+                    + "). Return to normal light throttle; after recovery any armed bin may auto-latch. "
+                    + groups.binProgress(settings.armedRpmBins(), settings.targetCount) + ".";
         }
     }
 
@@ -592,6 +706,9 @@ final class BlendDurationGuidedSession {
         if (lastAttemptTrace.length() == 0) {
             lastAttemptTrace = compactTrace("EXCLUDED", sample);
         }
+        lastOutcomeFocusTrace = buildFocusTrace(sample, true, "EXCLUDED");
+        cachedLiveFocusTrace = lastOutcomeFocusTrace;
+        cachedLiveFocusTraceNano = sample == null ? System.nanoTime() : sample.getNanoTime();
         excluded++;
         clearAttemptStateAfterOutcome();
         state = GuidedCaptureState.EXCLUDED;
@@ -613,6 +730,9 @@ final class BlendDurationGuidedSession {
                 openingDetector.pendingSamples(), sample);
         if (attemptEvidence.sampleCount() > 0) {
             lastAttemptTrace = compactTrace("RETURN_TO_BASELINE", sample);
+            lastOutcomeFocusTrace = buildFocusTrace(sample, true, "RETURN / RE-ARM");
+            cachedLiveFocusTrace = lastOutcomeFocusTrace;
+            cachedLiveFocusTraceNano = sample == null ? System.nanoTime() : sample.getNanoTime();
         }
         returnedToBaseline++;
         clearReadyAndCapture();
@@ -630,19 +750,77 @@ final class BlendDurationGuidedSession {
     }
 
     private String compactTrace(String disposition, LiveSample outcome) {
-        String base = GuidedAttemptTrace.build(disposition, attemptEvidence.samples(), settings, limits,
+        String base = GuidedAttemptTrace.build(disposition, attemptEvidence.samples(), eventSettings(), limits,
                 RoadBaselineTracker.BASELINE_SECONDS, PedalPlateauDetector.WINDOW_SECONDS, PedalPlateauDetector.RANGE_LIMIT,
-                MAJOR_PEDAL_MOVE, mapCatchup.measurementAnchor(),
-                mapCatchup.bestGap(), holdAnchor, outcome);
+                MAJOR_PEDAL_MOVE, physicalResponse.lowCrossSample(),
+                physicalResponse.mapStep(), holdAnchor, outcome);
         return base
-                + "final_prediction_target_kpa=" + f2(mapCatchup.finalPredictionTarget()) + "\n"
-                + "final_target_catchup_s=" + f3(mapCatchup.catchupDurationSeconds()) + "\n"
+                + "physical_map_baseline_kpa=" + f2(physicalResponse.baselineMap()) + "\n"
+                + "physical_map_late_kpa=" + f2(physicalResponse.lateMap()) + "\n"
+                + "physical_map_step_kpa=" + f2(physicalResponse.mapStep()) + "\n"
+                + "physical_response_20_kpa=" + f2(physicalResponse.lowThreshold()) + "\n"
+                + "physical_response_80_kpa=" + f2(physicalResponse.highThreshold()) + "\n"
+                + "physical_response_20_80_s=" + f3(physicalResponse.durationSeconds()) + "\n"
+                + "physical_late_window_bounded=" + physicalResponse.usedBoundedLateWindow() + "\n"
+                + "prediction_target_diagnostic_kpa=" + f2(mapCatchup.finalPredictionTarget()) + "\n"
+                + "prediction_target_gap_diagnostic_kpa=" + f2(mapCatchup.bestGap()) + "\n"
+                + "prediction_target_catchup_diagnostic_s=" + f3(mapCatchup.catchupDurationSeconds()) + "\n"
                 + "effective_map_model_check=" + singleLine(mapCatchup.modelEvidenceText()) + "\n"
                 + "prediction_counter_check=" + singleLine(mapCatchup.counterEvidenceText()) + "\n";
     }
 
+    private BlendDurationFocusTrace buildFocusTrace(LiveSample latest,
+                                                     boolean frozen,
+                                                     String outcome) {
+        return BlendDurationFocusTrace.build(
+                attemptEvidence.samples(),
+                holdAnchor,
+                physicalResponse.lowCrossSample(),
+                physicalResponse.highCrossSample(),
+                physicalResponse.lateMap(),
+                physicalResponse.lowThreshold(),
+                physicalResponse.highThreshold(),
+                mapCatchup.finalPredictionTarget(),
+                frozen,
+                outcome);
+    }
+
+    private BlendDurationFocusTrace currentFocusTrace(LiveSample latest) {
+        boolean activeAttempt = attemptEvidence.sampleCount() > 0
+                && (state == GuidedCaptureState.CAPTURING
+                    || state == GuidedCaptureState.OPENING_PENDING);
+        if (activeAttempt) {
+            long now = latest == null ? System.nanoTime() : latest.getNanoTime();
+            if (!cachedLiveFocusTrace.hasData()
+                    || cachedLiveFocusTraceNano == 0L
+                    || now - cachedLiveFocusTraceNano >= 50000000L) {
+                cachedLiveFocusTrace = buildFocusTrace(latest, false, "CURRENT ATTEMPT");
+                cachedLiveFocusTraceNano = now;
+            }
+            return cachedLiveFocusTrace;
+        }
+        if (lastOutcomeFocusTrace.hasData()) return lastOutcomeFocusTrace;
+        return BlendDurationFocusTrace.empty();
+    }
+
+    private BlendDurationFocusTrace ghostFocusTrace(BlendDurationFocusTrace current) {
+        if (current == lastAcceptedFocusTrace) {
+            return previousAcceptedFocusTrace;
+        }
+        return lastAcceptedFocusTrace;
+    }
+
+    private void clearFocusTraceHistory() {
+        lastOutcomeFocusTrace = BlendDurationFocusTrace.empty();
+        lastAcceptedFocusTrace = BlendDurationFocusTrace.empty();
+        previousAcceptedFocusTrace = BlendDurationFocusTrace.empty();
+        cachedLiveFocusTrace = BlendDurationFocusTrace.empty();
+        cachedLiveFocusTraceNano = 0L;
+    }
+
     private void clearAttemptOnly() {
         mapCatchup.reset();
+        physicalResponse.reset();
         attemptEvidence.reset();
         openingDetector.reset();
         holdAnchor = null;
@@ -651,10 +829,13 @@ final class BlendDurationGuidedSession {
         peakTps = Double.NaN;
         openingStarted = 0L;
         plateauAcquiredNano = 0L;
+        cachedLiveFocusTrace = BlendDurationFocusTrace.empty();
+        cachedLiveFocusTraceNano = 0L;
     }
 
     private void clearAttemptStateAfterOutcome() {
         mapCatchup.reset();
+        physicalResponse.reset();
         openingDetector.reset();
         holdAnchor = null;
         detectorSeen = false;
@@ -667,22 +848,44 @@ final class BlendDurationGuidedSession {
         clearAttemptOnly();
     }
 
+    private BlendDurationCaptureConfig eventSettings() {
+        if (eventSettings != null) return eventSettings;
+        double latched = rpmBinLatch.latchedRpm();
+        if (Double.isFinite(latched)) return settings.withStartRpm(latched);
+        return settings;
+    }
+
+    private BlendDurationCaptureConfig presentationSettings() {
+        double display = rpmBinLatch.displayTargetRpm();
+        return settings.withStartRpm(display);
+    }
+
+    synchronized double latchedRpmForTest() { return rpmBinLatch.latchedRpm(); }
+    synchronized double candidateRpmForTest() { return rpmBinLatch.candidateRpm(); }
+    synchronized double[] armedRpmBinsForTest() { return settings.armedRpmBins(); }
+
     synchronized GuidedSessionSnapshot snapshot() {
+        BlendDurationCaptureConfig presentation = presentationSettings();
         return BlendDurationGuidedSummary.snapshot(
                 state, plateauAcquired, instruction,
-                gearStatusForDisplay() + "\n" + checkText, latestResult,
-                settings, validAttempts.size(), excluded, returnedToBaseline,
+                gearStatusForDisplay() + "\n" + rpmBinLatch.statusText(
+                        Double.NaN, System.nanoTime()) + "\n" + checkText, latestResult,
+                presentation, validAttempts.size(), excluded, returnedToBaseline,
                 attempts, groups, lastAttemptTrace);
     }
 
     private void publishFocus(LiveSample latest) {
+        BlendDurationFocusTrace currentTrace = currentFocusTrace(latest);
+        BlendDurationFocusTrace ghostTrace = ghostFocusTrace(currentTrace);
+        BlendDurationCaptureConfig presentation = presentationSettings();
         GuidedFocusHub.publishBlendDuration(state,
-                BlendDurationFocusModel.build(state, settings, latest,
+                BlendDurationFocusModel.build(state, presentation, latest,
                         rollingBaseline, baseline, holdAnchor, plateauAcquired,
-                        mapCatchup, groups, validAttempts,
+                        physicalResponse, mapCatchup, groups, validAttempts,
                         excluded, returnedToBaseline,
-                        instruction, checkText, latestResult),
-                "Blend Duration measurement follows EPICEFI's final upward-latched fallbackMap target and exact measured-MAP catch-up. Follow only the Driver instruction; Details retains the engineering checks, comparability groups and firmware replay. Numerical Apply is intentionally withheld.");
+                        instruction, checkText, latestResult,
+                        currentTrace, ghostTrace),
+                "Blend Duration primary timing uses the event's own physical MAP rise: stable baseline, one opening, steady pedal, then normalized 20->80% response timing. Predictive/fallback MAP target, timer-reset evidence and current-tune Effective MAP replay are diagnostic context only and cannot define physical event validity or duration. Numerical Apply remains intentionally withheld.");
     }
 
     private static boolean isOutcomeState(GuidedCaptureState state) {
@@ -711,8 +914,7 @@ final class BlendDurationGuidedSession {
     private static boolean requiredFinite(LiveSample sample) {
         return finite(sample, ChannelRole.RPM)
                 && finite(sample, ChannelRole.TPS)
-                && finite(sample, ChannelRole.MAP)
-                && finite(sample, ChannelRole.FALLBACK_MAP);
+                && finite(sample, ChannelRole.MAP);
     }
 
     private static boolean safe(LiveSample sample) {

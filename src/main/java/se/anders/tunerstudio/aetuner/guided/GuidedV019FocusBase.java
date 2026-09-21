@@ -23,11 +23,9 @@ import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.Dialog;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.Frame;
 import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.LayoutManager;
@@ -49,7 +47,7 @@ abstract class GuidedV019FocusBase extends JPanel {
     final JButton diagnostics = button("Options / Info");
     final JButton pauseCapture = button("Pause Capture");
     final JButton finishCapture = button("Finish Capture");
-    final JButton exportEvidence = button("Export Evidence");
+    final JButton exportEvidence = button("Export Current Session");
     final JButton review = button("Review Results");
     final Timer refreshTimer;
     private final JLabel captureAction = label("Start Capture from the main workflow.",
@@ -57,7 +55,7 @@ abstract class GuidedV019FocusBase extends JPanel {
     private JDialog diagnosticsDialog;
 
     GuidedV019FocusBase(JDialog owner, Runnable onReviewReady) {
-        this.owner = owner;
+        this.owner = owner == null ? null : GuidedDialogLifecycle.own(owner);
         this.onReviewReady = onReviewReady;
         setLayout(new BorderLayout(0, 8));
         setBackground(AeUiTheme.focusBackground());
@@ -86,9 +84,10 @@ abstract class GuidedV019FocusBase extends JPanel {
                 refreshCaptureControls();
             }
         });
+        exportEvidence.setToolTipText("Export the currently collected session report/CSV snapshot. This does not make incomplete evidence Review-ready.");
         exportEvidence.addActionListener(new ActionListener() {
             @Override public void actionPerformed(ActionEvent e) {
-                GuidedFocusHub.exportActiveEvidence();
+                GuidedFocusHub.exportActiveSession();
                 refreshCaptureControls();
             }
         });
@@ -109,6 +108,10 @@ abstract class GuidedV019FocusBase extends JPanel {
                 refreshTimer.start();
             } else {
                 refreshTimer.stop();
+                if (diagnosticsDialog != null) {
+                    diagnosticsDialog.dispose();
+                    diagnosticsDialog = null;
+                }
             }
         });
     }
@@ -119,7 +122,11 @@ abstract class GuidedV019FocusBase extends JPanel {
     abstract JComponent diagnosticsContent();
     abstract void refreshFromProduction();
 
+    int refreshIntervalMillis() { return 150; }
+
     final void build() {
+        refreshTimer.setDelay(refreshIntervalMillis());
+        refreshTimer.setInitialDelay(refreshIntervalMillis());
         add(header(), BorderLayout.NORTH);
         add(drivingContent(), BorderLayout.CENTER);
         add(bottomBar(), BorderLayout.SOUTH);
@@ -166,7 +173,7 @@ abstract class GuidedV019FocusBase extends JPanel {
 
     private void refreshCaptureControls() {
         GuidedCaptureState capture = GuidedFocusHub.activeCaptureState();
-        boolean active = capture == GuidedCaptureState.CAPTURING || capture == GuidedCaptureState.PAUSED;
+        boolean active = capture.isCaptureInProgress();
         boolean reviewReady = capture == GuidedCaptureState.COMPLETE
                 && GuidedFocusHub.isActiveEvidenceReviewReady();
         boolean canContinue = capture == GuidedCaptureState.COMPLETE
@@ -174,7 +181,7 @@ abstract class GuidedV019FocusBase extends JPanel {
         pauseCapture.setEnabled(active);
         finishCapture.setEnabled(canContinue || active && GuidedFocusHub.canFinishCapture());
         finishCapture.setText(canContinue ? "Continue Capture" : "Finish Capture");
-        exportEvidence.setEnabled(reviewReady && GuidedFocusHub.canExportActiveEvidence());
+        exportEvidence.setEnabled(GuidedFocusHub.canExportActiveSession());
         review.setEnabled(reviewReady);
         pauseCapture.setText(capture == GuidedCaptureState.PAUSED ? "Resume Capture" : "Pause Capture");
         if (capture == GuidedCaptureState.CAPTURING) {
@@ -214,7 +221,7 @@ abstract class GuidedV019FocusBase extends JPanel {
     static JPanel card(LayoutManager layout) { JPanel p = new JPanel(layout); p.setBackground(AeUiTheme.card()); return p; }
     static javax.swing.border.Border cardBorder() { return new CompoundBorder(new LineBorder(AeUiTheme.border()), new EmptyBorder(8, 10, 8, 10)); }
     static JButton button(String text) { JButton b = new JButton(text); b.setFont(SMALL); b.setFocusPainted(false); b.setOpaque(true); b.setBackground(AeUiTheme.button()); b.setForeground(AeUiTheme.focusText()); b.setBorder(new CompoundBorder(new LineBorder(AeUiTheme.focusButtonBorder()), new EmptyBorder(5, 8, 5, 8))); return b; }
-    static JDialog modelessDialog(Window host, String title) { if (host instanceof Dialog) return new JDialog((Dialog) host, title, Dialog.ModalityType.MODELESS); if (host instanceof Frame) return new JDialog((Frame) host, title, false); return new JDialog((Frame) null, title, false); }
+    static JDialog modelessDialog(Window host, String title) { return GuidedDialogLifecycle.create(host, title, false); }
     static JLabel label(String text, int size, int style, Color color) { JLabel l = new JLabel(text); l.setFont(new Font("Dialog", style, size)); l.setForeground(color); return l; }
     static JLabel valueLabel() { return label("n/a", 20, Font.BOLD, AeUiTheme.focusText()); }
     static JLabel smallValue() { return label("n/a", 11, Font.BOLD, AeUiTheme.focusText()); }

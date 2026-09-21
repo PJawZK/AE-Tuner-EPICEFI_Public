@@ -42,6 +42,20 @@ public final class GuidedV019CaptureLifecycleRegressionTest {
                             && GuidedFocusHub.activeCaptureRecipe() == GuidedTuningRecipe.DECEL_DETECTION,
                     "FocusHub did not defer active capture authority to the real production session");
 
+            // A second workspace/bridge may temporarily replace the static Focus
+            // control. Opening Focus must explicitly restore this workspace's
+            // production control so Pause/Finish never stay greyed out.
+            GuidedCapturePanel unrelatedProduction = new GuidedCapturePanel();
+            GuidedV019ProductionBridge unrelatedBridge =
+                    new GuidedV019ProductionBridge(unrelatedProduction);
+            require(GuidedFocusHub.activeCaptureState() == GuidedCaptureState.IDLE,
+                    "synthetic unrelated bridge did not replace the global Focus control");
+            bridge.activateFocusControl();
+            require(GuidedFocusHub.activeCaptureState() == GuidedCaptureState.CAPTURING
+                            && GuidedFocusHub.activeCaptureRecipe() == GuidedTuningRecipe.DECEL_DETECTION,
+                    "workspace Focus control could not rebind to the actual active production capture");
+            unrelatedProduction.disposePanel();
+
             production.acceptProbeSampleForTest(sample());
             require(production.probeSampleCountForTest() == 1,
                     "synthetic probe evidence was not retained during active capture");
@@ -53,8 +67,8 @@ public final class GuidedV019CaptureLifecycleRegressionTest {
             GuidedV019FocusBase focus = (GuidedV019FocusBase) focusComponent;
             require(focus.pauseCapture.isEnabled() && focus.finishCapture.isEnabled(),
                     "Guided Focus did not expose working Pause/Finish controls during capture");
-            require(!focus.exportEvidence.isEnabled() && !focus.review.isEnabled(),
-                    "Export/Review became available before the production capture was finished");
+            require(focus.exportEvidence.isEnabled() && !focus.review.isEnabled(),
+                    "current-session export should be available with collected data while Review remains locked");
 
             focus.finishCapture.doClick();
             require(bridge.captureState(GuidedProductionTask.DECEL_DETECTION)
@@ -69,8 +83,8 @@ public final class GuidedV019CaptureLifecycleRegressionTest {
             require(focus.finishCapture.isEnabled()
                             && "Continue Capture".equals(focus.finishCapture.getText()),
                     "incomplete finished capture did not expose an in-place Continue Capture action");
-            require(!focus.exportEvidence.isEnabled() && !focus.review.isEnabled(),
-                    "incomplete finished capture exposed Export Evidence or Review Results");
+            require(focus.exportEvidence.isEnabled() && !focus.review.isEnabled(),
+                    "incomplete finished capture lost current-session export or exposed Review Results");
 
             focus.finishCapture.doClick();
             require(bridge.captureState(GuidedProductionTask.DECEL_DETECTION)

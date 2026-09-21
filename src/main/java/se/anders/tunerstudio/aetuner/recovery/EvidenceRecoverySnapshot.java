@@ -1,47 +1,14 @@
 package se.anders.tunerstudio.aetuner.recovery;
 
-import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
-import se.anders.tunerstudio.aetuner.guided.*;
-import se.anders.tunerstudio.aetuner.model.*;
-import se.anders.tunerstudio.aetuner.proposal.*;
-import se.anders.tunerstudio.aetuner.ui.*;
-import se.anders.tunerstudio.aetuner.AeTunerPlugin;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
-/** Immutable evidence captured on the Swing thread and written off-thread. */
+/** Immutable Guided evidence captured from model state and written off-thread. */
 public final class EvidenceRecoverySnapshot {
-    final Passive passive;
     final Guided guided;
 
-    EvidenceRecoverySnapshot(Passive passive, Guided guided) {
-        this.passive = passive;
+    EvidenceRecoverySnapshot(Guided guided) {
         this.guided = guided;
     }
 
-    boolean hasEvidence() {
-        return passive != null || guided != null;
-    }
-
-    public static final class Passive {
-        final String sessionKey;
-        final long revision;
-        final List<TransientEvent> events;
-        final String reportText;
-
-        public Passive(String sessionKey, long revision, List<TransientEvent> events,
-                String reportText) {
-            this.sessionKey = safeKey(sessionKey, "passive-session");
-            this.revision = revision;
-            this.events = Collections.unmodifiableList(
-                    new ArrayList<TransientEvent>(events == null
-                            ? Collections.<TransientEvent>emptyList() : events));
-            this.reportText = reportText == null ? "" : reportText;
-        }
-    }
+    boolean hasEvidence() { return guided != null; }
 
     public static final class Guided {
         final String sessionKey;
@@ -50,7 +17,7 @@ public final class EvidenceRecoverySnapshot {
         final String csvText;
 
         public Guided(String sessionKey, int recordCount, String reportText,
-               String csvText) {
+                      String csvText) {
             this.sessionKey = safeKey(sessionKey, "guided-session");
             this.recordCount = Math.max(0, recordCount);
             this.reportText = reportText == null ? "" : reportText;

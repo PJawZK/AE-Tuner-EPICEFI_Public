@@ -150,8 +150,8 @@ public final class GuidedControllerSettingInventory {
                 AeParameterNames.MAP_ESTIMATE_TABLE);
         add(all, GuidedTuningArea.MAP_PREDICT, GuidedTuningRecipe.BLEND_DURATION,
                 Classification.WRITABLE_VALIDATION_REQUIRED,
-                RecommendationSupport.CURRENT,
-                "Predictive enable, RPM axis and duration values are physically validated. Current Guided recommendation logic populates the justified duration point(s); the write layer is not limited to one value.",
+                RecommendationSupport.PARTIAL,
+                "Predictive enable, RPM axis and duration values are physically validated write surfaces. Physical MAP-response measurement is current, but automatic measurement-to-Blend-Duration conversion is intentionally withheld until that relationship is vehicle-validated; the guarded controller surface remains operator-reviewable.",
                 AeParameterNames.USE_MAP_ESTIMATE_DURING_TRANSIENT,
                 AeParameterNames.PREDICTIVE_MAP_BLEND_DURATION_BINS,
                 AeParameterNames.PREDICTIVE_MAP_BLEND_DURATION_VALUES);

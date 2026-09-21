@@ -101,16 +101,20 @@ final class GuidedV019InstantFuelFocus extends GuidedV019FocusBase {
         guidance.setCaretPosition(0);
         stateValue.setText(String.valueOf(capture));
         boolean complete = capture == GuidedCaptureState.COMPLETE;
-        reviewValue.setText(complete ? "READY" : "LOCKED");
-        review.setEnabled(complete);
+        boolean reviewReady = complete && GuidedFocusHub.isActiveEvidenceReviewReady();
+        reviewValue.setText(reviewReady ? "READY" : "LOCKED");
         enableAuthority.setText("enabled-method evidence");
         multAuthority.setText("enabled-method evidence");
         timerAuthority.setText("re-apply evidence");
 
-        if (complete) {
+        if (reviewReady) {
             cue.setText("● REVIEW READY");
             cue.setForeground(AeUiTheme.focusGreen());
             action.setText("Review first-moment response, global pulse magnitude and re-apply spacing together.");
+        } else if (complete) {
+            cue.setText("● MORE EVIDENCE NEEDED");
+            cue.setForeground(AeUiTheme.focusAmber());
+            action.setText("Capture stopped before the evidence gate was satisfied. Press Continue Capture and retain the current evidence window.");
         } else if (capture == GuidedCaptureState.PAUSED) {
             cue.setText("● PAUSED");
             cue.setForeground(AeUiTheme.focusAmber());

@@ -1,10 +1,10 @@
 package se.anders.tunerstudio.aetuner.proposal;
 
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
+import se.anders.tunerstudio.aetuner.guided.GuidedRuntimeReportSupport;
 import se.anders.tunerstudio.aetuner.model.TransientEvent;
 
 import java.awt.Component;
-import java.awt.Container;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
@@ -18,21 +18,16 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.prefs.Preferences;
-import javax.swing.JButton;
 import javax.swing.JFileChooser;
 
-/** Shared safe writer for Passive, Guided and validation-session exports. */
+/** Shared safe writer for Guided and validation-session exports. */
 public final class SessionExportSupport {
     static final String EXPORT_ROOT_NAME = "AE Tuner Export";
     static final String GUIDED_FOLDER_NAME = "Guided Evidence";
-    static final String PASSIVE_FOLDER_NAME = "Passive Session";
     static final String VALIDATION_FOLDER_NAME = "Apply Restore Validation";
     static final String LAST_SESSION_FOLDER_NAME = "Last Session";
     private static final String EXPORT_ROOT_PROPERTY = "ae.tuner.export.dir";
     private static final String PREF_EXPORT_ROOT = "exportRoot";
-    private static final String STABLE_GUIDED_EXPORT_LABEL = "Export Evidence";
-    private static final String STABLE_LABEL_CLIENT_PROPERTY =
-            "aeTunerStableGuidedExportLabel";
     private static final Preferences PREFERENCES =
             Preferences.userNodeForPackage(SessionExportSupport.class);
 
@@ -42,13 +37,8 @@ public final class SessionExportSupport {
      * Normal user exports share one visible root. The chosen root is remembered
      * so automatic recovery can use the sibling AE Tuner Export/Last Session
      * location on the next plugin startup.
-     *
-     * Guided callers intentionally keep one stable Export Evidence control even
-     * though the retained payload differs between controlled event sessions and
-     * method-sample sessions. Progress belongs in status text, not button identity.
      */
     public static File chooseParent(Component parent, String systemName) {
-        if (isGuidedSystem(systemName)) stabilizeGuidedExportLabel(parent);
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle("Choose parent folder for " + EXPORT_ROOT_NAME);
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
@@ -96,7 +86,7 @@ public final class SessionExportSupport {
         return new File(home, EXPORT_ROOT_NAME);
     }
 
-    /** Visible sibling used for automatic previous-session recovery evidence. */
+    /** Visible sibling used for automatic recovery when no test override is set. */
     public static File lastSessionDirectory() {
         return lastSessionDirectory(exportRoot());
     }
@@ -117,8 +107,6 @@ public final class SessionExportSupport {
         String folder;
         if (isGuidedSystem(value)) {
             folder = GUIDED_FOLDER_NAME;
-        } else if ("passive".equalsIgnoreCase(value)) {
-            folder = PASSIVE_FOLDER_NAME;
         } else if ("validation".equalsIgnoreCase(value)) {
             folder = VALIDATION_FOLDER_NAME;
         } else {
@@ -133,33 +121,6 @@ public final class SessionExportSupport {
                 || "guided session".equalsIgnoreCase(value)
                 || "guided method evidence".equalsIgnoreCase(value)
                 || "guided evidence".equalsIgnoreCase(value);
-    }
-
-    /**
-     * Older Guided export code temporarily changes its button label while a
-     * SwingWorker runs. Preserve one product-level identity without altering the
-     * two distinct evidence payloads. This listener can be removed when the
-     * legacy caller-side progress-label mutations are deleted in a later UI pass.
-     */
-    private static void stabilizeGuidedExportLabel(Component component) {
-        if (component == null) return;
-        if (component instanceof JButton) {
-            final JButton button = (JButton) component;
-            if (STABLE_GUIDED_EXPORT_LABEL.equals(button.getText())
-                    && button.getClientProperty(STABLE_LABEL_CLIENT_PROPERTY) == null) {
-                button.putClientProperty(STABLE_LABEL_CLIENT_PROPERTY, Boolean.TRUE);
-                button.addPropertyChangeListener("text", event -> {
-                    if (!STABLE_GUIDED_EXPORT_LABEL.equals(button.getText())) {
-                        button.setText(STABLE_GUIDED_EXPORT_LABEL);
-                    }
-                });
-            }
-        }
-        if (component instanceof Container) {
-            for (Component child : ((Container) component).getComponents()) {
-                stabilizeGuidedExportLabel(child);
-            }
-        }
     }
 
     static File lastSessionDirectory(File root) {
@@ -207,11 +168,15 @@ public final class SessionExportSupport {
 
     public static void writeTextAtomic(File target, String text) throws IOException {
         Path temporary = temporaryPath(target);
+        String payload = text == null ? "" : text;
+        if (target != null && GuidedRuntimeReportSupport.isFinalGuidedReportName(target.getName())) {
+            payload = GuidedRuntimeReportSupport.append(payload);
+        }
         try {
             BufferedWriter writer = Files.newBufferedWriter(
                     temporary, StandardCharsets.UTF_8);
             try {
-                writer.write(text == null ? "" : text);
+                writer.write(payload);
             } finally {
                 writer.close();
             }

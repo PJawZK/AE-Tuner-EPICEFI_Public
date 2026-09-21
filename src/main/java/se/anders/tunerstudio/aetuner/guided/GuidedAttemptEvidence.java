@@ -1,7 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -68,6 +67,34 @@ final class GuidedAttemptEvidence {
                 baseline.rpm, baseline.map, baseline.tps,
                 measurementAnchor, holdAnchor, end, duration, settings,
                 sessionDetectedGear, 0, 0, captureSamples, eventGear);
+    }
+
+    BlendDurationAttempt buildPhysicalAttempt(int number,
+                                              RoadBaselineTracker.Baseline baseline,
+                                              LiveSample responseAnchor,
+                                              LiveSample holdAnchor,
+                                              LiveSample end,
+                                              double duration,
+                                              BlendDurationCaptureConfig settings,
+                                              double physicalMapStep,
+                                              double physicalLateMap,
+                                              double responseLowMap,
+                                              double responseHighMap,
+                                              double predictionGap,
+                                              boolean boundedLateWindow) {
+        int sessionDetectedGear = baseline == null
+                ? 0 : baseline.sessionDetectedGear();
+        GuidedEventGearEvidence.Result eventGear =
+                settings != null && settings.automaticGear
+                ? GuidedEventGearEvidence.evaluate(samples, sessionDetectedGear)
+                : GuidedEventGearEvidence.Result.unavailable(sessionDetectedGear);
+        return BlendDurationAttempt.buildPhysical(number,
+                baseline.rpm, baseline.map, baseline.tps,
+                responseAnchor, holdAnchor, end, duration, settings,
+                sessionDetectedGear, 0, 0, captureSamples, eventGear,
+                physicalMapStep, physicalLateMap,
+                responseLowMap, responseHighMap,
+                predictionGap, boundedLateWindow);
     }
 
     private void record(LiveSample sample) {
