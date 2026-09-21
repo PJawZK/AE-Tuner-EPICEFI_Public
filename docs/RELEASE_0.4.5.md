@@ -1,6 +1,6 @@
 # AE Tuner (EPICEFI) 0.4.5
 
-v0.4.5 is the public promotion target for the vehicle-tested `0.4.5-vehicle-test.16` runtime.
+v0.4.5 is the public promotion of the vehicle-tested `0.4.5-vehicle-test.16` runtime.
 
 ## Provenance
 
@@ -10,10 +10,13 @@ v0.4.5 is the public promotion target for the vehicle-tested `0.4.5-vehicle-test
 - Private post-merge qualification: CI **#1713 / run `35535012493` — PASS**
 - Canonical private vehicle-test JAR: `ae-tuner-epicefi-0.4.5-vehicle-test.16.jar`
 - Canonical private vehicle-test JAR SHA-256: `5b6738f29caa5a153ffbd1a8aeaa637321af50dcfc0340eb5c25114b31ac1860`
-- Public runtime promotion commit: `5afb85c416a24026cde53e3148b4787c3a641837`
+- Exact public-identity qualification source: `5e08562fd31295aab3fd1b150d03b681d3c79738`
+- Exact public-identity qualification: CI **#1716 / run `35575578436` — PASS**
+- Qualified public artifact ID: `10627721208`
 - Public version identity: `0.4.5` / `PUBLIC RELEASE`
-- Canonical public JAR target: `ae-tuner-epicefi-0.4.5.jar`
-- Final public qualification, artifact ID and JAR SHA-256 are recorded from the exact final PR head before publication.
+- Canonical public JAR: `ae-tuner-epicefi-0.4.5.jar`
+- Canonical public JAR SHA-256: `673fdf0c577ea07764519e596a99100c21a4c0450d2c4b02a2178a79ac70efa0`
+- Public product-source parity was independently verified after export repair: `src/` matches Git tree `dce349f02ec7a9e1ecbed3a32c71524cfb92fdfc`; `pom.xml` and `scripts/` also match the qualified public-identity source exactly.
 - Java target: Java 8 bytecode
 
 The public runtime source is a direct public-identity promotion of the qualified private runtime. The promotion changes release identity only; it does not introduce alternate tuning, firmware or write semantics.
