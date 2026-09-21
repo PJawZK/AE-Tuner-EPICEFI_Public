@@ -2,7 +2,7 @@
 
 ## 0.4.5 — 2026-09-21
 
-Status: **PUBLIC RELEASE CANDIDATE**. Intended to replace `v0.4.4` after exact public qualification.
+Status: **PUBLIC RELEASE**. Replaces `v0.4.4`.
 
 ### AE Foundation presentation
 - Added rolling TPS Foundation Focus history for absolute TPS, `Fuel: TPS AE change` and `AccelThreshold`.
@@ -31,7 +31,11 @@ Status: **PUBLIC RELEASE CANDIDATE**. Intended to replace `v0.4.4` after exact p
 - Qualified private runtime `0.4.5-vehicle-test.16` at source `b9ec558a206408dd4e19cff8ce24b2eceb36f331`: CI **#1712 / run `35534865479` — PASS**; post-merge CI **#1713 / run `35535012493` — PASS**.
 - Canonical private vehicle-test JAR SHA-256: `5b6738f29caa5a153ffbd1a8aeaa637321af50dcfc0340eb5c25114b31ac1860`.
 - The final multi-bin Blend selection/latching workflow was exercised on the vehicle and behaved as intended.
-- Final public JAR SHA-256 is recorded from the exact qualified public PR head before publication.
+- Exact public-identity source `5e08562fd31295aab3fd1b150d03b681d3c79738` passed the complete private permanent pipeline: CI **#1716 / run `35575578436` — PASS**.
+- Qualified public artifact ID: `10627721208`.
+- Canonical public JAR: `ae-tuner-epicefi-0.4.5.jar`.
+- Canonical public JAR SHA-256: `673fdf0c577ea07764519e596a99100c21a4c0450d2c4b02a2178a79ac70efa0`.
+- Public `src/`, `pom.xml` and `scripts/` were independently checked against that qualified public-identity source after repairing the release export; `src/` matches exact Git tree `dce349f02ec7a9e1ecbed3a32c71524cfb92fdfc`.
 
 ### Safety
 - Guarded mutation remains centralized through `ProposalWritePlan → ProposalApplyCoordinator → write → exact readback → Restore snapshot`.
