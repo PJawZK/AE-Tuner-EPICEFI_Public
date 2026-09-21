@@ -2,12 +2,12 @@
 
 AE Tuner is a TunerStudio plugin for EpicEFI transient-fuelling analysis and guided acceleration-enrichment tuning.
 
-## Public release candidate
+## Public release
 
-Release target: **v0.4.5**  
+Release: **v0.4.5**  
 Plugin: `ae-tuner-epicefi-0.4.5.jar`  
 Java target: Java 8 bytecode  
-Final SHA-256: recorded from the exact public qualification artifact before merge/release.
+SHA-256: `673fdf0c577ea07764519e596a99100c21a4c0450d2c4b02a2178a79ac70efa0`
 
 v0.4.5 promotes the vehicle-tested `0.4.5-vehicle-test.16` runtime into the public release line. The previous public release is `v0.4.4`.
 
@@ -34,7 +34,7 @@ Software validation and a successful workflow test do not imply that every numer
 
 ## Install
 
-1. Download `ae-tuner-epicefi-0.4.5.jar` from the v0.4.5 GitHub Release once published.
+1. Download `ae-tuner-epicefi-0.4.5.jar` from the v0.4.5 GitHub Release.
 2. Remove older `ae-tuner-epicefi-*.jar` versions from the TunerStudio plugin directory.
 3. Install the v0.4.5 JAR and restart TunerStudio.
 4. Confirm AE Tuner reports version `0.4.5` and `PUBLIC RELEASE` identity.
