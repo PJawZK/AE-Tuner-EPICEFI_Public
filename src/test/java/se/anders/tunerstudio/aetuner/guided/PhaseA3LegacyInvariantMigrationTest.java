@@ -3,7 +3,6 @@ package se.anders.tunerstudio.aetuner.guided;
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.guided.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
@@ -59,8 +58,12 @@ public final class PhaseA3LegacyInvariantMigrationTest {
                 "pending baseline moved after freeze");
         session.accept(sample(t + 0.15, 2010, 60, 14.0, 90,
                 true, true, 2, 40));
+        require(session.snapshot().state == GuidedCaptureState.OPENING_PENDING,
+                "delayed ECU detector promoted a still-small road correction into a counted attempt");
+        session.accept(sample(t + 0.20, 2015, 62, 18.1, 90,
+                true, true, 2, 40));
         require(session.snapshot().state == GuidedCaptureState.CAPTURING,
-                "delayed ECU detector did not confirm pending opening");
+                "pending opening did not confirm once physical TPS rise became usable");
         session.reset();
 
         session = session();
@@ -111,7 +114,7 @@ public final class PhaseA3LegacyInvariantMigrationTest {
                 false, false, 2, 40));
         session.accept(sample(t + 0.45, 2000, 51, 9.5, 51,
                 false, false, 2, 40));
-        session.accept(sample(t + 0.50, 2010, 60, 14.0, 90,
+        session.accept(sample(t + 0.50, 2010, 60, 18.0, 90,
                 true, true, 2, 40));
         session.accept(sample(t + 0.70, 2020, 70, 22.0, 90,
                 false, true, 2, 40));
@@ -123,17 +126,20 @@ public final class PhaseA3LegacyInvariantMigrationTest {
                 false, true, 2, 40));
         session.accept(sample(t + 1.20, 2070, 90, 30.2, 90,
                 false, false, 2, 40));
-        // Catch is recorded at +1.20, but completion deliberately waits long
-        // enough after plateau acquisition to make the driver cue perceptible.
         session.accept(sample(t + 1.30, 2080, 90, 30.1, 90,
+                false, false, 2, 40));
+        session.accept(sample(t + 1.40, 2090, 90, 30.1, 90,
+                false, false, 2, 40));
+        session.accept(sample(t + 1.50, 2100, 90, 30.1, 90,
                 false, false, 2, 40));
         GuidedOutcome outcome = session.drainOutcome();
         require(outcome != null && outcome.isValid(),
                 "pending time incorrectly consumed target-acquisition allowance");
-        require(outcome.durationSeconds > 0.65 && outcome.durationSeconds < 0.75,
-                "duration did not remain anchored to confirmed current-event prediction");
-        require(outcome.trace.contains("measurement_anchor_dt_s="),
-                "valid controlled event lost final-target anchor trace evidence");
+        require(outcome.durationSeconds > 0.45 && outcome.durationSeconds < 0.55,
+                "physical response duration did not remain independent of pending-state time");
+        require(outcome.trace.contains("physical_20pct_anchor_dt_s=")
+                        && outcome.trace.contains("physical_response_20_80_s="),
+                "valid controlled event lost normalized physical-response trace evidence");
         require(outcome.trace.length() < 20000,
                 "compact attempt trace exceeded revised bounded-export limit");
         session.reset();
@@ -202,6 +208,10 @@ public final class PhaseA3LegacyInvariantMigrationTest {
         session.accept(sample(t + 0.65, 2080, 90, 30.1, 90,
                 false, false, 2, vss));
         session.accept(sample(t + 0.80, 2080, 90, 30.1, 90,
+                false, false, 2, vss));
+        session.accept(sample(t + 0.90, 2090, 90, 30.1, 90,
+                false, false, 2, vss));
+        session.accept(sample(t + 1.00, 2100, 90, 30.1, 90,
                 false, false, 2, vss));
         return session.drainOutcome();
     }

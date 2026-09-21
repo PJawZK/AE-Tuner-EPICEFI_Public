@@ -1,5 +1,7 @@
 package se.anders.tunerstudio.aetuner.proposal;
 
+import se.anders.tunerstudio.aetuner.guided.GuidedRuntimeReportSupport;
+
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -8,14 +10,16 @@ public final class SessionExportSupportRegressionTest {
     private SessionExportSupportRegressionTest() { }
 
     public static void main(String[] args) throws Exception {
-        visibleFolderLayoutIsSharedByAllSessionEvidence();
+        visibleFolderLayoutSupportsCurrentGuidedAndValidationEvidence();
         guidedSessionAndMethodEvidenceShareOneRoot();
+        retiredPassiveExportIdentityStaysRetired();
+        finalGuidedReportsReceiveRuntimeDiagnosticsAtPersistenceBoundary();
         finalFolderAppearsOnlyAfterSuccessfulFinish();
         cleanupNeverPublishesAnIncompleteFolder();
         System.out.println("SessionExportSupportRegressionTest passed");
     }
 
-    private static void visibleFolderLayoutIsSharedByAllSessionEvidence()
+    private static void visibleFolderLayoutSupportsCurrentGuidedAndValidationEvidence()
             throws Exception {
         File selectedParent = Files.createTempDirectory("ae-export-layout-").toFile();
         try {
@@ -24,10 +28,7 @@ public final class SessionExportSupportRegressionTest {
                     "selected parent did not resolve to the visible AE Tuner Export root");
             require(new File(root, "Guided Evidence").equals(
                             SessionExportSupport.systemDirectory(root, "guided")),
-                    "Guided exports no longer have their own evidence folder");
-            require(new File(root, "Passive Session").equals(
-                            SessionExportSupport.systemDirectory(root, "passive")),
-                    "Passive exports no longer have their own folder");
+                    "Guided exports no longer have their evidence folder");
             require(new File(root, "Apply Restore Validation").equals(
                             SessionExportSupport.systemDirectory(root, "validation")),
                     "physical Apply/Restore validation evidence does not have a visible dedicated folder");
@@ -59,6 +60,52 @@ public final class SessionExportSupportRegressionTest {
         }
     }
 
+    private static void retiredPassiveExportIdentityStaysRetired() throws Exception {
+        File selectedParent = Files.createTempDirectory("ae-retired-passive-export-").toFile();
+        try {
+            File root = SessionExportSupport.exportRootUnder(selectedParent);
+            require(new File(root, "Session").equals(
+                            SessionExportSupport.systemDirectory(root, "passive")),
+                    "retired Passive export identity regained a dedicated folder");
+            require(!"Passive Session".equals(
+                            SessionExportSupport.systemDirectory(root, "passive").getName()),
+                    "retired Passive Session compatibility folder returned");
+        } finally {
+            deleteRecursively(selectedParent);
+        }
+    }
+
+    private static void finalGuidedReportsReceiveRuntimeDiagnosticsAtPersistenceBoundary()
+            throws Exception {
+        File parent = Files.createTempDirectory("ae-guided-report-runtime-").toFile();
+        try {
+            File report = new File(parent, "guided-report.txt");
+            File method = new File(parent, "guided-method-report.txt");
+            File evidence = new File(parent, "guided-events.csv");
+
+            SessionExportSupport.writeTextAtomic(report, "guided report\n");
+            SessionExportSupport.writeTextAtomic(method, "guided method report\n");
+            SessionExportSupport.writeTextAtomic(evidence, "a,b\n1,2\n");
+
+            String reportText = read(report);
+            String methodText = read(method);
+            String evidenceText = read(evidence);
+            require(reportText.startsWith("guided report\n")
+                            && reportText.contains(GuidedRuntimeReportSupport.HEADING),
+                    "normal Guided report is missing runtime performance diagnostics");
+            require(methodText.startsWith("guided method report\n")
+                            && methodText.contains(GuidedRuntimeReportSupport.HEADING),
+                    "Guided method report is missing runtime performance diagnostics");
+            require(count(reportText, GuidedRuntimeReportSupport.HEADING) == 1
+                            && count(methodText, GuidedRuntimeReportSupport.HEADING) == 1,
+                    "runtime diagnostics were appended more than once");
+            require("a,b\n1,2\n".equals(evidenceText),
+                    "runtime diagnostics leaked into non-report evidence payloads");
+        } finally {
+            deleteRecursively(parent);
+        }
+    }
+
     private static void finalFolderAppearsOnlyAfterSuccessfulFinish() throws Exception {
         File parent = Files.createTempDirectory("ae-session-export-").toFile();
         try {
@@ -83,11 +130,10 @@ public final class SessionExportSupportRegressionTest {
             require(new File(published, "guided-report.txt").isFile()
                             && new File(published, "guided-events.csv").isFile(),
                     "published session folder lost completed staged files");
-            String report = new String(Files.readAllBytes(
-                    new File(published, "guided-report.txt").toPath()),
-                    StandardCharsets.UTF_8);
-            require("report\n".equals(report),
-                    "atomic staged text write changed report content");
+            String report = read(new File(published, "guided-report.txt"));
+            require(report.startsWith("report\n")
+                            && report.contains(GuidedRuntimeReportSupport.HEADING),
+                    "published Guided report lost persistence-boundary runtime diagnostics");
         } finally {
             deleteRecursively(parent);
         }
@@ -97,7 +143,7 @@ public final class SessionExportSupportRegressionTest {
         File parent = Files.createTempDirectory("ae-session-export-fail-").toFile();
         try {
             SessionExportSupport.StagedFolder staged =
-                    SessionExportSupport.stageSessionFolder(parent, "passive");
+                    SessionExportSupport.stageSessionFolder(parent, "guided");
             File finalFolder = staged.target();
             File stagingFolder = staged.file("partial.txt").getParentFile();
             SessionExportSupport.writeTextAtomic(
@@ -112,6 +158,21 @@ public final class SessionExportSupportRegressionTest {
                     "cleanup retained the handled failed-export staging folder");
         } finally {
             deleteRecursively(parent);
+        }
+    }
+
+    private static String read(File file) throws Exception {
+        return new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+    }
+
+    private static int count(String text, String token) {
+        int result = 0;
+        int from = 0;
+        while (true) {
+            int next = text.indexOf(token, from);
+            if (next < 0) return result;
+            result++;
+            from = next + token.length();
         }
     }
 

@@ -2,7 +2,6 @@ package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -18,7 +17,7 @@ public final class PedalPlateauDetectorRegressionTest {
     public static void main(String[] args) {
         acceptsStableNaturalPlateauWithinGenericRoadBounds();
         rejectsTooSmallOrTooLargeNaturalStep();
-        targetStepPolicyLivesInCaptureConfig();
+        suggestedStepDoesNotGatePhysicalUsability();
         rejectsMovingPedalWindow();
         System.out.println("PedalPlateauDetectorRegressionTest passed");
     }
@@ -42,20 +41,24 @@ public final class PedalPlateauDetectorRegressionTest {
                 "over-40-point natural opening became usable");
     }
 
-    private static void targetStepPolicyLivesInCaptureConfig() {
+    private static void suggestedStepDoesNotGatePhysicalUsability() {
         BlendDurationCaptureConfig twenty =
                 new BlendDurationCaptureConfig(2000.0, 20.0, 5, 2, false);
-        require(twenty.acceptsTpsStep(10.0) && twenty.acceptsTpsStep(20.0)
-                        && twenty.acceptsTpsStep(30.0)
-                        && !twenty.acceptsTpsStep(9.9)
-                        && !twenty.acceptsTpsStep(30.1),
-                "+20 controlled target window no longer matches dev5 +10..+30 tolerance");
-        BlendDurationCaptureConfig forty =
-                new BlendDurationCaptureConfig(2000.0, 40.0, 5, 2, false);
-        require(forty.acceptsTpsStep(30.0) && forty.acceptsTpsStep(40.0)
-                        && !forty.acceptsTpsStep(29.9)
-                        && !forty.acceptsTpsStep(40.1),
-                "+40 controlled target window no longer clamps to +30..+40");
+        BlendDurationCaptureConfig thirtyFive =
+                new BlendDurationCaptureConfig(2000.0, 35.0, 5, 2, false);
+        for (BlendDurationCaptureConfig config : new BlendDurationCaptureConfig[]{twenty, thirtyFive}) {
+            require(config.acceptsTpsStep(10.0)
+                            && config.acceptsTpsStep(12.0)
+                            && config.acceptsTpsStep(35.0)
+                            && config.acceptsTpsStep(40.0),
+                    "suggested TPS step still narrows broad physical usability");
+            require(!config.acceptsTpsStep(9.9)
+                            && !config.acceptsTpsStep(40.1),
+                    "broad natural-pedal safety bounds changed unexpectedly");
+            require(config.targetStepLow() == PedalPlateauDetector.MIN_USABLE_STEP
+                            && config.targetStepHigh() == PedalPlateauDetector.MAX_USABLE_STEP,
+                    "compatibility range still follows the arbitrary suggested TPS step");
+        }
     }
 
     private static void rejectsMovingPedalWindow() {

@@ -1,7 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -83,6 +82,13 @@ final class RoadBaselineTracker {
 
     AcquireCheck acquireCheck(LiveSample sample, double startRpm,
                               long lastOutcomeNano, double recoverySeconds) {
+        return acquireCheck(sample, startRpm, lastOutcomeNano,
+                recoverySeconds, RPM_ACQUIRE_TOLERANCE);
+    }
+
+    AcquireCheck acquireCheck(LiveSample sample, double startRpm,
+                              long lastOutcomeNano, double recoverySeconds,
+                              double rpmTolerance) {
         StringBuilder text = new StringBuilder();
         boolean valid = requiredFinite(sample);
         boolean safe = safe(sample);
@@ -92,7 +98,7 @@ final class RoadBaselineTracker {
                 BASELINE_SECONDS, false);
         boolean rpmRegion = Double.isFinite(sample.get(ChannelRole.RPM))
                 && Math.abs(sample.get(ChannelRole.RPM) - startRpm)
-                <= RPM_ACQUIRE_TOLERANCE;
+                <= rpmTolerance;
         boolean trendSmooth = stats.duration >= BASELINE_SECONDS * 0.95
                 && stats.rpmResidualRange <= RPM_RESIDUAL_RANGE
                 && stats.mapResidualRange <= MAP_RESIDUAL_RANGE
@@ -107,7 +113,7 @@ final class RoadBaselineTracker {
         add(text, safe, "Engine running with no crank/cut/trigger fault");
         add(text, quiet, "No active acceleration detector/prediction burst");
         add(text, rpmRegion, "RPM near actual selected Blend Duration bin " + f0(startRpm)
-                + " ±" + f0(RPM_ACQUIRE_TOLERANCE));
+                + " ±" + f0(rpmTolerance));
         add(text, stats.duration >= BASELINE_SECONDS * 0.95,
                 "Rolling baseline collected for about " + f2(BASELINE_SECONDS) + " s");
         add(text, stats.rpmResidualRange <= RPM_RESIDUAL_RANGE,
@@ -134,6 +140,11 @@ final class RoadBaselineTracker {
     }
 
     ReadyCheck readyCheck(LiveSample sample, double startRpm) {
+        return readyCheck(sample, startRpm, RPM_READY_RELEASE_TOLERANCE);
+    }
+
+    ReadyCheck readyCheck(LiveSample sample, double startRpm,
+                          double rpmTolerance) {
         StringBuilder text = new StringBuilder();
         boolean valid = requiredFinite(sample);
         boolean safe = safe(sample);
@@ -141,7 +152,7 @@ final class RoadBaselineTracker {
                 && !triggered(sample);
         boolean rpmHeld = Double.isFinite(sample.get(ChannelRole.RPM))
                 && Math.abs(sample.get(ChannelRole.RPM) - startRpm)
-                <= RPM_READY_RELEASE_TOLERANCE;
+                <= rpmTolerance;
         RoadWindowStats stats = RoadWindowStats.fromRecent(window,
                 BASELINE_SECONDS, true);
         boolean smooth = stats.duration >= BASELINE_SECONDS * 0.70
@@ -155,7 +166,7 @@ final class RoadBaselineTracker {
         add(text, safe, "Running/safety state remains valid");
         add(text, quiet, "Waiting for one acceleration opening");
         add(text, rpmHeld, "READY retained near actual table bin " + f0(startRpm)
-                + " ±" + f0(RPM_READY_RELEASE_TOLERANCE) + " RPM");
+                + " ±" + f0(rpmTolerance) + " RPM");
         add(text, smooth,
                 "Rolling baseline follows gradual road/load changes without abrupt residual movement");
         if (!valid || !safe) {

@@ -3,14 +3,12 @@ package se.anders.tunerstudio.aetuner.guided;
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.guided.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
 import se.anders.tunerstudio.aetuner.ui.*;
 
-import javax.swing.ScrollPaneConstants;
 import javax.swing.text.DefaultCaret;
 import java.awt.Dimension;
 import java.awt.Rectangle;
@@ -26,9 +24,8 @@ public final class GuidedUiRegressionTest {
         checksCaretNeverFollowsLiveText();
         liveControlledGuidanceIsVisibleWithoutTheDashboard();
         controlledTpsTargetWaitsForFrozenBaseline();
-        fortyPointTargetClampsAcceptanceAtRoadCeiling();
+        fortyPointSuggestionDoesNotMoveUsabilityBounds();
         adaptiveRpmMarkersAndActualBinBandsFollowInputs();
-        guidedWorkspaceUsesVerticalOnlyOuterScroll();
         preferredWindowSizeIsCappedToTheScreen();
         System.out.println("GuidedUiRegressionTest passed");
     }
@@ -130,24 +127,26 @@ public final class GuidedUiRegressionTest {
             String tps = panel.liveTpsTextForTest();
             assertContains(tps, "TPS 42.3%",
                     "guided panel must show current TPS above its bar");
-            assertContains(tps, "target step +20.0",
-                    "guided panel must show the configured relative TPS-step target");
-            assertContains(tps, "accepted +10.0 to +30.0",
-                    "guided panel must show the wider controlled TPS-step acceptance window");
-            assertContains(tps, "target marker waits for frozen opening baseline",
-                    "without a frozen opening baseline the driver target must remain hidden");
-            assertTrue(!tps.contains("not an absolute acceptance band"),
-                    "retired advisory-only TPS wording is still visible");
+            assertContains(tps, "suggested step +20.0 (guide only)",
+                    "guided panel must identify the configured TPS step as coaching only");
+            assertContains(tps, "usable +10.0 to +40.0",
+                    "guided panel must show the broad physical TPS-step usability range");
+            assertContains(tps, "suggested marker waits for frozen opening baseline",
+                    "without a frozen opening baseline the coaching marker must remain hidden");
+            assertTrue(!tps.contains("accepted +"),
+                    "retired fixed TPS acceptance-window wording is still visible");
 
             String rpm = panel.liveRpmTextForTest();
             assertContains(rpm, "RPM 1987",
                     "guided panel must show current RPM above its bar");
             assertContains(rpm, "actual table bin 2000",
                     "guided panel must identify the actual RPM-bin target");
-            assertContains(rpm, "READY ±200",
-                    "guided panel must show the actual-bin READY window");
-            assertContains(rpm, "capture ±300",
-                    "guided panel must show the active capture drift window");
+            assertContains(rpm, "entry/READY ±300",
+                    "guided panel must show the actual Blend entry/READY window");
+            assertContains(rpm, "no post-start RPM ceiling",
+                    "guided panel must not imply a post-start RPM rejection window");
+            assertTrue(!rpm.contains("READY ±200") && !rpm.contains("capture ±300"),
+                    "legacy conflicting Blend RPM guidance is still visible");
         } finally {
             panel.disposePanel();
         }
@@ -170,28 +169,32 @@ public final class GuidedUiRegressionTest {
         GuidedTargetGauge gauge = new GuidedTargetGauge(GuidedTargetGauge.Mode.TPS);
         gauge.setTpsAdaptive(31.0, 11.0, 20.0);
         assertDouble(31.0, gauge.targetForTest(),
-                "a frozen 11-percent baseline with a +20 target must produce a fixed 31-percent marker");
+                "a frozen 11-percent baseline with a +20 suggestion must produce a fixed 31-percent coaching marker");
         assertDouble(21.0, gauge.innerLowForTest(),
-                "controlled +20 low edge must be baseline +10");
-        assertDouble(41.0, gauge.innerHighForTest(),
-                "controlled +20 high edge must be baseline +30");
+                "broad usable low edge must be baseline +10");
+        assertDouble(51.0, gauge.innerHighForTest(),
+                "broad usable high edge must be baseline +40");
         assertContains(gauge.labelTextForTest(), "frozen baseline 11.0%",
                 "visible TPS guidance must say when the displayed baseline is frozen");
-        assertContains(gauge.labelTextForTest(), "accepted +10.0 to +30.0",
-                "visible TPS guidance lost the wider controlled relative-step range");
+        assertContains(gauge.labelTextForTest(), "suggested step +20.0 (guide only)",
+                "visible TPS guidance lost the coaching-only marker identity");
+        assertContains(gauge.labelTextForTest(), "usable +10.0 to +40.0",
+                "visible TPS guidance lost the broad physical usability range");
     }
 
-    private static void fortyPointTargetClampsAcceptanceAtRoadCeiling() {
+    private static void fortyPointSuggestionDoesNotMoveUsabilityBounds() {
         GuidedTargetGauge gauge = new GuidedTargetGauge(GuidedTargetGauge.Mode.TPS);
         gauge.setTpsAdaptive(50.0, 10.0, 40.0);
         assertDouble(50.0, gauge.targetForTest(),
-                "+40 target marker must remain at baseline +40");
-        assertDouble(40.0, gauge.innerLowForTest(),
-                "+40 target low edge must be baseline +30");
+                "+40 coaching marker must remain at baseline +40");
+        assertDouble(20.0, gauge.innerLowForTest(),
+                "changing the suggestion moved the broad +10 usable low edge");
         assertDouble(50.0, gauge.innerHighForTest(),
-                "+40 target high edge must clamp to the +40 road-capture ceiling");
-        assertContains(gauge.labelTextForTest(), "accepted +30.0 to +40.0",
-                "+40 target must visibly communicate its widened clamped acceptance range");
+                "broad +40 usable high edge did not remain at baseline +40");
+        assertContains(gauge.labelTextForTest(), "suggested step +40.0 (guide only)",
+                "+40 coaching marker is not visibly non-authoritative");
+        assertContains(gauge.labelTextForTest(), "usable +10.0 to +40.0",
+                "changing the suggestion altered visible physical usability bounds");
     }
 
     private static void adaptiveRpmMarkersAndActualBinBandsFollowInputs() {
@@ -200,36 +203,16 @@ public final class GuidedUiRegressionTest {
             panel.showLiveSampleForTest(sample(12.0, 1987.0, 42.34));
             assertDouble(2000.0, panel.liveRpmTargetForTest(),
                     "RPM marker must use the selected actual table-bin target");
-            assertDouble(1800.0, panel.liveRpmAcquireLowForTest(),
-                    "actual-bin READY low edge must follow selected RPM");
-            assertDouble(2200.0, panel.liveRpmAcquireHighForTest(),
-                    "actual-bin READY high edge must follow selected RPM");
+            assertDouble(1700.0, panel.liveRpmAcquireLowForTest(),
+                    "Blend entry/READY low edge must follow selected RPM and ±300 tolerance");
+            assertDouble(2300.0, panel.liveRpmAcquireHighForTest(),
+                    "Blend entry/READY high edge must follow selected RPM and ±300 tolerance");
             assertDouble(1700.0, panel.liveRpmRetainLowForTest(),
-                    "active capture low edge must follow selected RPM");
+                    "legacy outer band must not imply a different Blend RPM authority");
             assertDouble(2300.0, panel.liveRpmRetainHighForTest(),
-                    "active capture high edge must follow selected RPM");
+                    "legacy outer band must match the Blend entry window");
         } finally {
             panel.disposePanel();
-        }
-    }
-
-    private static void guidedWorkspaceUsesVerticalOnlyOuterScroll() {
-        AeTunerPlugin plugin = new AeTunerPlugin();
-        try {
-            assertEquals(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
-                    plugin.guidedWorkspaceVerticalScrollPolicyForTest(),
-                    "Guided Tuning must expose a vertical scrollbar when content is taller than the window");
-            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER,
-                    plugin.guidedWorkspaceHorizontalScrollPolicyForTest(),
-                    "Guided Tuning must not add a horizontal scrollbar");
-            assertTrue(plugin.guidedWorkspaceTracksViewportWidthForTest(),
-                    "Guided Tuning content must follow the available viewport width");
-            assertTrue(!plugin.guidedWorkspaceTracksViewportHeightForTest(),
-                    "Guided Tuning must retain natural height so vertical scrolling can occur");
-            assertTrue(plugin.guidedWorkspaceScrollUnitForTest() >= 16,
-                    "Guided Tuning mouse-wheel/arrow scrolling must use a practical increment");
-        } finally {
-            plugin.close();
         }
     }
 

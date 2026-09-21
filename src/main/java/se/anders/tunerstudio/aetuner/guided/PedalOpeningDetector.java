@@ -1,7 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -11,7 +10,13 @@ import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Pending/confirmed pedal-opening classifier for adaptive Guided capture. */
+/**
+ * Pending/confirmed pedal-opening classifier for adaptive Guided capture.
+ *
+ * Firmware detector/prediction evidence may support a pending opening but cannot
+ * by itself promote a small road correction into a counted Blend attempt. A
+ * confirmed attempt requires a broad physically usable local TPS rise.
+ */
 final class PedalOpeningDetector {
     static final double PENDING_RISE = 1.0;
     private static final int MAX_PENDING_SAMPLES = 320;
@@ -84,6 +89,15 @@ final class PedalOpeningDetector {
                             RoadBaselineTracker.Baseline baseline,
                             double startRpm,
                             GuidedVehicleTestLimits.Snapshot limits) {
+        return observePending(sample, baseline, startRpm, limits,
+                RoadBaselineTracker.RPM_READY_RELEASE_TOLERANCE);
+    }
+
+    Decision observePending(LiveSample sample,
+                            RoadBaselineTracker.Baseline baseline,
+                            double startRpm,
+                            GuidedVehicleTestLimits.Snapshot limits,
+                            double rpmTolerance) {
         record(sample);
         if (baseline == null || !requiredFinite(sample)) {
             return Decision.returnToBaseline(
@@ -96,7 +110,7 @@ final class PedalOpeningDetector {
                     "Resume only after the engine and trigger/cut states are valid.");
         }
         if (Math.abs(sample.get(ChannelRole.RPM) - startRpm)
-                > RoadBaselineTracker.RPM_READY_RELEASE_TOLERANCE) {
+                > rpmTolerance) {
             return Decision.returnToBaseline(
                     "RPM left the selected actual table-bin target before the opening was confirmed.",
                     "Return near the selected RPM bin and wait for READY.");
@@ -104,8 +118,7 @@ final class PedalOpeningDetector {
         double rise = sample.get(ChannelRole.TPS) - baseline.tps;
         double localRequired = Math.max(PedalPlateauDetector.MIN_USABLE_STEP,
                 limits.localTpsOnsetRise);
-        if (triggered(sample) || sample.bool(ChannelRole.MAP_PRED_ACTIVE)
-                || rise >= localRequired) {
+        if (rise >= localRequired) {
             return Decision.confirm();
         }
         if (rise <= PENDING_RISE * 0.5

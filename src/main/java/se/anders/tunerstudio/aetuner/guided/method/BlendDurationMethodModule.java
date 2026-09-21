@@ -13,7 +13,7 @@ public final class BlendDurationMethodModule implements GuidedAeMethodModule {
         return "Use the existing per-RPM controlled opening workflow. Numerical Apply remains withheld while the corrected firmware-faithful model is physically validated.";
     }
     @Override public String captureGoal() {
-        return "Collect comparable final-target response events and validate coherent Effective MAP replay.";
+        return "Collect comparable physical MAP catch-up events from the latest firmware prediction-timer reset. Current-tune Effective MAP replay is diagnostic context only.";
     }
     @Override public ChannelRole[] requiredRoles() { return new ChannelRole[0]; }
     @Override public ChannelRole[] contextRoles() { return new ChannelRole[0]; }
@@ -21,10 +21,10 @@ public final class BlendDurationMethodModule implements GuidedAeMethodModule {
         return "Select the actual Blend Duration RPM table point, desired TPS step, comparable-event target and gear handling mode.";
     }
     @Override public String accumulationPlan() {
-        return "Use the controlled opening detector, buffered prediction evidence, final upward fallback target latch and event-local gear checks already implemented for Blend Duration. Keep the real curve unchanged while validation remains in progress.";
+        return "Use the controlled opening detector, buffered prediction evidence, latest timer-reset fallback target and event-local gear checks already implemented for Blend Duration. Keep the real curve unchanged while validation remains in progress; it is context, never the physical measurement target.";
     }
     @Override public String reviewOutputs() {
-        return "Accepted/excluded outcome reasons, comparable final-target durations, coherent-channel diagnostics, event-local gear evidence and firmware replay review. Numerical Blend Duration Apply remains withheld.";
+        return "Accepted/excluded outcome reasons, comparable physical catch-up durations, coherent-channel diagnostics, event-local gear evidence and diagnostic-only current-tune replay review. Numerical Blend Duration Apply remains withheld.";
     }
     @Override public String currentTuneContext(AeProjectSnapshot snapshot) {
         if (snapshot == null) return "Working tune not read yet.";

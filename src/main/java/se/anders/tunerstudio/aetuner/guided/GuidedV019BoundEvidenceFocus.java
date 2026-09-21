@@ -116,7 +116,8 @@ final class GuidedV019BoundEvidenceFocus extends GuidedV019FocusBase {
                 {"Capture", String.valueOf(state == null ? GuidedCaptureState.IDLE : state.captureState)},
                 {"Recipe status", task.productionRecipe.status},
                 {"Guidance source", state != null && state.guidance.length() > 0 ? "active production session" : "production recipe"},
-                {"Review gate", state != null && state.captureState == GuidedCaptureState.COMPLETE ? "READY" : "LOCKED"},
+                {"Review gate", state != null && state.captureState == GuidedCaptureState.COMPLETE
+                        && GuidedFocusHub.isActiveEvidenceReviewReady() ? "READY" : "LOCKED"},
                 {"Write path", "Review → guarded ProposalWritePlan only"},
                 {"Burn", "NEVER"}
         }));
@@ -139,13 +140,17 @@ final class GuidedV019BoundEvidenceFocus extends GuidedV019FocusBase {
         recipeValue.setToolTipText(task.productionRecipe.status);
         authorityValue.setText("production evidence only");
         boolean complete = captureState == GuidedCaptureState.COMPLETE;
-        reviewValue.setText(complete ? "READY" : "LOCKED");
-        review.setEnabled(complete);
+        boolean reviewReady = complete && GuidedFocusHub.isActiveEvidenceReviewReady();
+        reviewValue.setText(reviewReady ? "READY" : "LOCKED");
 
-        if (captureState == GuidedCaptureState.COMPLETE) {
-            cue.setText("● CAPTURE COMPLETE");
+        if (reviewReady) {
+            cue.setText("● REVIEW READY");
             cue.setForeground(AeUiTheme.focusGreen());
             action.setText("Export Evidence for this task, then open Review Results.");
+        } else if (complete) {
+            cue.setText("● MORE EVIDENCE NEEDED");
+            cue.setForeground(AeUiTheme.focusAmber());
+            action.setText("Capture stopped before the evidence gate was satisfied. Press Continue Capture and retain the current evidence window.");
         } else if (captureState == GuidedCaptureState.PAUSED) {
             cue.setText("● PAUSED");
             cue.setForeground(AeUiTheme.focusAmber());

@@ -73,7 +73,7 @@ public final class GuidedWriteCapabilityMaturityRegressionTest {
         requireRecommendation(GuidedTuningRecipe.MAP_ESTIMATE,
                 GuidedControllerSettingInventory.RecommendationSupport.CURRENT);
         requireRecommendation(GuidedTuningRecipe.BLEND_DURATION,
-                GuidedControllerSettingInventory.RecommendationSupport.CURRENT);
+                GuidedControllerSettingInventory.RecommendationSupport.PARTIAL);
 
         requireRecommendation(GuidedTuningRecipe.WALL_WETTING,
                 GuidedControllerSettingInventory.RecommendationSupport.PARTIAL);

@@ -1,7 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -14,12 +13,16 @@ import java.util.Locale;
 /**
  * Firmware-shaped final-target MAP catch-up and Effective MAP replay for Guided Blend Duration.
  *
- * EPICEFI latches fallbackMap when prediction starts and, while prediction is
- * active, replaces that latch and resets its blend timer whenever fallbackMap
- * rises again. The firmware then evaluates the Blend Duration curve at current
- * RPM and linearly blends from the latched prediction toward current sensor MAP.
- * This class mirrors that exact state direction for measurement and replays the
- * logged Effective MAP as a tell-tale model check.
+ * EPICEFI evaluates Blend Duration from current RPM. While acceleration/TPS
+ * movement remains above the firmware detector threshold it performs a fresh
+ * MAP-estimate lookup and resets the prediction timer. Once that movement ends,
+ * the timer is allowed to run and predicted MAP blends back toward live MAP.
+ * This class follows the final timer-reset prediction target rather than the
+ * highest fallbackMap value seen during the opening.
+ * The physical catch-up measurement is independent of the working Blend Duration
+ * curve. Logged Effective MAP may still be replayed against that existing curve
+ * as a diagnostic-only firmware/context check; replay agreement has no authority
+ * over event validity, warning state, measured duration, or repeatability.
  *
  * Measurement acquisition is deliberately decoupled from pedal-hold validation:
  * prediction-active target/catch-up evidence is buffered as soon as the opening
@@ -73,7 +76,14 @@ final class MapCatchupMeasurement {
 
     void observePredictionGap(LiveSample sample) {
         if (sample == null) return;
+
+        double resetCounter = sample.get(ChannelRole.MAP_PRED_RESET_CNT);
+        boolean resetAdvanced = Double.isFinite(resetCounter)
+                && Double.isFinite(predResetLast)
+                && resetCounter > predResetLast + 0.5;
+        boolean movementStillActive = triggered(sample);
         observeCounters(sample);
+
         if (!sample.bool(ChannelRole.MAP_PRED_ACTIVE)) return;
 
         lastPredictionActiveNano = sample.getNanoTime();
@@ -81,19 +91,28 @@ final class MapCatchupMeasurement {
         double fallback = sample.get(ChannelRole.FALLBACK_MAP);
         if (!Double.isFinite(map) || !Double.isFinite(fallback)) return;
 
-        // Exact firmware reset direction: only a higher current predicted MAP
-        // replaces the latched prediction and restarts the blend timer.
-        if (measurementAnchor == null || !Double.isFinite(finalTarget)
-                || fallback > finalTarget + 1.0e-9) {
-            finalTarget = fallback;
-            measurementAnchor = sample;
-            bestGap = fallback - map;
-            threshold = fallback;
-            physicalCatchSample = null;
-            completionSample = null;
+        // The firmware resets its timer while accel/TPS movement remains active,
+        // even when the fresh fallback lookup is lower than an earlier lookup.
+        // The latest timer reset therefore wins.
+        if (measurementAnchor == null || resetAdvanced || movementStillActive) {
+            relatch(sample, map, fallback);
         }
 
         observeEffectiveMapReplay(sample);
+    }
+
+    private void relatch(LiveSample sample, double map, double fallback) {
+        finalTarget = fallback;
+        measurementAnchor = sample;
+        bestGap = fallback - map;
+        threshold = fallback;
+        physicalCatchSample = null;
+        completionSample = null;
+
+        modelSamples = 0;
+        modelViolations = 0;
+        modelAbsErrorSum = 0.0;
+        maxModelError = 0.0;
     }
 
     void beginCatchup(List<LiveSample> attemptSamples, double mapCatchupSeconds) {
@@ -104,7 +123,7 @@ final class MapCatchupMeasurement {
         // The predictive transient is often shorter than the 0.20 s pedal
         // plateau proof. Preserve the physical measurement now, but do not let
         // Guided accept it until the caller has independently validated the
-        // later pedal hold. Only samples at/after the final upward target anchor
+        // later pedal hold. Only samples at/after the latest timer-reset target anchor
         // are eligible, so an older intermediate target can never complete it.
         if (attemptSamples == null || measurementAnchor == null
                 || !Double.isFinite(threshold)) return;
@@ -148,14 +167,10 @@ final class MapCatchupMeasurement {
                 > mapCatchupSeconds;
     }
 
-    /**
-     * Legacy-named compatibility hook used by Guided after plateau validation.
-     * A live prediction no longer has to overlap the later hold window; it only
-     * has to have produced a real buffered final-target anchor for this opening.
-     */
-    boolean predictionOverlappedHoldWindow(long holdAnchorNano) {
+    boolean hasFinalTimerAnchor() {
         return measurementAnchor != null
-                && lastPredictionActiveNano >= measurementAnchor.getNanoTime();
+                && Double.isFinite(finalTarget)
+                && Double.isFinite(bestGap);
     }
 
     LiveSample measurementAnchor() {
@@ -172,7 +187,7 @@ final class MapCatchupMeasurement {
         return physicalCatchSample;
     }
 
-    /** Gap at the current/final upward-latched prediction target. */
+    /** Gap at the current/final firmware timer-reset prediction target. */
     double bestGap() {
         return bestGap;
     }
@@ -212,12 +227,12 @@ final class MapCatchupMeasurement {
 
     String modelEvidenceText() {
         if (config == null || !config.hasBlendCurve()) {
-            return "Effective MAP firmware replay unavailable (working Blend Duration curve not attached to this capture).";
+            return "Current-tune Effective MAP replay diagnostic only: unavailable (working Blend Duration curve not attached).";
         }
         if (modelSamples == 0) {
-            return "Effective MAP firmware replay unavailable (no usable prediction-active Effective MAP samples).";
+            return "Current-tune Effective MAP replay diagnostic only: unavailable (no usable prediction-active Effective MAP samples).";
         }
-        return "Effective MAP firmware replay: "
+        return "Current-tune Effective MAP replay diagnostic only: "
                 + modelSamples + " sample(s), " + modelViolations
                 + " >±" + f2(EFFECTIVE_MAP_REPLAY_TOLERANCE_KPA) + " kPa, mean |error| "
                 + f2(modelMeanAbsoluteError()) + " kPa, max |error| "
@@ -260,6 +275,14 @@ final class MapCatchupMeasurement {
         if (error > EFFECTIVE_MAP_REPLAY_TOLERANCE_KPA) {
             modelViolations++;
         }
+    }
+
+    private static boolean triggered(LiveSample sample) {
+        if (sample.bool(ChannelRole.AE_ABOVE_THRESHOLD)) return true;
+        double change = sample.get(ChannelRole.SMOOTHED_DELTA_TPS);
+        double limit = sample.get(ChannelRole.ACCEL_THRESHOLD);
+        return Double.isFinite(change) && Double.isFinite(limit)
+                && limit > 0.0 && change > limit;
     }
 
     private void observeCounters(LiveSample sample) {

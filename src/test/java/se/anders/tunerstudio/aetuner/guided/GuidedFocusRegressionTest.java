@@ -1,5 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
+import se.anders.tunerstudio.aetuner.guided.mapestimate.MapEstimateCollector;
 import se.anders.tunerstudio.aetuner.guided.method.FoundationThresholdFocusBridge;
 import se.anders.tunerstudio.aetuner.guided.method.FoundationThresholdFocusModel;
 import se.anders.tunerstudio.aetuner.guided.method.GuidedAeMethodModule;
@@ -7,7 +8,6 @@ import se.anders.tunerstudio.aetuner.guided.method.GuidedAeMethodModules;
 import se.anders.tunerstudio.aetuner.model.AeProjectSnapshot;
 import se.anders.tunerstudio.aetuner.model.ChannelRole;
 import se.anders.tunerstudio.aetuner.model.LiveSample;
-import se.anders.tunerstudio.aetuner.passive.MapEstimateCollector;
 
 import java.util.ArrayList;
 import java.util.EnumMap;

@@ -73,6 +73,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
     private final GuidedCapturePanel production;
     private final GuidedV019ProductionBridge bridge;
     private final GuidedV019UtilityActions utilities;
+    private final GuidedV019BlendBinSelectorPanel blendBinSelector;
     private final WorkflowStepper stepper = new WorkflowStepper();
     private final TaskSelectorPanel taskSelector;
     private final EnumMap<Stage, JPanel> stageCards = new EnumMap<Stage, JPanel>(Stage.class);
@@ -95,7 +96,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
     private final JButton apply = primaryButton("Apply Proposal");
     private final JButton result = primaryButton("Open Result");
     private final JButton mapValidation = secondaryButton("Validate MAP Predict system");
-    private final JButton passiveAnalysis = secondaryButton("Passive Analysis…");
+    private final JButton exportSession = secondaryButton("Export Current Session…");
     private final JButton diagnostics = secondaryButton("Evidence / Diagnostics…");
     private final JToggleButton lightTheme;
     private final JToggleButton darkTheme;
@@ -117,6 +118,14 @@ final class GuidedV019WorkspacePanel extends JPanel {
         this.production = production;
         this.bridge = new GuidedV019ProductionBridge(production);
         this.utilities = utilities == null ? GuidedV019UtilityActions.NONE : utilities;
+        this.blendBinSelector = new GuidedV019BlendBinSelectorPanel(
+                new GuidedV019BlendBinSelectorPanel.Listener() {
+                    @Override public void selectionChanged(double[] selectedBins) {
+                        bridge.setBlendArmedRpmBins(selectedBins);
+                        refreshSummaries();
+                        refreshButtons();
+                    }
+                });
         this.lightTheme = themeChoice("Light Side", AeUiTheme.Side.LIGHT_SIDE);
         this.darkTheme = themeChoice("Dark Side", AeUiTheme.Side.DARK_SIDE);
 
@@ -237,7 +246,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
         grid.add(stepCard(Stage.PREPARE,
                 "Verify task authority, channels and calibration context.", prepareSummary, prepare));
         grid.add(stepCard(Stage.CAPTURE,
-                "Create one evidence session with explicit provenance.", captureSummary, capture));
+                "Create one evidence session with explicit provenance.", captureContent(), capture));
         grid.add(stepCard(Stage.GUIDED_FOCUS,
                 "Driver-first view backed by the same session/evidence model.", focusSummary, focus));
         grid.add(stepCard(Stage.REVIEW,
@@ -247,6 +256,14 @@ final class GuidedV019WorkspacePanel extends JPanel {
         grid.add(stepCard(Stage.RESULT,
                 "Finish a no-write review, or verify an applied proposal then keep/restore.", resultSummary, result));
         return grid;
+    }
+
+    private JComponent captureContent() {
+        JPanel panel = new JPanel(new BorderLayout(0, 5));
+        panel.setOpaque(false);
+        panel.add(captureSummary, BorderLayout.CENTER);
+        panel.add(blendBinSelector, BorderLayout.SOUTH);
+        return panel;
     }
 
     private JPanel stepCard(final Stage cardStage,
@@ -333,8 +350,9 @@ final class GuidedV019WorkspacePanel extends JPanel {
         mapValidation.addActionListener(new ActionListener() {
             @Override public void actionPerformed(ActionEvent e) { toggleMapValidation(); }
         });
-        passiveAnalysis.addActionListener(new ActionListener() {
-            @Override public void actionPerformed(ActionEvent e) { utilities.openPassiveAnalysis(); }
+        exportSession.setToolTipText("Export the currently collected Guided report/CSV snapshot. Exporting does not unlock Review or Apply.");
+        exportSession.addActionListener(new ActionListener() {
+            @Override public void actionPerformed(ActionEvent e) { bridge.exportCurrentSession(); }
         });
         diagnostics.addActionListener(new ActionListener() {
             @Override public void actionPerformed(ActionEvent e) { utilities.openEvidenceDiagnostics(); }
@@ -372,6 +390,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
     }
 
     private void openFocus() {
+        bridge.activateFocusControl();
         final Window host = SwingUtilities.getWindowAncestor(this);
         final JDialog dialog = createDialog(host, task.displayName + " — Guided Focus");
         dialog.setContentPane(GuidedV019FocusViews.create(task, dialog, new Runnable() {
@@ -510,6 +529,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
         taskSelector.setCurrentTune(currentTune);
         taskSelector.setSelectedTask(task);
         applyTheme();
+        blendBinSelector.applyTheme();
         refreshSummaries();
         refreshButtons();
         stepper.setStage(stage.ordinal(),
@@ -523,6 +543,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
     private void refreshSummaries() {
         GuidedTaskAvailability availability = GuidedTaskAvailabilityAdapter.evaluate(task, currentTune);
         GuidedCaptureState captureState = bridge.captureState(task);
+        refreshBlendBinSelector(captureState);
         GuidedFocusHub.State focusState = bridge.focusState(task);
         boolean ready = bridge.evidenceReady(task);
         prepareSummary.set(new String[][]{
@@ -535,7 +556,9 @@ final class GuidedV019WorkspacePanel extends JPanel {
                 {"Session", String.valueOf(captureState)},
                 {"Primary action", bridge.startText()},
                 {"Evidence", evidenceSummary(focusState)},
-                {"Provenance", currentTune == null ? "waiting" : currentTune.getConfigurationName()}
+                {task == GuidedProductionTask.BLEND_DURATION ? "Armed RPM bins" : "Provenance",
+                 task == GuidedProductionTask.BLEND_DURATION ? blendBinSelector.summaryText()
+                    : currentTune == null ? "waiting" : currentTune.getConfigurationName()}
         });
         focusSummary.set(new String[][]{
                 {"Driver state", focusStatus(focusState)},
@@ -590,7 +613,13 @@ final class GuidedV019WorkspacePanel extends JPanel {
                 active = capture;
                 text = bridge.captureState(task) == GuidedCaptureState.COMPLETE
                         && !bridge.evidenceReady(task) ? "Continue Capture" : bridge.startText();
-                enabled = bridge.startEnabled();
+                enabled = bridge.startEnabled()
+                        && (task != GuidedProductionTask.BLEND_DURATION
+                            || blendBinSelector.hasValidSelection());
+                if (task == GuidedProductionTask.BLEND_DURATION
+                        && !blendBinSelector.hasValidSelection()) {
+                    text = "Select 1–4 RPM Bins";
+                }
                 break;
             case GUIDED_FOCUS:
                 active = focus;
@@ -625,6 +654,19 @@ final class GuidedV019WorkspacePanel extends JPanel {
                 && currentTune != null && currentTune.isMapEstimateEnabled());
         mapValidation.setText(mapValidationActive
                 ? "Return to " + task.displayName : "Validate MAP Predict system");
+        exportSession.setEnabled(bridge.currentSessionExportAvailable());
+    }
+
+    private void refreshBlendBinSelector(GuidedCaptureState captureState) {
+        boolean blend = task == GuidedProductionTask.BLEND_DURATION;
+        blendBinSelector.setVisible(blend);
+        if (!blend) return;
+        double[] available = currentTune == null
+                ? new double[0] : currentTune.getBlendDurationRpmBins();
+        blendBinSelector.setAvailableBins(available, bridge.blendArmedRpmBins());
+        boolean active = captureState != GuidedCaptureState.IDLE
+                && captureState != GuidedCaptureState.COMPLETE;
+        blendBinSelector.setLocked(active);
     }
 
     private boolean evidenceReady(GuidedCaptureState state) {
@@ -710,7 +752,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
         styleThemeChoice(darkTheme, AeUiTheme.side() == AeUiTheme.Side.DARK_SIDE);
         for (JButton info : stageInfoButtons.values()) resetButton(info);
         resetButton(mapValidation);
-        resetButton(passiveAnalysis);
+        resetButton(exportSession);
         resetButton(diagnostics);
         for (SummaryGrid grid : new SummaryGrid[]{prepareSummary, captureSummary, focusSummary,
                 reviewSummary, applySummary, resultSummary}) grid.applyTheme();
@@ -893,7 +935,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
             actions.setOpaque(false);
             actions.add(mapValidation);
             actions.add(info);
-            actions.add(passiveAnalysis);
+            actions.add(exportSession);
             actions.add(diagnostics);
             bottom.add(actions, BorderLayout.SOUTH);
             add(bottom, BorderLayout.SOUTH);
@@ -1183,7 +1225,6 @@ final class GuidedV019WorkspacePanel extends JPanel {
     }
     String visibleStageForTest() { return stage.title; }
     void selectTaskForTest(GuidedProductionTask selected) { selectTask(selected); }
-    boolean legacySurfaceRenderedForTest() { return false; }
     int stageCardCountForTest() { return stageCards.size(); }
     boolean mainUsesTwoByThreeCardsForTest() { return stageCards.size() == 6; }
     JButton mapValidationToggleForTest() { return mapValidation; }
@@ -1192,7 +1233,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
     JButton captureButtonForTest() { return capture; }
     JButton reviewButtonForTest() { return review; }
     JButton resultButtonForTest() { return result; }
-    JButton passiveAnalysisButtonForTest() { return passiveAnalysis; }
+    JButton exportSessionButtonForTest() { return exportSession; }
     JButton diagnosticsButtonForTest() { return diagnostics; }
     JComponent stepInfoViewForTest(Stage selectedStage) {
         return GuidedV019TaskInfoViews.create(task, selectedStage, currentTune, bridge);

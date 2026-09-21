@@ -100,15 +100,19 @@ final class GuidedV019TpsAeFocus extends GuidedV019FocusBase {
         guidance.setCaretPosition(0);
         stateValue.setText(String.valueOf(capture));
         boolean complete = capture == GuidedCaptureState.COMPLETE;
-        reviewValue.setText(complete ? "READY" : "LOCKED");
-        review.setEnabled(complete);
+        boolean reviewReady = complete && GuidedFocusHub.isActiveEvidenceReviewReady();
+        reviewValue.setText(reviewReady ? "READY" : "LOCKED");
         tableAuthority.setText("evidence-backed cells");
         otherAuthority.setText("outside this task");
 
-        if (complete) {
+        if (reviewReady) {
             cue.setText("● REVIEW READY");
             cue.setForeground(AeUiTheme.focusGreen());
             action.setText("Review the fuel-proved event set and the existing TPS AE multi-cell proposal.");
+        } else if (complete) {
+            cue.setText("● MORE EVIDENCE NEEDED");
+            cue.setForeground(AeUiTheme.focusAmber());
+            action.setText("Capture stopped before the evidence gate was satisfied. Press Continue Capture and retain the current evidence window.");
         } else if (capture == GuidedCaptureState.PAUSED) {
             cue.setText("● PAUSED");
             cue.setForeground(AeUiTheme.focusAmber());

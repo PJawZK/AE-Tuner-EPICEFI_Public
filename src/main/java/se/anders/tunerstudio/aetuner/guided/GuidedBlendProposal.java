@@ -1,7 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -20,10 +19,11 @@ import java.util.Map;
  *
  * Archive19 source-data validation retired the old largest-gap/T90 -> duration
  * conversion as a writable proposal rule. The corrected Guided capture now
- * measures physical catch-up to EPICEFI's final upward-latched fallbackMap
- * target. Those durations may be statistically summarized, but no numerical
- * Blend Duration write plan is exposed until the firmware-faithful conversion
- * is separately validated against ECU Effective MAP/log evidence.
+ * measures physical catch-up from EPICEFI's latest prediction-timer reset to
+ * live MAP reaching that reset's fallbackMap target. Those durations may be
+ * statistically summarized, but no numerical Blend Duration write plan is
+ * exposed until the physical measurement-to-setting conversion is separately
+ * validated. Existing-curve Effective MAP replay is diagnostic context only.
  */
 final class GuidedBlendProposal {
     private static final DecimalFormat F0 = new DecimalFormat("0");
@@ -262,7 +262,7 @@ final class GuidedBlendProposal {
                     + "Measurement group: " + group + " | " + selected.size()
                     + " valid event(s) combined | " + other
                     + " valid event(s) retained in other group(s) and not mixed.\n"
-                    + "Grouping uses baseline RPM/MAP, controlled relative TPS step, final target-anchor gap, RPM trend, and automatic detected gear when Automatic mode is selected.\n\n";
+                    + "Grouping uses baseline RPM/MAP, cohort-relative TPS-step similarity, final target-anchor gap, RPM trend, and automatic detected gear when Automatic mode is selected. The configured TPS step is coaching only.\n\n";
             return new GuidedBlendProposal(false,
                     prefix + base.displayText, "", null);
         }

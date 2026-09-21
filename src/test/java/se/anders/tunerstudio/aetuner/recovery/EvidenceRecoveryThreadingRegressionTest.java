@@ -4,13 +4,15 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
-/** Architecture regression for low-overhead, off-EDT evidence recovery. */
+/** Architecture regression for low-overhead, off-EDT Guided evidence recovery. */
 public final class EvidenceRecoveryThreadingRegressionTest {
     private EvidenceRecoveryThreadingRegressionTest() { }
 
     public static void main(String[] args) throws Exception {
-        guidedRecoveryIsOutsideSwingMarshal();
+        guidedRecoveryNeverMarshalsIntoSwing();
         dirtyRecoveryIsCoalescedAndDuplicateWritesAreSkipped();
+        recoveryWorkerOwnsSerializationAndIo();
+        startupRecoveryNeedsNoFinalizationPass();
         System.out.println("EvidenceRecoveryThreadingRegressionTest passed");
     }
 
@@ -20,25 +22,24 @@ public final class EvidenceRecoveryThreadingRegressionTest {
                 StandardCharsets.UTF_8);
     }
 
-    private static void guidedRecoveryIsOutsideSwingMarshal() throws Exception {
+    private static String storeSource() throws Exception {
+        return new String(Files.readAllBytes(Paths.get(
+                "src/main/java/se/anders/tunerstudio/aetuner/recovery/EvidenceRecoveryStore.java")),
+                StandardCharsets.UTF_8);
+    }
+
+    private static void guidedRecoveryNeverMarshalsIntoSwing() throws Exception {
         String source = managerSource();
-        int methodStart = source.indexOf("private EvidenceRecoverySnapshot captureSnapshot()");
-        int methodEnd = source.indexOf("private static Path recoveryRoot()", methodStart);
-        require(methodStart >= 0 && methodEnd > methodStart,
-                "could not isolate EvidenceRecoveryManager.captureSnapshot");
-        String method = source.substring(methodStart, methodEnd);
-
-        int passiveRunnable = method.indexOf("Runnable capturePassive");
-        int marshal = method.indexOf("SwingUtilities.invokeAndWait(capturePassive)");
-        int guided = method.indexOf("guidedPanel.recoverySnapshot()");
-        require(passiveRunnable >= 0 && marshal > passiveRunnable && guided > marshal,
-                "Guided recovery serialization moved back inside/before the EDT passive-state marshal");
-
-        String edtRunnable = method.substring(passiveRunnable, marshal);
-        require(!edtRunnable.contains("guidedPanel.recoverySnapshot()"),
-                "Guided report/CSV generation is still executed inside the Swing capture runnable");
-        require(method.contains("passivePanel.recoverySnapshot()"),
-                "passive Swing-owned recovery snapshot was accidentally removed from the EDT marshal");
+        require(source.contains("new EvidenceRecoverySnapshot(guidedPanel.recoverySnapshot())"),
+                "Guided recovery no longer captures directly on the recovery worker");
+        require(!source.contains("SwingUtilities.invokeAndWait")
+                        && !source.contains("SwingUtilities.invokeLater"),
+                "recovery reintroduced synchronous/asynchronous Swing marshaling");
+        require(!source.contains("passivePanel")
+                        && !source.contains("snapshot.passive")
+                        && !source.contains("writePassive")
+                        && !source.contains("passiveFingerprint"),
+                "retired Passive recovery architecture reappeared");
     }
 
     private static void dirtyRecoveryIsCoalescedAndDuplicateWritesAreSkipped()
@@ -48,16 +49,44 @@ public final class EvidenceRecoveryThreadingRegressionTest {
                 "continuous evidence recovery lost the five-second coalescing window");
         require(source.contains("if (dirtyFuture != null && !dirtyFuture.isDone()) return;"),
                 "sample-cadence dirty requests can schedule overlapping recovery work");
-        require(source.contains("passiveFingerprint(snapshot.passive)")
-                        && source.contains("guidedFingerprint(snapshot.guided)"),
-                "recovery payload deduplication fingerprints were removed");
-        require(source.contains("force || fingerprint != passiveFingerprint")
-                        && source.contains("force || fingerprint != guidedFingerprint"),
-                "unchanged recovery payloads no longer skip atomic disk replacement");
+        require(source.contains("guidedFingerprint(snapshot.guided)"),
+                "Guided recovery payload deduplication fingerprint was removed");
+        require(source.contains("force || fingerprint != guidedFingerprint"),
+                "unchanged Guided recovery payloads no longer skip atomic disk replacement");
         require(source.contains("boolean force = \"plugin close\".equals(reason)"),
                 "final plugin close no longer forces the authoritative last recovery write");
-        require(source.contains("Automatic recovery already up to date."),
+        require(source.contains("Automatic Guided recovery already up to date."),
                 "deduplicated checkpoint does not report its no-write state");
+    }
+
+    private static void recoveryWorkerOwnsSerializationAndIo() throws Exception {
+        String source = managerSource();
+        require(source.contains("ae-tuner-guided-recovery"),
+                "dedicated low-priority Guided recovery worker is missing");
+        require(source.contains("thread.setPriority(Thread.MIN_PRIORITY)"),
+                "Guided recovery worker lost low-priority scheduling");
+        require(source.contains("store.writeGuided(snapshot.guided)"),
+                "Guided persistence is no longer performed by EvidenceRecoveryManager worker flow");
+        require(source.contains("RuntimePerformanceHub.noteRecoverySnapshot")
+                        && source.contains("RuntimePerformanceHub.noteRecoveryWrite"),
+                "bounded recovery timing diagnostics are no longer recorded");
+        require(source.contains("if (!SwingUtilities.isEventDispatchThread())"),
+                "close path no longer avoids blocking the Swing EDT");
+    }
+
+    private static void startupRecoveryNeedsNoFinalizationPass() throws Exception {
+        String manager = managerSource();
+        String store = storeSource();
+        require(!manager.contains("startupFinalizationScheduled")
+                        && !manager.contains("finalizeRun("),
+                "obsolete startup finalization lifecycle returned to the manager");
+        require(!store.contains("static void finalizeRun"),
+                "no-op recovery finalizer returned to the store");
+        require(manager.contains("Previous Guided recovery is ready; open or dismiss the notice."),
+                "startup recovery no longer surfaces already-atomic Guided evidence directly");
+        require(manager.contains("se.anders.tunerstudio.aetuner.proposal.SessionExportSupport")
+                        || manager.contains("import se.anders.tunerstudio.aetuner.proposal.SessionExportSupport;"),
+                "recovery no longer points directly at canonical SessionExportSupport");
     }
 
     private static void require(boolean condition, String message) {

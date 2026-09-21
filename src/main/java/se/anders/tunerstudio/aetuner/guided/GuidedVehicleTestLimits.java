@@ -1,7 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -21,13 +20,15 @@ import java.util.Locale;
 final class GuidedVehicleTestLimits {
     static final double DEFAULT_DETECTOR_CONFIRM_SECONDS = 0.55;
     static final double DEFAULT_TARGET_ACQUISITION_SECONDS = 1.00;
+    /** Bounded observation horizon for the event-derived physical MAP response. */
     static final double DEFAULT_MAP_CATCHUP_SECONDS = 1.20;
     static final double DEFAULT_TPS_TOLERANCE = 3.00;
     static final double DEFAULT_TPS_BOUNDARY_EPSILON = 0.05;
     /**
-     * Local-only confirmation must be large enough that the event can still
-     * satisfy the recipe's minimum usable natural TPS step. Smaller road/pedal
-     * corrections remain pending unless the ECU detector/prediction confirms them.
+     * Local confirmation must be large enough that the event can still satisfy
+     * the recipe's minimum usable natural TPS step. Smaller road/pedal corrections
+     * may enter the short pending state when firmware activity is seen, but firmware
+     * evidence alone cannot promote them into a counted Blend attempt.
      */
     static final double DEFAULT_LOCAL_TPS_ONSET_RISE = PedalPlateauDetector.MIN_USABLE_STEP;
 
@@ -90,6 +91,7 @@ final class GuidedVehicleTestLimits {
         final boolean enabled;
         final double detectorConfirmSeconds;
         final double targetAcquisitionSeconds;
+        /** Compatibility field name; now physical MAP response max observation time. */
         final double mapCatchupSeconds;
         final double tpsTolerance;
         final double tpsBoundaryEpsilon;
@@ -116,7 +118,7 @@ final class GuidedVehicleTestLimits {
             return (enabled ? "TEST OVERRIDES ACTIVE — " : "candidate defaults — ")
                     + "detector " + f2(detectorConfirmSeconds) + " s"
                     + " | target acquire " + f2(targetAcquisitionSeconds) + " s"
-                    + " | MAP catch-up " + f2(mapCatchupSeconds) + " s"
+                    + " | physical MAP response max " + f2(mapCatchupSeconds) + " s"
                     + " | TPS ±" + f2(tpsTolerance) + "%"
                     + " +" + f2(tpsBoundaryEpsilon) + " epsilon"
                     + " | local confirmation +" + f2(localTpsOnsetRise) + " TPS";

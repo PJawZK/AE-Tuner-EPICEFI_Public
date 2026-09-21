@@ -12,6 +12,7 @@ public final class GuidedFocusHubLifecycleRegressionTest {
 
     public static void main(String[] args) {
         clearPreservesLiveInstanceCallbacks();
+        everyInProgressLifecycleCanFinishAndOwnNavigation();
         completeLifecycleStillRequiresEvidenceReadiness();
         incompleteCompletionCanContinueWithoutBecomingReviewReady();
         disposeReleasesStaticCallbacks();
@@ -31,6 +32,29 @@ public final class GuidedFocusHubLifecycleRegressionTest {
                 "normal Guided session reset destroyed live plugin capture control");
         require(GuidedFocusHub.hasMapEstimateListenerForTest(),
                 "normal Guided session reset destroyed live MAP configuration listener");
+    }
+
+    private static void everyInProgressLifecycleCanFinishAndOwnNavigation() {
+        FakeCaptureControl control = new FakeCaptureControl();
+        control.recipe = GuidedTuningRecipe.BLEND_DURATION;
+        GuidedFocusHub.setCaptureControl(control);
+
+        for (GuidedCaptureState state : GuidedCaptureState.values()) {
+            control.state = state;
+            boolean inProgress = state.isCaptureInProgress();
+            require(GuidedFocusHub.canFinishCapture() == inProgress,
+                    "Finish authority disagrees with active-session lifecycle for " + state);
+
+            GuidedTaskAvailability other = GuidedTaskAvailabilityAdapter.evaluate(
+                    GuidedProductionTask.MAP_ESTIMATE, null);
+            if (inProgress) {
+                require(!other.clickable && "CAPTURE ACTIVE".equals(other.status),
+                        "another task became selectable during live Blend state " + state);
+            } else {
+                require(!"CAPTURE ACTIVE".equals(other.status),
+                        "navigation remained capture-locked after " + state);
+            }
+        }
     }
 
     private static void completeLifecycleStillRequiresEvidenceReadiness() {
@@ -92,6 +116,7 @@ public final class GuidedFocusHubLifecycleRegressionTest {
     private static final class FakeCaptureControl
             implements GuidedFocusHub.CaptureControl {
         GuidedCaptureState state = GuidedCaptureState.IDLE;
+        GuidedTuningRecipe recipe = GuidedTuningRecipe.TPS_AE;
         boolean ready;
         boolean continueCapable;
         boolean exportCapable;
@@ -115,7 +140,7 @@ public final class GuidedFocusHubLifecycleRegressionTest {
             return state;
         }
         @Override public GuidedTuningRecipe activeRecipe() {
-            return GuidedTuningRecipe.TPS_AE;
+            return recipe;
         }
         @Override public boolean reviewReady() { return ready; }
         @Override public boolean canContinueCapture() { return continueCapable; }

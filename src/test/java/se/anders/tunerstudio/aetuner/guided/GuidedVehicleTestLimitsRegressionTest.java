@@ -3,7 +3,6 @@ package se.anders.tunerstudio.aetuner.guided;
 import se.anders.tunerstudio.aetuner.AeTunerPlugin;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.guided.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
@@ -15,7 +14,7 @@ public final class GuidedVehicleTestLimitsRegressionTest {
 
     public static void main(String[] args) {
         defaultsAreCandidateValuesAndOverridesAreOff();
-        overridePanelIsNotUserVisible();
+        retiredOverridePanelCannotReturn();
         localOnlyConfirmationCannotBeLoweredBelowUsableStep();
         activeSessionSnapshotCannotChangeMidRun();
         restoreReturnsToCandidateDefaults();
@@ -38,12 +37,17 @@ public final class GuidedVehicleTestLimitsRegressionTest {
                 "candidate-default summary does not expose the local-only confirmation threshold");
     }
 
-    private static void overridePanelIsNotUserVisible() {
-        GuidedVehicleTestOverridePanel panel = new GuidedVehicleTestOverridePanel();
-        require(!panel.isVisible(),
-                "vehicle-test override controls must not be exposed in the normal user-facing workspace");
-        require(!panel.isEnabledForTest(),
-                "hidden vehicle-test override controls must remain disabled by default");
+    private static void retiredOverridePanelCannotReturn() {
+        java.nio.file.Path source = java.nio.file.Paths.get(
+                "src/main/java/se/anders/tunerstudio/aetuner/guided/GuidedVehicleTestOverridePanel.java");
+        require(!java.nio.file.Files.exists(source),
+                "retired hidden vehicle-test override panel source returned");
+        try {
+            Class.forName("se.anders.tunerstudio.aetuner.guided.GuidedVehicleTestOverridePanel");
+            throw new AssertionError("retired hidden vehicle-test override panel is still loadable");
+        } catch (ClassNotFoundException expected) {
+            // Expected permanent cleanup state.
+        }
     }
 
     private static void localOnlyConfirmationCannotBeLoweredBelowUsableStep() {

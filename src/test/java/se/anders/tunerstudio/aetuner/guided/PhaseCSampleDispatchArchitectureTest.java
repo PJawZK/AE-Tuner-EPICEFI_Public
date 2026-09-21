@@ -1,15 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
-import se.anders.tunerstudio.aetuner.AeTunerPlugin;
-
-import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
-import se.anders.tunerstudio.aetuner.guided.*;
-import se.anders.tunerstudio.aetuner.model.*;
-import se.anders.tunerstudio.aetuner.proposal.*;
-import se.anders.tunerstudio.aetuner.recovery.*;
-import se.anders.tunerstudio.aetuner.ui.*;
-
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -19,7 +10,8 @@ public final class PhaseCSampleDispatchArchitectureTest {
 
     public static void main(String[] args) throws Exception {
         legacyGlobalStreamClassIsGone();
-        passivePanelOwnsOnlyInjectedEndpoint();
+        retiredPassivePanelClassIsGone();
+        guidedLiveSourceOwnsOnlyInjectedEndpoint();
         guidedPanelOwnsDispatcherLifecycle();
         dispatcherQueueAndWorkerAreInstanceLocal();
         System.out.println("PhaseCSampleDispatchArchitectureTest passed");
@@ -30,19 +22,29 @@ public final class PhaseCSampleDispatchArchitectureTest {
             Class.forName("se.anders.tunerstudio.aetuner.LiveSampleStream");
             throw new AssertionError("legacy process-global LiveSampleStream is still compiled");
         } catch (ClassNotFoundException expected) {
-            // Desired Phase C architecture.
+            // Desired architecture.
         }
     }
 
-    private static void passivePanelOwnsOnlyInjectedEndpoint() throws Exception {
-        Field field = AeTunerPanel.class.getDeclaredField("guidedSampleDispatcher");
+    private static void retiredPassivePanelClassIsGone() {
+        try {
+            Class.forName("se.anders.tunerstudio.aetuner.AeTunerPanel");
+            throw new AssertionError("retired Passive AeTunerPanel is still compiled");
+        } catch (ClassNotFoundException expected) {
+            // Guided-only production runtime must not restore the old panel.
+        }
+    }
+
+    private static void guidedLiveSourceOwnsOnlyInjectedEndpoint() throws Exception {
+        Field field = GuidedLiveSampleSource.class.getDeclaredField("dispatcher");
         require(field.getType() == GuidedSampleDispatcher.class,
-                "passive panel is not wired to the bounded dispatcher type");
+                "Guided live source is not wired directly to the bounded dispatcher type");
         require(!Modifier.isStatic(field.getModifiers()),
-                "passive Guided dispatcher endpoint became static/global");
-        Method setter = AeTunerPanel.class.getDeclaredMethod(
-                "setGuidedSampleDispatcher", GuidedSampleDispatcher.class);
-        require(setter != null, "passive panel lacks explicit dispatcher injection boundary");
+                "Guided live source dispatcher endpoint became static/global");
+        Constructor<GuidedLiveSampleSource> constructor =
+                GuidedLiveSampleSource.class.getDeclaredConstructor(GuidedSampleDispatcher.class);
+        require(constructor != null,
+                "Guided live source lacks explicit dispatcher injection boundary");
     }
 
     private static void guidedPanelOwnsDispatcherLifecycle() throws Exception {
@@ -52,7 +54,7 @@ public final class PhaseCSampleDispatchArchitectureTest {
         require(!Modifier.isStatic(field.getModifiers()),
                 "Guided panel dispatcher became static/global");
         Method accessor = GuidedCapturePanel.class.getDeclaredMethod(
-                "sampleDispatcherForPassivePanel");
+                "guidedSampleDispatcher");
         require(accessor.getReturnType() == GuidedSampleDispatcher.class,
                 "Guided panel does not expose explicit producer endpoint");
     }

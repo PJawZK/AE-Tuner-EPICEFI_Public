@@ -1,7 +1,6 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.host.*;
-import se.anders.tunerstudio.aetuner.passive.*;
 import se.anders.tunerstudio.aetuner.model.*;
 import se.anders.tunerstudio.aetuner.proposal.*;
 import se.anders.tunerstudio.aetuner.recovery.*;
@@ -25,19 +24,19 @@ final class GuidedAttemptTrace {
                         double plateauWindowSeconds,
                         double plateauRange,
                         double majorPedalMove,
-                        LiveSample measurementAnchor,
-                        double bestGap,
+                        LiveSample physicalLowAnchor,
+                        double physicalMapStep,
                         LiveSample holdAnchor,
                         LiveSample outcome) {
         StringBuilder trace = new StringBuilder();
         trace.append("Compact attempt trace (").append(disposition).append(")\n")
                 .append("adaptive_baseline_s,").append(f2(baselineSeconds)).append('\n')
-                .append("desired_tps_step,").append(f1(settings.desiredTpsStep)).append('\n')
+                .append("suggested_tps_step,").append(f1(settings.desiredTpsStep)).append('\n')
                 .append("plateau_window_s,").append(f2(plateauWindowSeconds)).append('\n')
                 .append("plateau_range_limit,").append(f1(plateauRange)).append('\n')
                 .append("major_pedal_move,").append(f1(majorPedalMove)).append('\n')
                 .append("timing_limits,").append(limits.summary()).append('\n')
-                .append("dt_s,rpm,tps,map,fallbackMap,effectiveMap,gap,tpsdot,detector,prediction,predResetCnt,predExpired,gear,vss\n");
+                .append("dt_s,rpm,tps,map,fallbackMap,effectiveMap,predictionGap,tpsdot,detector,prediction,predResetCnt,predExpired,gear,vss\n");
         if (attemptSamples == null || attemptSamples.isEmpty()) {
             trace.append("no samples\n");
             return trace.toString();
@@ -52,10 +51,10 @@ final class GuidedAttemptTrace {
         if ((attemptSamples.size() - 1) % stride != 0) {
             appendTraceRow(trace, last, start);
         }
-        if (measurementAnchor != null) {
-            trace.append("measurement_anchor_dt_s=")
-                    .append(f3(seconds(start, measurementAnchor.getNanoTime())))
-                    .append(",gap_kpa=").append(f2(bestGap)).append('\n');
+        if (physicalLowAnchor != null) {
+            trace.append("physical_20pct_anchor_dt_s=")
+                    .append(f3(seconds(start, physicalLowAnchor.getNanoTime())))
+                    .append(",physical_map_step_kpa=").append(f2(physicalMapStep)).append('\n');
         }
         if (holdAnchor != null) {
             trace.append("natural_hold_dt_s=")

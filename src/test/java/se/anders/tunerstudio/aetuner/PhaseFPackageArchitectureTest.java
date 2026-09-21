@@ -8,15 +8,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** Permanent regression for the Phase F package-organization boundary. */
+/** Permanent regression for the current Guided-only package-organization boundary. */
 public final class PhaseFPackageArchitectureTest {
     private PhaseFPackageArchitectureTest() { }
 
     public static void main(String[] args) throws Exception {
         rootKeepsOnlyTunerStudioEntrypoint();
-        sevenSubsystemPackagesExist();
+        currentSubsystemPackagesExist();
         keyRuntimeTypesLiveInTheirOwningPackages();
-        oldFlatRuntimeTypesAreGone();
+        retiredAndOldFlatRuntimeTypesAreGone();
         System.out.println("PhaseFPackageArchitectureTest passed");
     }
 
@@ -36,20 +36,21 @@ public final class PhaseFPackageArchitectureTest {
                 "root package must contain only AeTunerPlugin.java, found " + rootJava);
     }
 
-    private static void sevenSubsystemPackagesExist() {
+    private static void currentSubsystemPackagesExist() {
         String[] packages = new String[]{
-                "host", "passive", "guided", "model", "proposal", "recovery", "ui"
+                "host", "guided", "model", "proposal", "recovery", "ui"
         };
         for (String name : packages) {
             Path dir = Paths.get("src/main/java/se/anders/tunerstudio/aetuner", name);
-            require(Files.isDirectory(dir), "missing Phase F package directory " + name);
+            require(Files.isDirectory(dir), "missing current subsystem package directory " + name);
         }
     }
 
     private static void keyRuntimeTypesLiveInTheirOwningPackages() throws Exception {
         assertLoadable("se.anders.tunerstudio.aetuner.host.AeControllerBridge");
-        assertLoadable("se.anders.tunerstudio.aetuner.passive.AeTunerPanel");
+        assertLoadable("se.anders.tunerstudio.aetuner.host.BuildIdentity");
         assertLoadable("se.anders.tunerstudio.aetuner.guided.GuidedCapturePanel");
+        assertLoadable("se.anders.tunerstudio.aetuner.guided.GuidedLiveSampleSource");
         assertLoadable("se.anders.tunerstudio.aetuner.guided.GuidedSampleDispatcher");
         assertLoadable("se.anders.tunerstudio.aetuner.model.LiveSample");
         assertLoadable("se.anders.tunerstudio.aetuner.model.TransientEvent");
@@ -58,8 +59,10 @@ public final class PhaseFPackageArchitectureTest {
         assertLoadable("se.anders.tunerstudio.aetuner.ui.WrapLayout");
     }
 
-    private static void oldFlatRuntimeTypesAreGone() {
+    private static void retiredAndOldFlatRuntimeTypesAreGone() {
+        assertMissing("se.anders.tunerstudio.aetuner.passive.AeTunerPanel");
         assertMissing("se.anders.tunerstudio.aetuner.AeTunerPanel");
+        assertMissing("se.anders.tunerstudio.aetuner.BuildIdentity");
         assertMissing("se.anders.tunerstudio.aetuner.GuidedCapturePanel");
         assertMissing("se.anders.tunerstudio.aetuner.GuidedSampleDispatcher");
         assertMissing("se.anders.tunerstudio.aetuner.LiveSample");
@@ -73,9 +76,9 @@ public final class PhaseFPackageArchitectureTest {
     private static void assertMissing(String name) {
         try {
             Class.forName(name);
-            throw new AssertionError("old flat-package class is still compiled: " + name);
+            throw new AssertionError("retired/old class is still compiled: " + name);
         } catch (ClassNotFoundException expected) {
-            // Desired Phase F architecture.
+            // Desired current architecture.
         }
     }
 

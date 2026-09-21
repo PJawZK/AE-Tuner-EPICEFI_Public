@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.4.5 — 2026-09-21
+
+Status: **PUBLIC RELEASE CANDIDATE**. Intended to replace `v0.4.4` after exact public qualification.
+
+### AE Foundation presentation
+- Added rolling TPS Foundation Focus history for absolute TPS, `Fuel: TPS AE change` and `AccelThreshold`.
+- Added matching Threshold / Sensitivity rolling history for `TPS AE change` versus `AccelThreshold`.
+- Kept the graph history presentation-only; controller sampling, evidence and tuning semantics are unchanged.
+
+### Blend Duration physical timing
+- Made real physical MAP movement the primary Blend Duration timing authority.
+- Measures the central 20→80% portion of the observed MAP movement after a stable throttle opening/hold.
+- Removed any requirement for predicted MAP or an existing Blend curve value to be the physical catch-up target.
+- Kept predictive/fallback/current-tune Effective MAP replay as diagnostic/context evidence only.
+- Uses the median of a comparable completed event group as the completed series result.
+- Improved in-car Result legibility and preserves truthful PARTIAL recommendation maturity where evidence is not fully ready.
+
+### Multi-bin Blend workflow
+- Added a visible selector for 1–4 actual Blend Duration RPM bins from the current Working Tune.
+- Added automatic stable-bin acquisition using the existing ±300 RPM entry/READY authority and a 0.65 s dwell.
+- Latches the selected RPM bin immutably through the event and releases after outcome/recovery.
+- Removes RPM as a post-opening ceiling; once the event begins it cannot migrate to another bin.
+- Keeps evidence/progress separated per RPM bin and prevents cross-bin evidence merging.
+- Retains established one-bin report/presentation behavior for single-bin sessions.
+
+### Runtime and validation
+- Reduced safe-to-suspend presentation/passive background work while the plugin is hidden.
+- Removed redundant runtime/UI compatibility residue without changing live Guided production capture, passive Foundation evidence capture, Guided limits or audio-cue functionality.
+- Qualified private runtime `0.4.5-vehicle-test.16` at source `b9ec558a206408dd4e19cff8ce24b2eceb36f331`: CI **#1712 / run `35534865479` — PASS**; post-merge CI **#1713 / run `35535012493` — PASS**.
+- Canonical private vehicle-test JAR SHA-256: `5b6738f29caa5a153ffbd1a8aeaa637321af50dcfc0340eb5c25114b31ac1860`.
+- The final multi-bin Blend selection/latching workflow was exercised on the vehicle and behaved as intended.
+- Final public JAR SHA-256 is recorded from the exact qualified public PR head before publication.
+
+### Safety
+- Guarded mutation remains centralized through `ProposalWritePlan → ProposalApplyCoordinator → write → exact readback → Restore snapshot`.
+- No Burn path was added.
+- No alternate writer was added.
+- VE and ignition remain outside AE Tuner tuning authority.
+
+---
+
 ## 0.4.4 — 2026-09-11
 
 Status: **PUBLIC RELEASE**. Replaces `v0.4.3`.
