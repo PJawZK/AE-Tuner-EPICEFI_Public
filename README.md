@@ -11,6 +11,19 @@ SHA-256: `673fdf0c577ea07764519e596a99100c21a4c0450d2c4b02a2178a79ac70efa0`
 
 v0.4.5 promotes the vehicle-tested `0.4.5-vehicle-test.16` runtime into the public release line. The previous public release is `v0.4.4`.
 
+## Public testing (proposed preview)
+
+A separate **v0.4.6-vehicle-test.18** experimental pre-release is being
+prepared for users who want to test Guided UI and reliability improvements,
+including historical Decel analysis. This is **not** the stable v0.4.6 release;
+the stable download remains **v0.4.5**.
+
+The preview requires a separately published, verified GitHub pre-release JAR.
+See [test-build notes](docs/RELEASE_0.4.6_VEHICLE_TEST_18.md) for the exact
+source/CI/JAR identity, safety limits, installation and rollback. The
+pre-release is not considered public until that exact JAR has been uploaded
+to the repository's Releases page.
+
 ## Highlights
 
 - The normal **Guided v0.19 workspace** remains the production presentation authority for AE Foundation, TPS AE, MAP Predict, Wall Wetting, Instant Fuel and decel/transient work.
