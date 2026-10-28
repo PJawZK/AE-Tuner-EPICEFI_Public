@@ -1,25 +1,26 @@
-# AE Tuner current public state
+# Current public release
 
-- Latest published public release: **v0.4.5**. The v0.4.6 source has been synchronized to public `main`; its release JAR is pending publication.
-- Source branch: `main`
-- Exact qualified public-identity build source: `baddb47d3a13b2e772d5b6154f735f2f8c2ddb38`
-- GitHub Actions: **#1932 / run 40725785125 — PASS**
-- Canonical public JAR: `ae-tuner-epicefi-0.4.6.jar`
-- JAR SHA-256: `31e23679f055789be0073f35e810f1ae793e0713dfc381c92e293c98ecdc19dd`
-- Java target: Java 8; compilation/CI JDK: Java 17
+**AE Tuner v0.4.6** is the latest published stable release (28 October 2026). It supersedes v0.4.5.
 
-## Runtime and capabilities
+- [Download v0.4.6 and checksums](https://github.com/PJawZK/AE-Tuner-EPICEFI_Public/releases/tag/v0.4.6)
+- Plugin: `ae-tuner-epicefi-0.4.6.jar`
+- SHA-256: `31e23679f055789be0073f35e810f1ae793e0713dfc381c92e293c98ecdc19dd`
+- Java 8-compatible bytecode; TunerStudio displays `0.4.6` / `PUBLIC RELEASE`
+- Public source and distribution branch: `main`
+- [What changed since v0.4.5](RELEASE_0.4.6.md)
 
-Guided v0.19 remains the production workspace. It offers Foundation, TPS AE, MAP Predict, Wall Wetting, Instant Fuel and Decel/Tip-out workflows. Recent changes improve Cancel/Start Over, current-state coaching, historical Decel analysis and independent cross-log physical-event pooling, responsive scroll/wrap/fixed-footer pop-outs and lifecycle/recovery/export performance.
+## Capabilities
 
-Decel analysis uses threshold-independent physical event classification (`classification-boundary-v2`) and refuses incompatible cross-log pooling (`detector-compatible-pool-v1`). Unresolved cells are **NEED EVIDENCE**, not inferred zero or extrapolated values.
+The Guided workspace covers AE Foundation, TPS AE, MAP Predict, Wall Wetting, Instant Fuel and Decel/Tip-out. v0.4.6 adds compatible historical Decel multi-log evidence pooling, UI usability improvements, and reliability/performance hardening.
 
-## Safety
+Not all tasks offer the same recommendation maturity or controller write authority. Decel RPM regions without sufficient evidence remain `NEED EVIDENCE`.
 
-Only explicitly reviewed plans can request Working Tune/RAM writes through `ProposalWritePlan → ProposalApplyCoordinator → stale check → write → exact readback → rollback/Restore`. No automatic Apply, no Burn, no VE/ignition tuning.
+## Safety and qualification
 
-Software safety/regression checks passed; broader vehicle and task-specific numerical tuning qualification remains unfinished. See `docs/KNOWN_ISSUES.md` and `docs/RELEASE_0.4.6.md` for scope.
+Supported changes are explicitly reviewed Working Tune/RAM operations with stale-baseline checks, exact readback, and guarded rollback/Restore. No automatic Apply, ECU Burn, or VE/ignition writes.
 
-## Source integrity
+The published binary passed the release identity and software safety/regression pipeline; this does not imply universal physical calibration correctness. See [known limitations](KNOWN_ISSUES.md).
 
-Public `src/`, `scripts/`, `pom.xml` are synchronized with the qualified release build source. The third-party TunerStudio Plugin API binary and all private vehicle data are excluded.
+## Release integrity
+
+The published JAR is the CI-qualified 0.4.6 binary (private qualification source `baddb47d3a13b2e772d5b6154f735f2f8c2ddb38`, CI #1932 / run `40725785125`). Public `src/`, `scripts/` and `pom.xml` match that release source. The proprietary TunerStudio API binary and private vehicle evidence are excluded from public distribution.
