@@ -14,7 +14,7 @@ import com.efiAnalytics.plugin.ecu.ControllerException;
 
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
-import javax.swing.JDialog;
+import javax.swing.JFrame;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -45,7 +45,7 @@ public final class AeTunerPlugin implements ApplicationPlugin {
     public static final String VERSION = BuildIdentity.VERSION;
     public static final String PUBLIC_REPOSITORY_URL =
             "https://github.com/PJawZK/AE-Tuner-EPICEFI_Public";
-    static final String VEHICLE_TEST_BANNER =
+    static final String PUBLIC_RELEASE_BANNER =
             "AE TUNER " + VERSION
                     + " — PUBLIC RELEASE; guarded Apply/Restore only; NO BURN";
 
@@ -61,7 +61,7 @@ public final class AeTunerPlugin implements ApplicationPlugin {
     private final Timer runtimeTimer;
 
     private ControllerAccess controllerAccess;
-    private JDialog evidenceDiagnosticsWindow;
+    private JFrame evidenceDiagnosticsWindow;
     private volatile AeProjectSnapshot overviewSnapshot;
     private volatile String overviewReadStatus = "Working tune not read yet.";
     private volatile boolean lifecycleActive;
@@ -138,12 +138,12 @@ public final class AeTunerPlugin implements ApplicationPlugin {
             evidenceDiagnosticsWindow.setSize(1120, 720);
             evidenceDiagnosticsWindow.addWindowListener(new WindowAdapter() {
                 @Override public void windowClosed(WindowEvent event) {
-                    evidenceDiagnostics.disposePanel();
-                    RuntimePerformanceHub.noteDialogDisposed();
-                    evidenceDiagnosticsWindow = null;
+                    if (evidenceDiagnosticsWindow == event.getWindow()) {
+                        evidenceDiagnostics.disposePanel();
+                        evidenceDiagnosticsWindow = null;
+                    }
                 }
             });
-            RuntimePerformanceHub.noteDialogCreated();
         }
         refreshOverviewSnapshot();
         evidenceDiagnostics.resumePanel();
@@ -152,19 +152,14 @@ public final class AeTunerPlugin implements ApplicationPlugin {
         evidenceDiagnosticsWindow.toFront();
     }
 
-    private JDialog createModelessUtilityDialog(String title) {
-        Window host = SwingUtilities.getWindowAncestor(panel);
-        JDialog dialog;
-        if (host instanceof Dialog) dialog = new JDialog((Dialog)host, title, false);
-        else if (host instanceof Frame) dialog = new JDialog((Frame)host, title, false);
-        else dialog = new JDialog((Frame)null, title, false);
-        dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-        return dialog;
+    private JFrame createModelessUtilityDialog(String title) {
+        return se.anders.tunerstudio.aetuner.guided.GuidedWindowTools.frame(
+                SwingUtilities.getWindowAncestor(panel), title);
     }
 
     private void disposeUtilityWindows() {
         if (evidenceDiagnosticsWindow != null) {
-            JDialog dialog = evidenceDiagnosticsWindow;
+            JFrame dialog = evidenceDiagnosticsWindow;
             evidenceDiagnosticsWindow = null;
             dialog.dispose();
         }
@@ -329,16 +324,22 @@ public final class AeTunerPlugin implements ApplicationPlugin {
     private void closeLifecycle() {
         boolean closing = beginFinalClose();
         if (!closing) return;
+        recoveryManager.flushAndClose(new Runnable() {
+            @Override public void run() { releaseAfterRecovery(); }
+        });
+    }
+
+    private void releaseAfterRecovery() {
         try {
-            recoveryManager.flushAndClose();
-        } finally {
             guidedPanel.releaseAfterClose();
+            guidedProductionWorkspace.releaseAfterClose();
             GuidedWorkingTuneSurfaceCache.clear();
             AeControllerBridge.clearLatestControllerAccess();
             controllerAccess = null;
             overviewSnapshot = null;
             guidedControllerPrepared = false;
             RuntimePerformanceHub.resetForPluginRetirement();
+        } finally {
             synchronized (this) { closingLifecycle = false; }
         }
     }

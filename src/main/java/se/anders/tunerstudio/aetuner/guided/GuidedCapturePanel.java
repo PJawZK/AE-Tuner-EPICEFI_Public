@@ -150,7 +150,9 @@ public final class GuidedCapturePanel extends JPanel {
     private volatile double sampleRate;
     private volatile boolean enabled;
     private volatile boolean exportInProgress;
+    private volatile boolean taskCancelled;
     private volatile LiveSample latestSharedSample;
+    private volatile long lastSharedSampleReceivedNano;
     private volatile GuidedTuningRecipe activeRecipe = GuidedTuningRecipe.ENGAGEMENT_DETECTION;
     private volatile double[] v019ArmedBlendRpmBins = new double[0];
     private boolean updatingTuningNavigation;
@@ -362,16 +364,20 @@ public final class GuidedCapturePanel extends JPanel {
         });
         discard.addActionListener(event -> {
             if (activeCaptureMode() == GuidedAeMethodModule.CaptureMode.BLEND_DURATION) {
-                session.discardLast();
-                evidence.discardLastAccepted();
-                proposalTracker.discardLastAccepted();
+                synchronized (session) {
+                    session.discardLast();
+                    evidence.discardLastAccepted();
+                    proposalTracker.discardLastAccepted();
+                }
             }
             refresh();
         });
         finish.addActionListener(event -> {
             if (activeCaptureMode() == GuidedAeMethodModule.CaptureMode.BLEND_DURATION) {
-                session.finish();
-                evidence.finish(session.snapshot());
+                synchronized (session) {
+                    session.finish();
+                    evidence.finish(session.snapshot());
+                }
             } else if (activeCaptureMode() == GuidedAeMethodModule.CaptureMode.READ_ONLY_PROBE) {
                 probeSession.finish();
                 if (validationSession.canEvaluate(selectedRecipe())) {
@@ -520,15 +526,55 @@ public final class GuidedCapturePanel extends JPanel {
         SwingUtilities.invokeLater(() -> checksScroll.getVerticalScrollBar().setValue(0));
     }
 
+    boolean liveDataReady() {
+        LiveSample sample = latestSharedSample;
+        if (sample == null || System.nanoTime() - lastSharedSampleReceivedNano > 2000000000L) return false;
+        for (ChannelRole role : selectedModule().requiredRoles()) {
+            if (!Double.isFinite(sample.get(role))) return false;
+        }
+        return true;
+    }
+
+    boolean taskCancelled() { return taskCancelled; }
+    boolean canStartOverTask() { return !exportInProgress; }
+
+    /** Stop model producers without discarding evidence or controller Restore history. */
+    void cancelTask() {
+        taskCancelled = true;
+        terminateForClose();
+        probeSession.cancel();
+        synchronized (session) { proposalTracker.reset(); }
+        clearStagedTaskSettings();
+        se.anders.tunerstudio.aetuner.guided.method.DecelHistoricalThresholdProposalContext.clear();
+        pauseAudioAction.run();
+        connection.setText("Task cancelled — evidence retained for export. Start Over to begin again. Applied values are unchanged; Restore remains available.");
+        refresh();
+    }
+
+    boolean startOverTask() {
+        if (!allowProbeRetirement()) return false;
+        resetGuidedSession();
+        return true;
+    }
+
     private void resetGuidedSession() {
+        if (!allowProbeRetirement()) return;
+        taskCancelled = false;
+        se.anders.tunerstudio.aetuner.guided.method.DecelHistoricalResultContext.clear();
+        se.anders.tunerstudio.aetuner.guided.method.DecelHistoricalThresholdProposalContext.clear();
+        ((se.anders.tunerstudio.aetuner.guided.method.DecelDetectionMethodModule)
+                se.anders.tunerstudio.aetuner.guided.method.GuidedAeMethodModules.forRecipe(
+                        GuidedTuningRecipe.DECEL_DETECTION)).clearHistoricalReview();
         boolean mustReadWorkingTune = workingTuneReadRequiredAfterApply;
         String retainedApplyManifest = lastApplyManifestJson;
         boolean retainedCurrentProposalApplied = currentProposalApplied;
         String retainedAppliedProposalSummary = appliedProposalSummary;
-        session.reset();
+        synchronized (session) {
+            session.reset();
+            evidence.reset();
+            proposalTracker.reset();
+        }
         probeSession.reset();
-        evidence.reset();
-        proposalTracker.reset();
         clearStagedTaskSettings();
         activeRecipe = selectedRecipe();
         probeEvidenceExported = true;
@@ -546,6 +592,9 @@ public final class GuidedCapturePanel extends JPanel {
             appliedProposalSummary = "";
             applyStatus = "Guided session reset; no apply manifest is attached to the new session.";
         }
+        connection.setText(mustReadWorkingTune
+                ? "Session reset — Read Working Tune before another capture. Restore remains available."
+                : "Session reset — prepare a new task. No Working Tune value was changed.");
         pauseAudioAction.run();
         recoveryDirtyAction.run();
         refresh();
@@ -800,6 +849,10 @@ public final class GuidedCapturePanel extends JPanel {
     }
 
     private void startSession() {
+        if (taskCancelled) {
+            connection.setText("Task cancelled. Press Start Over before beginning a new capture.");
+            return;
+        }
         GuidedAeMethodModule module = selectedModule();
         if (validationSession.unresolved()
                 && validationSession.recipe() != module.recipe()) {
@@ -902,22 +955,24 @@ public final class GuidedCapturePanel extends JPanel {
                 ? String.valueOf(gear.getItemAt(selected)) : "unknown";
 
         applyStatus = "New Guided capture started; guarded Apply is available whenever the reviewed Blend Duration logic produces a supported changed value. No burn.";
-        evidence.startAdaptive(configuredBins, configuredStep, configuredCount,
-                gearMode + " | automatic RPM-bin latch",
-                System.nanoTime());
-        if (configuredBins.length == 1) {
-            int proposalPoint = blendPointIndex(configuredBins[0]);
-            if (proposalPoint >= 0) proposalTracker.start(projectSnapshot, proposalPoint);
-            else proposalTracker.reset();
-        } else {
-            // A multi-bin session deliberately has no single write target.
-            proposalTracker.reset();
+        int proposalPoint = configuredBins.length == 1 ? blendPointIndex(configuredBins[0]) : -1;
+        synchronized (session) {
+            evidence.startAdaptive(configuredBins, configuredStep, configuredCount,
+                    gearMode + " | automatic RPM-bin latch",
+                    System.nanoTime());
+            if (configuredBins.length == 1) {
+                if (proposalPoint >= 0) proposalTracker.start(projectSnapshot, proposalPoint);
+                else proposalTracker.reset();
+            } else {
+                // A multi-bin session deliberately has no single write target.
+                proposalTracker.reset();
+            }
+            session.start(new BlendDurationCaptureConfig(
+                    configuredRpm, configuredStep, configuredCount,
+                    manualGear, automatic,
+                    projectSnapshot.getBlendDurationRpmBins(),
+                    projectSnapshot.getBlendDurationValues(), configuredBins));
         }
-        session.start(new BlendDurationCaptureConfig(
-                configuredRpm, configuredStep, configuredCount,
-                manualGear, automatic,
-                projectSnapshot.getBlendDurationRpmBins(),
-                projectSnapshot.getBlendDurationValues(), configuredBins));
         recoveryDirtyAction.run();
         refresh();
     }
@@ -961,7 +1016,7 @@ public final class GuidedCapturePanel extends JPanel {
             }
             List<GuidedBlendProposal.PointChoice> points = GuidedBlendProposal.points(next);
             replaceTablePoints(points, preferredRpm);
-            proposalTracker.reset();
+            synchronized (session) { proposalTracker.reset(); }
             currentProposalApplied = false;
             appliedProposalSummary = "";
             GuidedAeMethodModule module = selectedModule();
@@ -978,7 +1033,7 @@ public final class GuidedCapturePanel extends JPanel {
         } catch (ControllerException ex) {
             projectSnapshot = null;
             tablePoint.removeAllItems();
-            proposalTracker.reset();
+            synchronized (session) { proposalTracker.reset(); }
             connection.setText("Guided working tune read failed: " + ex.getMessage());
         }
         refresh();
@@ -1062,8 +1117,10 @@ public final class GuidedCapturePanel extends JPanel {
     }
 
     public void terminateForClose() {
-        session.terminateForClose();
-        evidence.finish(session.snapshot());
+        synchronized (session) {
+            session.terminateForClose();
+            evidence.finish(session.snapshot());
+        }
         probeSession.finish();
         recoveryDirtyAction.run();
     }
@@ -1074,9 +1131,10 @@ public final class GuidedCapturePanel extends JPanel {
         applyCoordinator = null;
         projectSnapshot = null;
         clearStagedTaskSettings();
-        proposalTracker.reset();
+        synchronized (session) { proposalTracker.reset(); }
         probeSession.reset();
         validationSession.reset();
+        taskCancelled = false;
         probeEvidenceExported = true;
     }
 
@@ -1089,6 +1147,7 @@ public final class GuidedCapturePanel extends JPanel {
     private GuidedCaptureState acceptDispatchedSample(LiveSample sample) {
         if (!enabled || sample == null) return activeSnapshot().state;
         latestSharedSample = sample;
+        lastSharedSampleReceivedNano = System.nanoTime();
         long now = System.nanoTime();
         synchronized (this) {
             samples++;
@@ -1103,49 +1162,73 @@ public final class GuidedCapturePanel extends JPanel {
         if (enabled && now >= armedNano) {
             GuidedAeMethodModule.CaptureMode mode = activeCaptureMode();
             if (mode == GuidedAeMethodModule.CaptureMode.READ_ONLY_PROBE && probeCaptureActive()) {
-                int before = probeSession.sampleCount();
-                probeSession.accept(sample);
-                if (probeSession.sampleCount() != before) {
-                    probeEvidenceExported = false;
-                    recoveryDirtyAction.run();
+                synchronized (probeSession) {
+                    long before = probeSession.evidenceRevision();
+                    probeSession.accept(sample);
+                    if (probeSession.evidenceRevision() != before) probeEvidenceExported = false;
                 }
+                recoveryDirtyAction.run();
             } else if (mode == GuidedAeMethodModule.CaptureMode.BLEND_DURATION && blendCaptureActive()) {
-                session.accept(sample);
-                GuidedOutcome outcome = session.drainOutcome();
-                GuidedSessionSnapshot snapshot = session.snapshot();
-                if (outcome != null) {
-                    evidence.record(outcome, snapshot);
-                    proposalTracker.observe(outcome);
-                    if (snapshot.state == GuidedCaptureState.COMPLETE) evidence.finish(snapshot);
-                    recoveryDirtyAction.run();
+                boolean recorded;
+                synchronized (session) {
+                    session.accept(sample);
+                    GuidedOutcome outcome = session.drainOutcome();
+                    GuidedSessionSnapshot snapshot = session.snapshot();
+                    recorded = outcome != null;
+                    if (recorded) {
+                        evidence.record(outcome, snapshot);
+                        proposalTracker.observe(outcome);
+                        if (snapshot.state == GuidedCaptureState.COMPLETE) evidence.finish(snapshot);
+                    }
                 }
+                if (recorded) recoveryDirtyAction.run();
             }
         }
         return activeSnapshot().state;
     }
 
     public EvidenceRecoverySnapshot.Guided recoverySnapshot() {
-        if (probeSession.hasEvidence()) {
-            GuidedAeMethodModule captured = probeSession.module();
-            String recipe = captured == null ? "unknown"
-                    : captured.recipe().name().toLowerCase(java.util.Locale.ROOT);
-            String id = "guided-probe-" + recipe;
-            return new EvidenceRecoverySnapshot.Guided(id, probeSession.sampleCount(),
-                    probeSession.reportText(AeTunerPlugin.VERSION), probeSession.csvText());
+        GuidedMethodProbeSession.ExportSnapshot probe = probeSession.exportSnapshot(AeTunerPlugin.VERSION);
+        if (probe != null) {
+            String recipe = probe.request.module.recipe().name().toLowerCase(java.util.Locale.ROOT);
+            return new EvidenceRecoverySnapshot.Guided("guided-probe-" + recipe,
+                    probe.sampleCount, probe.report, probe.csvText());
         }
-        int count = evidence.recordCount();
-        if (count <= 0) return null;
-        GuidedSessionSnapshot snapshot = session.snapshot();
-        GuidedBlendProposal guidedProposal = proposalTracker.evaluate();
-        String reportText = evidence.reportText(
-                AeTunerPlugin.VERSION, snapshot,
-                guidedProposal.getDisplayText(), guidedProposal.getCopyPasteBlock())
-                + "\n\n" + evidence.diagnosticText()
-                + "\nAUDIO / WORKFLOW DIAGNOSTICS\n"
-                + "============================\n" + audioAuditText.get();
-        String csvText = evidence.csvText(AeTunerPlugin.VERSION);
-        return new EvidenceRecoverySnapshot.Guided(
-                evidence.sessionId(), count, reportText, csvText);
+        BlendExportSnapshot blend = blendExportSnapshot();
+        if (blend.evidence.recordCount <= 0) return null;
+        return new EvidenceRecoverySnapshot.Guided(blend.evidence.sessionId,
+                blend.evidence.recordCount, blend.reportText(audioAuditText.get()),
+                blend.evidence.csvText(AeTunerPlugin.VERSION));
+    }
+
+    private static final class BlendExportSnapshot {
+        final GuidedEvidenceRecorder.ExportSnapshot evidence;
+        final GuidedSessionSnapshot session;
+        final String proposal, draft;
+
+        BlendExportSnapshot(GuidedEvidenceRecorder.ExportSnapshot evidence,
+                            GuidedSessionSnapshot session, GuidedBlendProposal proposal) {
+            this.evidence = evidence;
+            this.session = session;
+            this.proposal = proposal.getDisplayText();
+            this.draft = proposal.getCopyPasteBlock();
+        }
+
+        String reportText(String audioText) {
+            return evidence.reportText(AeTunerPlugin.VERSION, session, proposal, draft)
+                    + "\n\n" + evidence.diagnosticText()
+                    + "\nAUDIO / WORKFLOW DIAGNOSTICS\n"
+                    + "============================\n" + audioText;
+        }
+    }
+
+    private BlendExportSnapshot blendExportSnapshot() {
+        // Producers hold the session monitor across outcome/ledger/proposal updates.
+        // Detach only model values here; formatting and I/O happen after release.
+        synchronized (session) {
+            return new BlendExportSnapshot(evidence.exportSnapshot(), session.snapshot(),
+                    proposalTracker.evaluate());
+        }
     }
 
     private void exportSession() {
@@ -1162,18 +1245,11 @@ public final class GuidedCapturePanel extends JPanel {
         final File parentFolder = SessionExportSupport.chooseParent(this, "Guided");
         if (parentFolder == null) return;
 
-        final GuidedSessionSnapshot snapshot = session.snapshot();
-        final GuidedBlendProposal guidedProposal = proposalTracker.evaluate();
-        final String reportText = evidence.reportText(
-                AeTunerPlugin.VERSION, snapshot,
-                guidedProposal.getDisplayText(), guidedProposal.getCopyPasteBlock())
-                + "\n\n" + evidence.diagnosticText()
-                + "\nAUDIO / WORKFLOW DIAGNOSTICS\n"
-                + "============================\n" + audioAuditText.get();
-        final String eventsCsv = evidence.csvText(AeTunerPlugin.VERSION);
-        final String diagnosticsCsv = evidence.diagnosticsCsvText(audioAuditCsv.get());
+        final BlendExportSnapshot exported = blendExportSnapshot();
+        final String audioText = audioAuditText.get();
+        final String audioCsv = audioAuditCsv.get();
         final String applyManifest = lastApplyManifestJson;
-        final int eventCount = evidence.recordCount();
+        final int eventCount = exported.evidence.recordCount;
         final int fileCount = applyManifest.length() == 0 ? 3 : 4;
 
         exportInProgress = true;
@@ -1185,6 +1261,9 @@ public final class GuidedCapturePanel extends JPanel {
                 long started = System.nanoTime();
                 SessionExportSupport.StagedFolder staged = null;
                 try {
+                    final String reportText = exported.reportText(audioText);
+                    final String eventsCsv = exported.evidence.csvText(AeTunerPlugin.VERSION);
+                    final String diagnosticsCsv = exported.evidence.diagnosticsCsvText(audioCsv);
                     staged = SessionExportSupport.stageSessionFolder(parentFolder, "guided");
                     SessionExportSupport.writeTextAtomic(staged.file("guided-report.txt"), reportText);
                     SessionExportSupport.writeTextAtomic(staged.file("guided-events.csv"), eventsCsv);
@@ -1220,15 +1299,16 @@ public final class GuidedCapturePanel extends JPanel {
     }
 
     private void exportProbeSession() {
-        final GuidedAeMethodModule captured = probeSession.module();
-        if (!probeSession.hasEvidence() || captured == null || exportInProgress) return;
+        if (exportInProgress || !probeSession.hasEvidence()) return;
         final File parentFolder = SessionExportSupport.chooseParent(this, "Guided method evidence");
         if (parentFolder == null) return;
+        final GuidedMethodProbeSession.ExportRequest request = probeSession.requestExport();
+        if (request == null) return;
+        final GuidedAeMethodModule captured = request.module;
         final String applyManifest = lastApplyManifestJson;
         final String validationBaselineReport = validationSession.baselineReportFor(captured.recipe());
         final String validationBaselineCsv = validationSession.baselineCsvFor(captured.recipe());
         final String validationReport = validationSession.reportFor(captured.recipe());
-        final int sampleCount = probeSession.sampleCount();
         final String methodName = captured.recipe().displayName;
 
         exportInProgress = true;
@@ -1241,9 +1321,11 @@ public final class GuidedCapturePanel extends JPanel {
                 long started = System.nanoTime();
                 SessionExportSupport.StagedFolder staged = null;
                 try {
-                    final String reportText = probeSession.reportText(AeTunerPlugin.VERSION);
-                    final String samplesCsv = probeSession.csvText();
-                    final String draft = probeSession.copyPasteBlock();
+                    final GuidedMethodProbeSession.ExportSnapshot exported =
+                            probeSession.exportSnapshot(AeTunerPlugin.VERSION, request);
+                    final String reportText = exported.report;
+                    final String samplesCsv = exported.csvText();
+                    final String draft = exported.draft;
                     final int fileCount = 2 + (draft.length() > 0 ? 1 : 0)
                             + (applyManifest.length() > 0 ? 1 : 0)
                             + (validationBaselineReport.length() > 0 ? 1 : 0)
@@ -1272,7 +1354,7 @@ public final class GuidedCapturePanel extends JPanel {
                                 staged.file("guided-validation-result.txt"), validationReport);
                     }
                     File finalFolder = staged.finish();
-                    return new GuidedExportResult(finalFolder, sampleCount, fileCount,
+                    return new GuidedExportResult(finalFolder, exported.sampleCount, fileCount,
                             SessionExportSupport.elapsedMillis(started));
                 } catch (Exception ex) {
                     if (staged != null) staged.cleanup();
@@ -1284,11 +1366,15 @@ public final class GuidedCapturePanel extends JPanel {
                 exportInProgress = false;
                 try {
                     GuidedExportResult export = get();
-                    probeEvidenceExported = true;
+                    synchronized (probeSession) {
+                        probeEvidenceExported = probeSession.exportStillCurrent(request);
+                    }
                     connection.setText("Guided " + methodName + " export complete: "
                             + export.evidenceCount + " coherent sample(s), "
                             + export.fileCount + " file(s) — " + export.folder.getAbsolutePath()
-                            + ". A different AE method may now start without discarding this evidence.");
+                            + (probeEvidenceExported
+                                ? ". A different AE method may now start without discarding this evidence."
+                                : ". Capture changed during export; newer evidence still needs export."));
                 } catch (Exception ex) {
                     Throwable cause = ex.getCause() == null ? ex : ex.getCause();
                     connection.setText("Guided " + methodName + " export failed: "
@@ -1323,6 +1409,10 @@ public final class GuidedCapturePanel extends JPanel {
     }
 
     private void applyCurrentProposal() {
+        if (taskCancelled) {
+            connection.setText("Apply withheld: task cancelled. Restore remains available; Start Over to begin again.");
+            return;
+        }
         GuidedAeMethodModule module = selectedModule();
         if (validationSession.unresolved()) {
             applyStatus = "Apply blocked: resolve the current "
@@ -1698,7 +1788,7 @@ public final class GuidedCapturePanel extends JPanel {
                 && !workingTuneReadRequiredAfterApply
                 && ((probe && selectedProbeReady(module))
                 || (blend && point != null));
-        start.setEnabled(setupEnabled && methodReady && !switchBlocked
+        start.setEnabled(!taskCancelled && setupEnabled && methodReady && !switchBlocked
                 && (!validationSession.unresolved()
                     || validationSession.canContinueCapture(module.recipe())));
 
@@ -1719,7 +1809,7 @@ public final class GuidedCapturePanel extends JPanel {
                 && validationSession.recipe() == module.recipe());
         boolean stagedApplyReady = stagedTaskPlan != null;
         boolean probeApplyReady = probeWritePlan != null;
-        applyProposal.setEnabled(setupEnabled
+        applyProposal.setEnabled(!taskCancelled && setupEnabled
                 && (stagedApplyReady
                     || (blend
                         && snapshot.state == GuidedCaptureState.COMPLETE
@@ -1964,6 +2054,13 @@ public final class GuidedCapturePanel extends JPanel {
         refresh();
     }
 
+    /** EDT-owned retirement must not race a queued/background evidence export. */
+    boolean allowProbeRetirement() {
+        if (!exportInProgress) return true;
+        connection.setText("Wait for the evidence export to finish before switching tasks or resetting the capture.");
+        return false;
+    }
+
     void markProbeEvidenceExportedForTest() {
         probeEvidenceExported = true;
         refresh();
@@ -1971,6 +2068,7 @@ public final class GuidedCapturePanel extends JPanel {
 
     void showLiveSampleForTest(LiveSample sample) {
         latestSharedSample = sample;
+        lastSharedSampleReceivedNano = System.nanoTime();
         refreshLiveValues();
     }
 

@@ -1,6 +1,7 @@
 package se.anders.tunerstudio.aetuner.guided;
 
 import se.anders.tunerstudio.aetuner.guided.method.GuidedAeMethodModule;
+import se.anders.tunerstudio.aetuner.guided.method.DecelHistoricalThresholdProposalContext;
 import se.anders.tunerstudio.aetuner.model.AeProjectSnapshot;
 import se.anders.tunerstudio.aetuner.model.ChannelRole;
 import se.anders.tunerstudio.aetuner.model.LiveSample;
@@ -15,6 +16,7 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Formatter;
 
 /** Shared evidence-capture shell for Guided AE methods. */
 final class GuidedMethodProbeSession {
@@ -50,6 +52,44 @@ final class GuidedMethodProbeSession {
     private long evidenceRevision;
     private long cachedEvidenceRevision = Long.MIN_VALUE;
     private List<LiveSample> cachedEvidenceSnapshot = Collections.emptyList();
+    private CompletedReview completedReview;
+    private long exportRevision;
+    private long historicalReviewRevision = Long.MIN_VALUE;
+    private boolean completedBaselineChanged;
+    private boolean cancelled;
+    private long cachedCsvRevision = Long.MIN_VALUE;
+    private String cachedCsv;
+
+    /** One bounded set of immutable results for the current completed revision. */
+    private static final class CompletedReview {
+        String metrics, result, review, draft, report, reportVersion, moduleReview;
+        boolean planComputed;
+        ProposalWritePlan plan;
+        AeTableSuggestion tpsSuggestion;
+    }
+
+    private void invalidateReview() { completedReview = null; exportRevision++; }
+
+    private CompletedReview completedReview() {
+        if (module != null && module.recipe() == GuidedTuningRecipe.DECEL_DETECTION) {
+            long current = DecelHistoricalThresholdProposalContext.revision();
+            if (historicalReviewRevision != current) {
+                completedReview = null;
+                historicalReviewRevision = current;
+            }
+        }
+        if (completedReview == null) completedReview = new CompletedReview();
+        return completedReview;
+    }
+
+    private AeTableSuggestion tpsSuggestion() {
+        CompletedReview cached = completedReview();
+        if (cached.tpsSuggestion == null) {
+            cached.tpsSuggestion = AeTableSuggestion.build(projectSnapshot, tpsAeEvents.eventsSnapshot());
+        }
+        return cached.tpsSuggestion;
+    }
+
 
     GuidedMethodProbeSession() {
         GuidedFocusHub.setMapEstimateConfigurationListener(
@@ -57,6 +97,7 @@ final class GuidedMethodProbeSession {
                     @Override public void onStrategyRequested(MapEstimateCoverageStrategy strategy) {
                         synchronized (GuidedMethodProbeSession.this) {
                             if (!mapEstimateGuided.configured() || mapEstimateGuided.active()) return;
+                            invalidateReview();
                             mapEstimateGuided.setPendingStrategy(strategy);
                             publishMapEstimateFocus(null);
                         }
@@ -64,6 +105,7 @@ final class GuidedMethodProbeSession {
                     @Override public void onScopeRequested(MapEstimateCellScope scope) {
                         synchronized (GuidedMethodProbeSession.this) {
                             if (!mapEstimateGuided.configured() || mapEstimateGuided.active()) return;
+                            invalidateReview();
                             mapEstimateGuided.setPendingScope(scope);
                             publishMapEstimateFocus(null);
                         }
@@ -71,6 +113,7 @@ final class GuidedMethodProbeSession {
                     @Override public void onEvidenceBasisRequested(MapEstimateEvidenceBasis basis) {
                         synchronized (GuidedMethodProbeSession.this) {
                             if (!mapEstimateGuided.configured() || mapEstimateGuided.active()) return;
+                            invalidateReview();
                             mapEstimateGuided.setPendingEvidenceBasis(basis);
                             publishMapEstimateFocus(null);
                         }
@@ -78,6 +121,7 @@ final class GuidedMethodProbeSession {
                     @Override public void onProposalLimitPolicyRequested(MapEstimateProposalLimitPolicy policy) {
                         synchronized (GuidedMethodProbeSession.this) {
                             if (!mapEstimateGuided.configured() || mapEstimateGuided.active()) return;
+                            invalidateReview();
                             mapEstimateGuided.setPendingProposalLimitPolicy(policy);
                             publishMapEstimateFocus(null);
                         }
@@ -93,6 +137,7 @@ final class GuidedMethodProbeSession {
                                                 int minimumSamples,
                                                 double capKpa) {
         if (snapshot == null || !snapshot.hasMapEstimateTable() || mapEstimateGuided.active()) return;
+        invalidateReview();
         if (!mapEstimateGuided.configured() || mapEstimateConfiguredSnapshot != snapshot) {
             mapEstimateGuided.configure(snapshot.getConfigurationName(),
                     snapshot.getMapEstimateTpsBins(), snapshot.getMapEstimateRpmBins(),
@@ -101,13 +146,23 @@ final class GuidedMethodProbeSession {
         } else {
             mapEstimateGuided.updateReviewSettings(minimumSamples, capKpa);
         }
+        adoptMapEstimateReviewSettings();
         publishMapEstimateFocus(null);
     }
 
     synchronized void updateMapEstimateReviewSettings(int minimumSamples, double capKpa) {
         if (!mapEstimateGuided.configured() || mapEstimateGuided.active()) return;
+        invalidateReview();
         mapEstimateGuided.updateReviewSettings(minimumSamples, capKpa);
+        adoptMapEstimateReviewSettings();
         publishMapEstimateFocus(null);
+    }
+
+    private void adoptMapEstimateReviewSettings() {
+        // Read the controller's normalized values so readiness and presentation
+        // use exactly the settings that govern proposal generation.
+        mapMinimumSamples = mapEstimateGuided.minimumSamples();
+        mapCapKpa = mapEstimateGuided.capKpa();
     }
 
     synchronized boolean mapEstimateWorkingTuneReadRequired() { return mapEstimateWorkingTuneReadRequired; }
@@ -115,13 +170,20 @@ final class GuidedMethodProbeSession {
     synchronized void noteWorkingTuneRead(AeProjectSnapshot snapshot,
                                           int minimumSamples,
                                           double capKpa) {
+        invalidateReview();
+        if (state == GuidedCaptureState.COMPLETE && snapshot != projectSnapshot) {
+            completedBaselineChanged = true;
+        }
         if (snapshot != null && snapshot.hasMapEstimateTable()) {
             mapEstimateWorkingTuneReadRequired = false;
             configureMapEstimateFocus(snapshot, minimumSamples, capKpa);
         }
     }
 
-    synchronized void markMapEstimateWorkingTuneChanged() { mapEstimateWorkingTuneReadRequired = true; }
+    synchronized void markMapEstimateWorkingTuneChanged() {
+        invalidateReview();
+        mapEstimateWorkingTuneReadRequired = true;
+    }
 
     synchronized void start(GuidedAeMethodModule selected) { start(selected, null, 5, 20, 115.0); }
 
@@ -135,8 +197,11 @@ final class GuidedMethodProbeSession {
             throw new IllegalArgumentException("Probe capture requires a READ_ONLY_PROBE method module");
         }
         boolean append = module == selected && state == GuidedCaptureState.COMPLETE
-                && !samples.isEmpty();
+                && snapshot == projectSnapshot && !completedBaselineChanged && !samples.isEmpty();
         if (!append && !reset()) return;
+        invalidateReview();
+        completedBaselineChanged = false;
+        cancelled = false;
         module = selected;
         projectSnapshot = snapshot;
         targetActivityEvents = Math.max(1, targetEvents);
@@ -180,6 +245,9 @@ final class GuidedMethodProbeSession {
         }
         samples.add(sample);
         evidenceRevision++;
+        invalidateReview();
+        cachedCsv = null;
+        cachedCsvRevision = Long.MIN_VALUE;
         cachedEvidenceRevision = Long.MIN_VALUE;
 
         boolean requiredComplete = allFinite(sample, module.requiredRoles());
@@ -246,6 +314,7 @@ final class GuidedMethodProbeSession {
     }
 
     synchronized boolean togglePause() {
+        invalidateReview();
         boolean pausing = state == GuidedCaptureState.CAPTURING;
         if (module != null && module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE
                 && mapEstimateGuided.configured()) mapEstimateGuided.togglePause();
@@ -269,6 +338,7 @@ final class GuidedMethodProbeSession {
                     && mapEstimateGuided.configured()) {
                 mapEstimateGuided.finish();
             }
+            invalidateReview();
             state = GuidedCaptureState.COMPLETE;
             activityLatched = false;
             boolean ready = reviewReady();
@@ -288,8 +358,13 @@ final class GuidedMethodProbeSession {
         module = null;
         projectSnapshot = null;
         state = GuidedCaptureState.IDLE;
+        completedBaselineChanged = false;
+        cancelled = false;
         samples.clear();
         evidenceRevision++;
+        invalidateReview();
+        cachedCsv = null;
+        cachedCsvRevision = Long.MIN_VALUE;
         cachedEvidenceRevision = Long.MIN_VALUE;
         cachedEvidenceSnapshot = Collections.emptyList();
         finiteCounts.clear();
@@ -316,6 +391,7 @@ final class GuidedMethodProbeSession {
             if (module != null && module.recipe() == GuidedTuningRecipe.TPS_AE) tpsAeEvents.finish();
             else if (module != null && module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE
                     && mapEstimateGuided.configured()) mapEstimateGuided.finish();
+            invalidateReview();
             state = GuidedCaptureState.COMPLETE;
             activityLatched = false;
         }
@@ -343,7 +419,15 @@ final class GuidedMethodProbeSession {
      * Lifecycle completion only means capture has stopped. This method owns the
      * separate evidence-quality gate used by Review and evidence-derived Apply.
      */
+    synchronized void cancel() {
+        finish();
+        cancelled = true;
+        invalidateReview();
+    }
+
     synchronized boolean reviewReady() {
+        if (cancelled) return false;
+        if (completedBaselineChanged) return false;
         if (module == null || state != GuidedCaptureState.COMPLETE
                 || samples.isEmpty() || completeRequiredSamples <= 0) return false;
         GuidedTuningRecipe recipe = module.recipe();
@@ -370,6 +454,7 @@ final class GuidedMethodProbeSession {
     synchronized MapEstimateEvidenceBasis mapEstimatePendingEvidenceBasisForTest() { return mapEstimateGuided.pendingEvidenceBasis(); }
     synchronized MapEstimateProposalLimitPolicy mapEstimatePendingProposalLimitForTest() { return mapEstimateGuided.pendingProposalLimitPolicy(); }
     synchronized long mapEstimateCollectorAcceptedForTest() { return mapEstimateCollector.getAcceptedSamples(); }
+    synchronized long evidenceRevision() { return evidenceRevision; }
     synchronized long evidenceRevisionForTest() { return evidenceRevision; }
 
     private void publishFocusState(LiveSample latest) {
@@ -505,6 +590,13 @@ final class GuidedMethodProbeSession {
     }
 
     synchronized String resultText() {
+        if (state != GuidedCaptureState.COMPLETE) return buildResultText();
+        CompletedReview cached = completedReview();
+        if (cached.result == null) cached.result = buildResultText();
+        return cached.result;
+    }
+
+    private String buildResultText() {
         if (module == null) return "No method capture active.";
         double duration = Double.isFinite(firstSeconds) && Double.isFinite(lastSeconds)
                 ? Math.max(0.0, lastSeconds - firstSeconds) : 0.0;
@@ -536,7 +628,25 @@ final class GuidedMethodProbeSession {
     }
 
     synchronized String reviewText() {
+        if (state != GuidedCaptureState.COMPLETE) return buildReviewText();
+        CompletedReview cached = completedReview();
+        if (cached.review == null) cached.review = buildReviewText();
+        return cached.review;
+    }
+
+    private String buildReviewText() {
         if (module == null) return "No method capture active.";
+        if (cancelled) return "TASK CANCELLED — evidence retained for export. Start Over before a new capture or proposal review.";
+        if (completedBaselineChanged) return "WORKING TUNE RE-READ — REVIEW AUTHORITY WITHHELD\n"
+                + "Retained evidence belongs to its original capture baseline. Start a new capture against the current Working Tune before requesting a plan. No automatic Apply and no burn.";
+        // The live refresh also requests this surface. Avoid retained-sample
+        // scans while capturing/paused; detailed review belongs to Finish.
+        if (state != GuidedCaptureState.COMPLETE) {
+            return "EVIDENCE INCOMPLETE — REVIEW AUTHORITY WITHHELD\n"
+                    + state.name() + " — Finish capture before detailed evidence review. "
+                    + "No evidence-derived Apply is available.\n\n"
+                    + coverageText() + "\n\n" + liveResultText();
+        }
         if (!reviewReady()) {
             return "EVIDENCE INCOMPLETE — REVIEW AUTHORITY WITHHELD\n"
                     + "Capture may be stopped, but the task evidence target and required-channel gate are not both satisfied. Start Capture again to append evidence. No evidence-derived Apply is available.\n\n"
@@ -551,7 +661,7 @@ final class GuidedMethodProbeSession {
                 ? "No supported setting/value change is currently proposed. No automatic Apply and no burn."
                 : plan.reviewText() + "\n\nGuarded working-tune Apply/readback/Restore is available for this reviewed plan. No burn.";
         if (module.recipe() == GuidedTuningRecipe.TPS_AE) {
-            AeTableSuggestion suggestion = AeTableSuggestion.build(projectSnapshot, tpsAeEvents.eventsSnapshot());
+            AeTableSuggestion suggestion = tpsSuggestion();
             return "TPS AE TABLE REVIEW\n" + suggestion.getDisplayText()
                     + "\n\nCURRENT CAPTURE METRICS\n" + methodMetricsText()
                     + (suggestion.isAvailable()
@@ -559,18 +669,25 @@ final class GuidedMethodProbeSession {
                     : "\n\nNo paste-ready TPS AE draft yet; continue repeated fuel-proved events in the same TPS-to rows.")
                     + "\n\n" + proposalState;
         }
-        return "METHOD REVIEW OUTPUTS\n" + module.reviewOutputs()
+        return "METHOD REVIEW OUTPUTS\n" + completedReview().moduleReview
                 + "\n\nCURRENT CAPTURE METRICS\n" + methodMetricsText()
                 + "\n\n" + proposalState;
     }
 
     synchronized String copyPasteBlock() {
+        if (state != GuidedCaptureState.COMPLETE) return buildCopyPasteBlock();
+        CompletedReview cached = completedReview();
+        if (cached.draft == null) cached.draft = buildCopyPasteBlock();
+        return cached.draft;
+    }
+
+    private String buildCopyPasteBlock() {
         if (module == null || !reviewReady()) return "";
         if (module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE) {
             return mapEstimateGuided.configured() ? mapEstimateGuided.reviewedCopyPasteBlock() : "";
         }
         if (module.recipe() == GuidedTuningRecipe.TPS_AE) {
-            AeTableSuggestion suggestion = AeTableSuggestion.build(projectSnapshot, tpsAeEvents.eventsSnapshot());
+            AeTableSuggestion suggestion = tpsSuggestion();
             return suggestion.isAvailable() ? suggestion.getCopyPasteBlock() : "";
         }
         return "";
@@ -578,17 +695,39 @@ final class GuidedMethodProbeSession {
 
     synchronized ProposalWritePlan reviewedWritePlan() {
         if (module == null || !reviewReady()) return null;
+        CompletedReview cached = completedReview();
+        if (!cached.planComputed) {
+            cached.plan = buildReviewedWritePlan();
+            cached.planComputed = true;
+        }
+        return cached.plan;
+    }
+
+    private ProposalWritePlan buildReviewedWritePlan() {
         if (module.recipe() == GuidedTuningRecipe.MAP_ESTIMATE) {
             return mapEstimateGuided.configured() ? mapEstimateGuided.reviewedWritePlan() : null;
         }
         if (module.recipe() == GuidedTuningRecipe.TPS_AE) {
-            return AeTableSuggestion.build(projectSnapshot,
-                    tpsAeEvents.eventsSnapshot()).getWritePlan();
+            return tpsSuggestion().getWritePlan();
         }
-        return module.reviewedWritePlan(projectSnapshot, evidenceSnapshot());
+        synchronized (module) {
+            ProposalWritePlan plan = module.reviewedWritePlan(projectSnapshot, evidenceSnapshot());
+            completedReview().moduleReview = module.reviewOutputs();
+            return plan;
+        }
     }
 
     synchronized String reportText(String pluginVersion) {
+        if (state != GuidedCaptureState.COMPLETE) return buildReportText(pluginVersion);
+        CompletedReview cached = completedReview();
+        if (cached.report == null || !java.util.Objects.equals(cached.reportVersion, pluginVersion)) {
+            cached.report = buildReportText(pluginVersion);
+            cached.reportVersion = pluginVersion;
+        }
+        return cached.report;
+    }
+
+    private String buildReportText(String pluginVersion) {
         StringBuilder out = new StringBuilder();
         out.append("AE Tuner Guided method report\n")
                 .append("Plugin version: ").append(pluginVersion).append('\n')
@@ -599,6 +738,7 @@ final class GuidedMethodProbeSession {
                     .append("ACCUMULATION PLAN\n").append(module.accumulationPlan()).append("\n\n")
                     .append("CURRENT TUNE CONTEXT\n").append(module.currentTuneContext(projectSnapshot)).append("\n\n");
         }
+        if (cancelled) out.append("TASK CANCELLED — evidence retained; review/Apply authority withheld.\n\n");
         out.append(coverageText()).append("\n\n");
         if (state != GuidedCaptureState.COMPLETE) {
             out.append(liveResultText()).append("\n\n")
@@ -611,30 +751,118 @@ final class GuidedMethodProbeSession {
         return out.toString();
     }
 
+    /** Lightweight identity captured on the EDT before scheduling export work. */
+    static final class ExportRequest {
+        final GuidedAeMethodModule module;
+        private final GuidedMethodProbeSession owner;
+        private final long revision;
+        private final long historicalRevision;
+        private ExportRequest(GuidedMethodProbeSession owner, GuidedAeMethodModule module, long revision) {
+            this.owner = owner;
+            this.module = module;
+            this.revision = revision;
+            historicalRevision = owner.historicalExportRevision();
+        }
+    }
+
+    /** Frozen package context; row formatting remains outside the capture lock. */
+    final class ExportSnapshot {
+        final ExportRequest request;
+        final int sampleCount;
+        final String report, draft;
+        private final long evidenceVersion;
+        private final ChannelRole[] roles;
+        private final List<LiveSample> retained;
+        private final String knownCsv;
+
+        private ExportSnapshot(String version, ExportRequest request) {
+            this.request = request;
+            sampleCount = samples.size();
+            report = reportText(version);
+            draft = copyPasteBlock();
+            evidenceVersion = evidenceRevision;
+            roles = module.probeRoles().clone();
+            retained = evidenceSnapshot();
+            knownCsv = cachedCsvRevision == evidenceRevision ? cachedCsv : null;
+        }
+
+        String csvText() {
+            return knownCsv != null ? knownCsv : serializeCsv(evidenceVersion, roles, retained);
+        }
+    }
+
+    private long historicalExportRevision() {
+        return module != null && module.recipe() == GuidedTuningRecipe.DECEL_DETECTION
+                ? DecelHistoricalThresholdProposalContext.revision() : 0L;
+    }
+
+    synchronized ExportRequest requestExport() {
+        return module == null || samples.isEmpty() ? null : new ExportRequest(this, module, exportRevision);
+    }
+
+    synchronized boolean exportStillCurrent(ExportRequest request) {
+        return request != null && request.owner == this && request.module == module
+                && request.revision == exportRevision
+                && request.historicalRevision == historicalExportRevision();
+    }
+
+    synchronized ExportSnapshot exportSnapshot(String version) {
+        ExportRequest request = requestExport();
+        return request == null ? null : exportSnapshot(version, request);
+    }
+
+    synchronized ExportSnapshot exportSnapshot(String version, ExportRequest request) {
+        if (!exportStillCurrent(request)) {
+            throw new IllegalStateException("Guided evidence or review settings changed before export started; export the current capture again.");
+        }
+        ExportSnapshot snapshot = new ExportSnapshot(version, request);
+        if (!exportStillCurrent(request)) {
+            throw new IllegalStateException("Guided evidence or review settings changed before export completed its snapshot; export the current capture again.");
+        }
+        return snapshot;
+    }
+
     String csvText() {
         final ChannelRole[] roles;
         final List<LiveSample> retained;
+        final long revision;
         synchronized (this) {
-            roles = module == null ? new ChannelRole[0] : module.probeRoles();
-            retained = new ArrayList<LiveSample>(samples);
+            if (cachedCsv != null && cachedCsvRevision == evidenceRevision) return cachedCsv;
+            revision = evidenceRevision;
+            roles = module == null ? new ChannelRole[0] : module.probeRoles().clone();
+            retained = evidenceSnapshot();
         }
+        return serializeCsv(revision, roles, retained);
+    }
+
+    private String serializeCsv(long revision, ChannelRole[] roles, List<LiveSample> retained) {
         StringBuilder out = new StringBuilder();
         out.append("sample_index,dt_s");
         for (ChannelRole role : roles) out.append(',').append(csv(role.getLabel()));
         out.append('\n');
-        if (retained.isEmpty()) return out.toString();
-        double base = retained.get(0).getSeconds();
+        // Match String.format exactly without allocating a formatter and an
+        // intermediate formatted String for every cell in a long export.
+        Formatter formatter = new Formatter(out, Locale.US);
+        double base = retained.isEmpty() ? 0.0 : retained.get(0).getSeconds();
         for (int i = 0; i < retained.size(); i++) {
             LiveSample sample = retained.get(i);
-            out.append(i).append(',').append(f6(sample.getSeconds() - base));
+            out.append(i).append(',');
+            formatter.format("%.6f", sample.getSeconds() - base);
             for (ChannelRole role : roles) {
                 double value = sample.get(role);
                 out.append(',');
-                if (Double.isFinite(value)) out.append(f6(value));
+                if (Double.isFinite(value)) formatter.format("%.6f", value);
             }
             out.append('\n');
         }
-        return out.toString();
+        String csv = out.toString();
+        synchronized (this) {
+            if (revision == evidenceRevision) {
+                cachedCsv = csv;
+                cachedCsvRevision = revision;
+            }
+        }
+        return csv;
     }
 
     private void appendCoverage(StringBuilder out, ChannelRole[] roles, boolean required) {
@@ -653,6 +881,13 @@ final class GuidedMethodProbeSession {
     }
 
     private String methodMetricsText() {
+        if (state != GuidedCaptureState.COMPLETE) return buildMethodMetricsText();
+        CompletedReview cached = completedReview();
+        if (cached.metrics == null) cached.metrics = buildMethodMetricsText();
+        return cached.metrics;
+    }
+
+    private String buildMethodMetricsText() {
         if (module == null) return "No metrics.";
         GuidedTuningRecipe recipe = module.recipe();
         StringBuilder out = new StringBuilder();
@@ -735,5 +970,4 @@ final class GuidedMethodProbeSession {
     private static String f1(double value) { return String.format(Locale.US,"%.1f",value); }
     private static String f2(double value) { return String.format(Locale.US,"%.2f",value); }
     private static String f3(double value) { return String.format(Locale.US,"%.3f",value); }
-    private static String f6(double value) { return String.format(Locale.US,"%.6f",value); }
 }

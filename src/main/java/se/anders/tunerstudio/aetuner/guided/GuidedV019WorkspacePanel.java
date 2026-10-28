@@ -116,6 +116,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
         super(new BorderLayout(10, 0));
         if (production == null) throw new IllegalArgumentException("production");
         this.production = production;
+        GuidedV019WorkflowNavigation.register(this);
         this.bridge = new GuidedV019ProductionBridge(production);
         this.utilities = utilities == null ? GuidedV019UtilityActions.NONE : utilities;
         this.blendBinSelector = new GuidedV019BlendBinSelectorPanel(
@@ -140,6 +141,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
         add(workspace(), BorderLayout.CENTER);
         wireActions();
         refreshAll();
+        GuidedUiTheme.install(this);
 
         refreshTimer = new Timer(200, new ActionListener() {
             @Override public void actionPerformed(ActionEvent e) { refreshLive(); }
@@ -320,7 +322,38 @@ final class GuidedV019WorkspacePanel extends JPanel {
         panel.add(sessionState, BorderLayout.EAST);
         panel.setBorder(new CompoundBorder(new LineBorder(AeUiTheme.border()),
                 new EmptyBorder(7, 10, 7, 10)));
-        return panel;
+        JPanel footer = new JPanel(new BorderLayout(0, 4));
+        footer.setOpaque(false);
+        footer.add(panel, BorderLayout.CENTER);
+        footer.add(GuidedTaskControls.create(), BorderLayout.SOUTH);
+        return footer;
+    }
+
+    void cancelTask() {
+        bridge.cancelTask();
+        GuidedTaskControls.closeTaskWindows();
+        stage = Stage.PREPARE;
+        lastApplyWasPerformed = false;
+        mapValidationActive = false;
+        refreshAll();
+    }
+
+    void startOverTask() {
+        if (!bridge.startOverTask()) { refreshAll(); return; }
+        GuidedTaskControls.closeTaskWindows();
+        stage = Stage.PREPARE;
+        lastApplyWasPerformed = false;
+        mapValidationActive = false;
+        refreshAll();
+    }
+
+    boolean taskCancelled() { return bridge.taskCancelled(); }
+    boolean canStartOverTask() { return bridge.canStartOverTask(); }
+    boolean canRestoreTask() { return bridge.restoreEnabled(); }
+    void restoreTask() {
+        if (bridge.restoreEnabled()) bridge.restorePreviousApply();
+        lastApplyWasPerformed = bridge.restoreEnabled();
+        refreshAll();
     }
 
     private void wireActions() {
@@ -331,7 +364,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
             @Override public void actionPerformed(ActionEvent e) {
                 bridge.startCapture();
                 GuidedCaptureState state = bridge.captureState(task);
-                if (state != GuidedCaptureState.IDLE) stage = Stage.GUIDED_FOCUS;
+                if (!bridge.taskCancelled() && state != GuidedCaptureState.IDLE) stage = Stage.GUIDED_FOCUS;
                 refreshAll();
             }
         });
@@ -360,6 +393,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
     }
 
     private void continueFromPrepare() {
+        if (bridge.taskCancelled()) { startOverTask(); return; }
         if (currentTune == null) {
             AeProjectSnapshot read = bridge.readWorkingTune();
             if (read != null) {
@@ -381,19 +415,28 @@ final class GuidedV019WorkspacePanel extends JPanel {
     private void selectTask(GuidedProductionTask selected) {
         GuidedTaskAvailability availability = GuidedTaskAvailabilityAdapter.evaluate(selected, currentTune);
         if (!availability.clickable || selected.productionRecipe == null) return;
+        if (!bridge.select(selected)) { refreshAll(); return; }
+        if (selected != task && focusWindow != null) focusWindow.dispose();
         mapValidationActive = false;
         task = selected;
         stage = Stage.PREPARE;
         lastApplyWasPerformed = false;
-        bridge.select(selected);
         refreshAll();
     }
 
+    private javax.swing.JFrame focusWindow;
+
     private void openFocus() {
+        if (focusWindow != null && focusWindow.isDisplayable()) {
+            focusWindow.setExtendedState(focusWindow.getExtendedState() & ~java.awt.Frame.ICONIFIED);
+            focusWindow.toFront();
+            return;
+        }
         bridge.activateFocusControl();
         final Window host = SwingUtilities.getWindowAncestor(this);
-        final JDialog dialog = createDialog(host, task.displayName + " — Guided Focus");
-        dialog.setContentPane(GuidedV019FocusViews.create(task, dialog, new Runnable() {
+        final javax.swing.JFrame dialog = GuidedWindowTools.frame(host, task.displayName + " — Guided Focus", false);
+        focusWindow = dialog;
+        dialog.setContentPane(GuidedV019FocusViews.create(task, null, new Runnable() {
             @Override public void run() {
                 dialog.dispose();
                 GuidedCaptureState captureState = bridge.captureState(task);
@@ -505,6 +548,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
     }
 
     private void toggleMapValidation() {
+        if (bridge.taskCancelled() || bridge.captureState(task).isCaptureInProgress()) return;
         if (currentTune == null || !currentTune.isMapEstimateEnabled()
                 || task.group != GuidedProductionTask.Group.MAP_PREDICT) return;
         mapValidationActive = !mapValidationActive;
@@ -513,19 +557,30 @@ final class GuidedV019WorkspacePanel extends JPanel {
         refreshAll();
     }
 
+    private void reconcileWorkflowStage() {
+        if (!bridge.taskCancelled() && stage == Stage.GUIDED_FOCUS
+                && bridge.captureState(task) == GuidedCaptureState.COMPLETE) {
+            stage = bridge.evidenceReady(task) ? Stage.REVIEW : Stage.CAPTURE;
+        }
+    }
+
     private void refreshLive() {
+        reconcileWorkflowStage();
         refreshSummaries();
         refreshButtons();
         stepper.setStage(stage.ordinal(),
                 stage == Stage.RESULT && !lastApplyWasPerformed && !bridge.applyEnabled());
         sessionState.setText(trim(bridge.connectionText(), 92));
+        sessionState.setToolTipText(bridge.connectionText());
         applyStagePresentation();
         repaint();
     }
 
     private void refreshAll() {
+        reconcileWorkflowStage();
         taskTitle.setText(task.displayName);
         taskDescription.setText(task.group.displayName + " — " + task.description);
+        taskDescription.setToolTipText(taskDescription.getText());
         taskSelector.setCurrentTune(currentTune);
         taskSelector.setSelectedTask(task);
         applyTheme();
@@ -535,6 +590,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
         stepper.setStage(stage.ordinal(),
                 stage == Stage.RESULT && !lastApplyWasPerformed && !bridge.applyEnabled());
         sessionState.setText(trim(bridge.connectionText(), 92));
+        sessionState.setToolTipText(bridge.connectionText());
         applyStagePresentation();
         revalidate();
         repaint();
@@ -553,7 +609,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
                 {"Safety", "capture writes NONE"}
         });
         captureSummary.set(new String[][]{
-                {"Session", String.valueOf(captureState)},
+                {"Session", bridge.taskCancelled() ? "CANCELLED" : String.valueOf(captureState)},
                 {"Primary action", bridge.startText()},
                 {"Evidence", evidenceSummary(focusState)},
                 {task == GuidedProductionTask.BLEND_DURATION ? "Armed RPM bins" : "Provenance",
@@ -581,8 +637,8 @@ final class GuidedV019WorkspacePanel extends JPanel {
         resultSummary.set(new String[][]{
                 {"Apply", lastApplyWasPerformed ? "performed / verify" : "none"},
                 {"Restore", bridge.restoreEnabled() ? "AVAILABLE" : "not required"},
-                {"Evidence", ready ? "retained" : captureState == GuidedCaptureState.COMPLETE ? "incomplete" : "session active"},
-                {"Decision", lastApplyWasPerformed ? "KEEP / RESTORE" : ready ? "finish no-write result" : "continue capture"}
+                {"Evidence", bridge.taskCancelled() ? "cancelled / retained" : ready ? "retained" : captureState == GuidedCaptureState.COMPLETE ? "incomplete" : captureState == GuidedCaptureState.IDLE ? "no session" : "session active"},
+                {"Decision", lastApplyWasPerformed ? "KEEP / RESTORE" : ready ? "finish no-write result" : captureState == GuidedCaptureState.IDLE ? "prepare a new session" : "continue capture"}
         });
     }
 
@@ -605,7 +661,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
                     text = "Read Working Tune";
                     enabled = bridge.readEnabled();
                 } else {
-                    text = "Continue";
+                    text = bridge.taskCancelled() ? "Start Over" : "Continue";
                     enabled = GuidedTaskAvailabilityAdapter.evaluate(task, currentTune).clickable;
                 }
                 break;
@@ -649,9 +705,11 @@ final class GuidedV019WorkspacePanel extends JPanel {
         }
         if (!text.equals(active.getText())) active.setText(text);
         highlight(active);
-        nextStep.setText("Next: " + active.getText());
+        nextStep.setText(bridge.taskCancelled() ? "Task cancelled — Start Over or export retained evidence"
+                : "Next: " + active.getText());
         mapValidation.setVisible(task.group == GuidedProductionTask.Group.MAP_PREDICT
                 && currentTune != null && currentTune.isMapEstimateEnabled());
+        mapValidation.setEnabled(!bridge.taskCancelled() && !bridge.captureState(task).isCaptureInProgress());
         mapValidation.setText(mapValidationActive
                 ? "Return to " + task.displayName : "Validate MAP Predict system");
         exportSession.setEnabled(bridge.currentSessionExportAvailable());
@@ -674,6 +732,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
     }
 
     private String reviewLabel(GuidedCaptureState state) {
+        if (bridge.taskCancelled()) return "Task cancelled — Start Over";
         if (state == GuidedCaptureState.COMPLETE && !bridge.evidenceReady(task))
             return "Capture ended — more evidence needed";
         if (task == GuidedProductionTask.BLEND_DURATION && evidenceReady(state))
@@ -695,6 +754,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
     }
 
     private String focusStatus(GuidedFocusHub.State state) {
+        if (bridge.taskCancelled()) return "Task cancelled";
         if (state == null) return "waiting for production Focus";
         if (state.engagement != null) return trim(state.engagement.detectorStatusText(), 36);
         if (state.foundationThreshold != null) return trim(state.foundationThreshold.driverInstruction(), 36);
@@ -790,10 +850,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
     }
 
     private static JDialog createDialog(Window host, String title) {
-        if (host instanceof Dialog)
-            return new JDialog((Dialog)host, title, Dialog.ModalityType.APPLICATION_MODAL);
-        if (host instanceof Frame) return new JDialog((Frame)host, title, true);
-        return new JDialog((Frame)null, title, true);
+        return GuidedTaskControls.install(GuidedDialogLifecycle.create(host, title, true));
     }
 
     private static JButton primaryButton(String text) {
@@ -1203,6 +1260,7 @@ final class GuidedV019WorkspacePanel extends JPanel {
                 String[] row = i < rows.length ? rows[i] : new String[]{"", ""};
                 keys[i].setText(row[0]);
                 values[i].setText(row.length > 1 ? row[1] : "");
+                values[i].setToolTipText(row.length > 1 ? row[1] : "");
             }
         }
 

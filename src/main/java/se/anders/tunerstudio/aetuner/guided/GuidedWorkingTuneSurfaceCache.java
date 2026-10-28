@@ -101,10 +101,14 @@ public final class GuidedWorkingTuneSurfaceCache {
     }
 
     /** Final/static cache retirement boundary used by plugin close and explicit cache resets. */
-    public static synchronized void clear() {
-        BASELINES.clear();
-        ERRORS.clear();
-        configurationName = "";
+    public static void clear() {
+        synchronized (GuidedWorkingTuneSurfaceCache.class) {
+            BASELINES.clear();
+            ERRORS.clear();
+            configurationName = "";
+        }
+        // Evaluation takes recommendation/module -> working-tune locks. Never
+        // retain the working-tune monitor while waiting for those caches.
         GuidedAeMethodModules.clearLifecycleCaches();
     }
 

@@ -17,6 +17,7 @@ JAR="dist/ae-tuner-epicefi-${SOURCE_VERSION}.jar"
   echo "Version mismatch: source=$SOURCE_VERSION pom=$POM_VERSION" >&2
   exit 1
 }
+python3 scripts/bump-vehicle-test-version.py --check
 [[ -f "$JAR" ]] || {
   echo "Expected deterministic JAR is missing: $JAR" >&2
   exit 1

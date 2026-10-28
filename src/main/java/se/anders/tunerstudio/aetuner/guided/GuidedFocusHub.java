@@ -25,6 +25,7 @@ public final class GuidedFocusHub {
         boolean canContinueCapture();
         boolean canExportEvidence();
         void exportEvidence();
+        default boolean liveDataReady() { return true; }
     }
 
     public static final class State {
@@ -94,6 +95,11 @@ public final class GuidedFocusHub {
         return latest == null ? null : latest.recipe;
     }
 
+    public static boolean liveDataReady() {
+        CaptureControl control = captureControl;
+        return control != null && control.liveDataReady();
+    }
+
     public static boolean canFinishCapture() {
         CaptureControl control = captureControl;
         GuidedCaptureState state = activeCaptureState();
@@ -135,6 +141,21 @@ public final class GuidedFocusHub {
         CaptureControl control = captureControl;
         return control == null || !canContinueActiveCapture()
                 ? activeCaptureState() : control.continueCapture();
+    }
+
+    /**
+     * Start the already-selected production recipe from an IDLE Focus surface.
+     * This does not create a second capture path: CaptureControl.continueCapture()
+     * delegates to the same production startSelectedTask lifecycle. The expected
+     * recipe guard prevents one Focus window from starting another selected task.
+     */
+    public static GuidedCaptureState startIdleCapture(GuidedTuningRecipe expectedRecipe) {
+        CaptureControl control = captureControl;
+        if (control == null || expectedRecipe == null) return activeCaptureState();
+        if (activeCaptureState() != GuidedCaptureState.IDLE) return activeCaptureState();
+        GuidedTuningRecipe active = control.activeRecipe();
+        if (active != expectedRecipe || !control.canContinueCapture()) return activeCaptureState();
+        return control.continueCapture();
     }
 
     public static boolean canExportActiveEvidence() {

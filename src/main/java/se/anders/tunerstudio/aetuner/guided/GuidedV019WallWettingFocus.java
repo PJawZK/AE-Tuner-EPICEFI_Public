@@ -68,7 +68,6 @@ final class GuidedV019WallWettingFocus extends GuidedV019FocusBase {
         lower.add(summaryGrid("Recommendation authority",
                 new String[]{"Basic Beta", "Tau", "Advanced wall tables"},
                 new JLabel[]{betaAuthority, tauAuthority, fixed("evidence only")}));
-        lower.setPreferredSize(new java.awt.Dimension(100, 94));
         root.add(lower, BorderLayout.SOUTH);
         return root;
     }
@@ -126,6 +125,7 @@ final class GuidedV019WallWettingFocus extends GuidedV019FocusBase {
             cue.setForeground(AeUiTheme.focusBlue());
             action.setText("Read Working Tune, then Start Capture. Basic Tau/Beta must be available for numerical review.");
         }
+        showLiveDataWait(cue, action);
         repaint();
     }
 

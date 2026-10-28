@@ -12,7 +12,8 @@ command -v xvfb-run >/dev/null 2>&1 || {
 bash scripts/validate.sh
 bash scripts/synthetic-plugin-integration.sh
 
-SOURCE_VERSION="$(sed -n 's/.*public static final String VERSION = "\([^"]*\)".*/\1/p' src/main/java/se/anders/tunerstudio/aetuner/AeTunerPlugin.java)"
+SOURCE_VERSION="$(sed -n 's/.*public static final String VERSION = "\([^"]*\)".*/\1/p' src/main/java/se/anders/tunerstudio/aetuner/host/BuildIdentity.java)"
+[[ -n "$SOURCE_VERSION" ]] || { echo "Missing BuildIdentity.VERSION" >&2; exit 1; }
 JAR="dist/ae-tuner-epicefi-${SOURCE_VERSION}.jar"
 
 [[ -f "$JAR" ]] || {

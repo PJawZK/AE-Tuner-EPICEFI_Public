@@ -29,9 +29,9 @@ public final class AeUiTheme {
     public static Color focusBlue() { return isDark() ? new Color(78,153,255) : new Color(24,101,220); }
     public static Color blue2() { return isDark() ? new Color(109,176,255) : new Color(69,145,239); }
     public static Color green() { return isDark() ? new Color(69,190,108) : new Color(41,157,84); }
-    public static Color focusGreen() { return isDark() ? new Color(70,194,108) : new Color(30,164,81); }
+    public static Color focusGreen() { return isDark() ? new Color(70,194,108) : new Color(30,126,64); }
     public static Color amber() { return isDark() ? new Color(255,197,67) : new Color(255,197,54); }
-    public static Color focusAmber() { return isDark() ? new Color(246,172,50) : new Color(229,143,0); }
+    public static Color focusAmber() { return isDark() ? new Color(246,172,50) : new Color(155,96,0); }
     public static Color amberDark() { return isDark() ? new Color(176,119,18) : new Color(168,111,0); }
     public static Color red() { return isDark() ? new Color(241,103,96) : new Color(213,66,58); }
     public static Color purple() { return isDark() ? new Color(157,137,255) : new Color(98,75,200); }
@@ -49,8 +49,8 @@ public final class AeUiTheme {
     public static Color taskStatusText() { return isDark() ? new Color(184,197,212) : muted(); }
     public static Color taskAvailableBorder() { return isDark() ? new Color(78,91,107) : border(); }
     public static Color taskDisabledBg() { return isDark() ? new Color(18,23,29) : disabled(); }
-    public static Color taskDisabledText() { return isDark() ? new Color(74,90,107) : new Color(184,207,229); }
-    public static Color taskDisabledStatusText() { return isDark() ? new Color(57,70,84) : new Color(176,201,223); }
+    public static Color taskDisabledText() { return isDark() ? new Color(151,166,183) : new Color(85,99,114); }
+    public static Color taskDisabledStatusText() { return isDark() ? new Color(139,154,171) : new Color(96,109,124); }
     public static Color taskDisabledBorder() { return isDark() ? new Color(34,41,49) : border(); }
     public static Color taskSelectedBg() { return isDark() ? new Color(31,64,96) : new Color(178,207,232); }
     public static Color taskSelectedText() { return isDark() ? Color.WHITE : new Color(22,39,58); }

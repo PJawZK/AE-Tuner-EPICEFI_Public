@@ -5,6 +5,9 @@ import se.anders.tunerstudio.aetuner.model.ChannelRole;
 import se.anders.tunerstudio.aetuner.model.LiveSample;
 
 import java.util.EnumMap;
+import java.util.AbstractList;
+import java.util.List;
+import java.lang.reflect.Field;
 
 /** Long-session regression for the high-rate Guided probe path. */
 public final class GuidedProbeLongSessionRegressionTest {
@@ -13,10 +16,11 @@ public final class GuidedProbeLongSessionRegressionTest {
 
     private GuidedProbeLongSessionRegressionTest() { }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         boundedListWrapsWithoutShiftingLogicalOrder();
         probeSnapshotPathRemainsBoundedPastRetentionCap();
         foundationThresholdRetainsMultiMinuteAnalysisWindow();
+        liveReviewDoesNotReadRetainedHistory();
         System.out.println("GuidedProbeLongSessionRegressionTest passed");
     }
 
@@ -111,6 +115,51 @@ public final class GuidedProbeLongSessionRegressionTest {
         require(session.resultText().contains(
                         "Retained-window metrics (up to 24000 coherent samples):"),
                 "Foundation 2 review did not disclose its larger retained analysis window");
+    }
+
+    private static void liveReviewDoesNotReadRetainedHistory() throws Exception {
+        GuidedMethodProbeSession session = new GuidedMethodProbeSession();
+        session.start(GuidedAeMethodModules.forRecipe(GuidedTuningRecipe.MAP_PREDICT));
+        for (int i = 0; i < 6100; i++) session.accept(sample(10.0 + i * 0.01, i % 100 < 5));
+
+        // Count actual retained-row reads, rather than relying on timing or the
+        // wording of the live presentation to prove it avoids history scans.
+        Field field = GuidedMethodProbeSession.class.getDeclaredField("samples");
+        field.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        final List<LiveSample> retained = (List<LiveSample>) field.get(session);
+        final int[] reads = {0};
+        field.set(session, new AbstractList<LiveSample>() {
+            @Override public int size() { return retained.size(); }
+            @Override public LiveSample get(int index) { reads[0]++; return retained.get(index); }
+        });
+        try {
+            for (int i = 0; i < 20; i++) {
+                String live = session.reviewText();
+                require(reads[0] == 0, "live refresh scanned " + reads[0] + " retained rows");
+                require(live.contains("Observed coherent samples: 6100")
+                                && live.contains("Retained coherent samples: 6000"),
+                        "live review lost observed/retained sample status");
+                require(!live.contains("Prediction-active samples retained:"),
+                        "live review rebuilt detailed retained-window metrics");
+            }
+            session.togglePause();
+            String paused = session.reviewText();
+            require(paused.contains("PAUSED") && !paused.contains("Prediction-active samples retained:"),
+                    "paused review rebuilt history instead of showing lightweight status");
+            require(session.reviewedWritePlan() == null && session.copyPasteBlock().isEmpty(),
+                    "unfinished capture gained review/write authority");
+            require(reads[0] == 0, "live/paused refresh read " + reads[0] + " retained rows");
+        } finally {
+            field.set(session, retained);
+        }
+        require(session.sampleCount() == 6000 && session.observedSampleCount() == 6100,
+                "live presentation changed capture evidence");
+        session.finish();
+        require(session.reviewText().contains("Prediction-active samples retained:"),
+                "completed Review lost its detailed diagnostics");
+        require(session.reportText("test").contains("Prediction-active samples retained:"),
+                "completed report lost its detailed diagnostics");
     }
 
     private static LiveSample sample(double seconds, boolean active) {

@@ -37,9 +37,7 @@ public final class WallWettingMethodModule extends AbstractProbeMethodModule {
 
     private volatile boolean reviewDirty = true;
     private volatile String lastEvidenceReview = defaultReviewText();
-    private AeProjectSnapshot cachedSnapshot;
-    private int cachedEvidenceSize = -1;
-    private long cachedLastNano = Long.MIN_VALUE;
+    private RecommendationCacheKey cachedKey;
     private WallWettingRecommendation.Result cachedResult;
 
     @Override public GuidedTuningRecipe recipe() { return GuidedTuningRecipe.WALL_WETTING; }
@@ -90,18 +88,17 @@ public final class WallWettingMethodModule extends AbstractProbeMethodModule {
 
     private WallWettingRecommendation.Result evaluationFor(
             AeProjectSnapshot snapshot, List<LiveSample> evidence) {
-        int size = evidence == null ? 0 : evidence.size();
-        long lastNano = size == 0 ? Long.MIN_VALUE
-                : evidence.get(size - 1).getNanoTime();
-        if (cachedResult != null && snapshot == cachedSnapshot
-                && size == cachedEvidenceSize && lastNano == cachedLastNano) {
-            return cachedResult;
-        }
-        cachedSnapshot = snapshot;
-        cachedEvidenceSize = size;
-        cachedLastNano = lastNano;
+        if (cachedResult != null && cachedKey.matches(snapshot, evidence)) return cachedResult;
+        cachedKey = new RecommendationCacheKey(snapshot, evidence);
         cachedResult = WallWettingRecommendation.evaluate(snapshot, evidence);
         return cachedResult;
+    }
+
+    @Override public synchronized void clearLifecycleCache() {
+        cachedKey = null;
+        cachedResult = null;
+        reviewDirty = true;
+        lastEvidenceReview = defaultReviewText();
     }
 
     private static String defaultReviewText() {

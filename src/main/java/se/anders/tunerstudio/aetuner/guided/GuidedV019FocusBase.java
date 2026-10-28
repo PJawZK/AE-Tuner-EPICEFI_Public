@@ -52,7 +52,7 @@ abstract class GuidedV019FocusBase extends JPanel {
     final Timer refreshTimer;
     private final JLabel captureAction = label("Start Capture from the main workflow.",
             10, Font.BOLD, AeUiTheme.focusMuted());
-    private JDialog diagnosticsDialog;
+    private javax.swing.JFrame diagnosticsDialog;
 
     GuidedV019FocusBase(JDialog owner, Runnable onReviewReady) {
         this.owner = owner == null ? null : GuidedDialogLifecycle.own(owner);
@@ -152,7 +152,7 @@ abstract class GuidedV019FocusBase extends JPanel {
         status.add(captureAction, BorderLayout.NORTH);
         status.add(label("Production evidence model  •  capture is read-only  •  no Burn",
                 9, Font.PLAIN, AeUiTheme.focusMuted()), BorderLayout.SOUTH);
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0)); buttons.setOpaque(false);
+        JPanel buttons = new JPanel(new GuidedWrapLayout(FlowLayout.RIGHT, 6, 0)); buttons.setOpaque(false);
         final JCheckBox alwaysOnTop = new JCheckBox("Always on top", false);
         alwaysOnTop.setOpaque(false); alwaysOnTop.setForeground(AeUiTheme.focusText()); alwaysOnTop.setFont(SMALL);
         alwaysOnTop.addActionListener(new ActionListener() {
@@ -167,7 +167,7 @@ abstract class GuidedV019FocusBase extends JPanel {
         buttons.add(finishCapture);
         buttons.add(exportEvidence);
         buttons.add(review);
-        p.add(status, BorderLayout.CENTER); p.add(buttons, BorderLayout.EAST);
+        p.add(status, BorderLayout.NORTH); p.add(buttons, BorderLayout.CENTER);
         return p;
     }
 
@@ -184,7 +184,11 @@ abstract class GuidedV019FocusBase extends JPanel {
         exportEvidence.setEnabled(GuidedFocusHub.canExportActiveSession());
         review.setEnabled(reviewReady);
         pauseCapture.setText(capture == GuidedCaptureState.PAUSED ? "Resume Capture" : "Pause Capture");
-        if (capture == GuidedCaptureState.CAPTURING) {
+        if (capture.isCaptureInProgress() && capture != GuidedCaptureState.PAUSED
+                && !GuidedFocusHub.liveDataReady()) {
+            captureAction.setText("WAITING FOR LIVE DATA — no maneuver requested until the required channels are available.");
+            captureAction.setForeground(AeUiTheme.focusAmber());
+        } else if (capture == GuidedCaptureState.CAPTURING) {
             captureAction.setText("CAPTURE ACTIVE — follow the maneuver shown above; when you have enough clean events, press Finish Capture.");
             captureAction.setForeground(AeUiTheme.focusBlue());
         } else if (capture == GuidedCaptureState.PAUSED) {
@@ -194,7 +198,7 @@ abstract class GuidedV019FocusBase extends JPanel {
             captureAction.setText("CAPTURE COMPLETE — evidence requirement satisfied. Export Evidence for this task, then Review Results.");
             captureAction.setForeground(AeUiTheme.focusGreen());
         } else if (capture == GuidedCaptureState.COMPLETE && canContinue) {
-            captureAction.setText("CAPTURE STOPPED — evidence is still incomplete. Review and Export remain locked; press Continue Capture to keep the retained evidence and collect the remaining clean events.");
+            captureAction.setText("CAPTURE STOPPED — evidence is still incomplete. Review remains locked; export retained evidence or press Continue Capture to keep the retained evidence and collect the remaining clean events.");
             captureAction.setForeground(AeUiTheme.focusAmber());
         } else if (capture == GuidedCaptureState.COMPLETE) {
             captureAction.setText("CAPTURE STOPPED — evidence is incomplete, but continuation is currently blocked by the production capture gate. Return to the main workflow and resolve the shown prerequisite before continuing.");
@@ -205,12 +209,22 @@ abstract class GuidedV019FocusBase extends JPanel {
         }
     }
 
+    final void showLiveDataWait(JLabel cue, javax.swing.text.JTextComponent action) {
+        if (GuidedFocusHub.activeCaptureState().isCaptureInProgress()
+                && GuidedFocusHub.activeCaptureState() != GuidedCaptureState.PAUSED
+                && !GuidedFocusHub.liveDataReady()) {
+            cue.setText("● WAITING FOR LIVE DATA");
+            cue.setForeground(AeUiTheme.focusAmber());
+            action.setText("Wait for the required live channels before performing the maneuver. Cancel Task or Start Over remains available.");
+        }
+    }
+
     private void openDiagnostics() {
         if (diagnosticsDialog != null && diagnosticsDialog.isDisplayable()) {
             diagnosticsDialog.toFront(); diagnosticsDialog.requestFocus(); return;
         }
         Window host = SwingUtilities.getWindowAncestor(this);
-        diagnosticsDialog = modelessDialog(host, taskTitle() + " — Diagnostics");
+        diagnosticsDialog = GuidedWindowTools.frame(host, taskTitle() + " — Diagnostics");
         diagnosticsDialog.setContentPane(diagnosticsContent());
         diagnosticsDialog.setMinimumSize(new Dimension(980, 600));
         diagnosticsDialog.setSize(1200, 680);
@@ -221,11 +235,11 @@ abstract class GuidedV019FocusBase extends JPanel {
     static JPanel card(LayoutManager layout) { JPanel p = new JPanel(layout); p.setBackground(AeUiTheme.card()); return p; }
     static javax.swing.border.Border cardBorder() { return new CompoundBorder(new LineBorder(AeUiTheme.border()), new EmptyBorder(8, 10, 8, 10)); }
     static JButton button(String text) { JButton b = new JButton(text); b.setFont(SMALL); b.setFocusPainted(false); b.setOpaque(true); b.setBackground(AeUiTheme.button()); b.setForeground(AeUiTheme.focusText()); b.setBorder(new CompoundBorder(new LineBorder(AeUiTheme.focusButtonBorder()), new EmptyBorder(5, 8, 5, 8))); return b; }
-    static JDialog modelessDialog(Window host, String title) { return GuidedDialogLifecycle.create(host, title, false); }
+    static JDialog modelessDialog(Window host, String title) { return GuidedTaskControls.install(GuidedDialogLifecycle.create(host, title, false)); }
     static JLabel label(String text, int size, int style, Color color) { JLabel l = new JLabel(text); l.setFont(new Font("Dialog", style, size)); l.setForeground(color); return l; }
     static JLabel valueLabel() { return label("n/a", 20, Font.BOLD, AeUiTheme.focusText()); }
     static JLabel smallValue() { return label("n/a", 11, Font.BOLD, AeUiTheme.focusText()); }
-    static JPanel chartCard(String title, JComponent content) { JPanel p = card(new BorderLayout(0, 5)); p.setBorder(cardBorder()); p.add(label(title, 13, Font.BOLD, AeUiTheme.focusText()), BorderLayout.NORTH); p.add(content, BorderLayout.CENTER); return p; }
+    static JPanel chartCard(String title, JComponent content) { JPanel p = card(new BorderLayout(0, 5)); p.setBorder(new CompoundBorder(new LineBorder(AeUiTheme.border()), new EmptyBorder(3, 4, 3, 4))); p.add(label(title, 13, Font.BOLD, AeUiTheme.focusText()), BorderLayout.NORTH); p.add(content, BorderLayout.CENTER); return p; }
     static JPanel liveTriple(String title, String k1, JLabel v1, String k2, JLabel v2, String k3, JLabel v3) { JPanel p = card(new BorderLayout(0, 5)); p.setBorder(cardBorder()); p.add(label(title, 13, Font.BOLD, AeUiTheme.focusText()), BorderLayout.NORTH); JPanel grid = new JPanel(new GridLayout(1, 3, 6, 0)); grid.setOpaque(false); grid.add(valueTile(k1, v1)); grid.add(valueTile(k2, v2)); grid.add(valueTile(k3, v3)); p.add(grid, BorderLayout.CENTER); return p; }
     static JPanel valueTile(String key, JLabel value) { JPanel p = new JPanel(new BorderLayout()); p.setOpaque(false); p.setBorder(new MatteBorder(0, 0, 0, 1, AeUiTheme.border())); p.add(label(key, 9, Font.PLAIN, AeUiTheme.focusMuted()), BorderLayout.NORTH); p.add(value, BorderLayout.CENTER); return p; }
     static JPanel summaryGrid(String title, String[] keys, JLabel[] values) { JPanel p = card(new BorderLayout(0, 4)); p.setBorder(cardBorder()); p.add(label(title, 13, Font.BOLD, AeUiTheme.focusText()), BorderLayout.NORTH); JPanel grid = new JPanel(new GridLayout(keys.length, 2, 4, 2)); grid.setOpaque(false); for (int i = 0; i < keys.length; i++) { grid.add(label(keys[i], 10, Font.PLAIN, AeUiTheme.focusMuted())); grid.add(values[i]); } p.add(grid, BorderLayout.CENTER); return p; }

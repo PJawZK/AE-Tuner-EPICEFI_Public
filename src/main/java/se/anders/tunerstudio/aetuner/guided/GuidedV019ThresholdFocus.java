@@ -71,7 +71,6 @@ final class GuidedV019ThresholdFocus extends GuidedV019FocusBase {
         lower.add(summaryGrid("Evidence status",
                 new String[]{"Effective AccelThreshold", "Quiet calibration", "Acceleration Openings", "Normal Corrections"},
                 new JLabel[]{effectiveThreshold, quiet, accel, normal}));
-        lower.setPreferredSize(new Dimension(100, 82));
         root.add(lower, BorderLayout.SOUTH);
         return root;
     }
@@ -164,6 +163,11 @@ final class GuidedV019ThresholdFocus extends GuidedV019FocusBase {
                 }
                 if ("PAUSED".equals(m.captureState)) {
                     title = "PAUSED"; color = AeUiTheme.focusAmber(); active = -1;
+                } else if (GuidedFocusHub.activeCaptureState().isCaptureInProgress()
+                        && !GuidedFocusHub.liveDataReady()) {
+                    title = "WAITING FOR LIVE DATA"; color = AeUiTheme.focusAmber(); active = -1;
+                    action = "Wait for the required live channels. No maneuver is requested.";
+                    detail = "Calibration resumes when live data returns. Cancel Task and Start Over remain available.";
                 } else if (!m.calibrationFrozen) {
                     title = "DRIVE NORMALLY"; color = AeUiTheme.focusBlue(); active = 0;
                 } else if (Double.isFinite(m.liveRatio) && m.liveRatio >= 1.0) {
@@ -216,33 +220,33 @@ final class GuidedV019ThresholdFocus extends GuidedV019FocusBase {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int l = 35, r = getWidth() - 18, t = 28, b = getHeight() - 34;
+                int l = 6, r = getWidth() - 6, t = 18, b = getHeight() - 34;
+                if(r<=l || b<=t)return;
+                int w=r-l,h=b-t;
                 g2.setColor(AeUiTheme.chartGridSoft());
                 for (int i = 0; i < 5; i++) {
-                    int y = t + (b - t) * i / 4;
+                    int y = t + h * i / 4;
                     g2.drawLine(l, y, r, y);
                 }
-                int th = t + (b - t) * 42 / 100;
+                int th = t + h / 2;
                 g2.setColor(AeUiTheme.thresholdFill());
-                g2.fillRect(l, th + 22, r - l, b - th - 22);
+                g2.fillRect(l, th, w, b-th);
                 g2.setColor(AeUiTheme.red());
                 g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
                         10f, new float[]{7, 5}, 0));
                 g2.drawLine(l, th, r, th);
-                int[] xs = {l, l + 45, l + 80, l + 115, l + 150, l + 185, l + 220, l + 255, l + 290, r};
-                int[] ys = {b - 22, b - 28, b - 18, b - 26, b - 22, t + 42, b - 24, b - 20, b - 29, b - 21};
+                int[] fractions = {0, 12, 24, 34, 44, 60, 70, 80, 90, 100};
+                int[] levels = {82, 75, 86, 78, 82, 14, 81, 84, 74, 82};
+                int[] xs=new int[fractions.length],ys=new int[levels.length];
+                for(int i=0;i<xs.length;i++){xs[i]=l+w*fractions[i]/100;ys[i]=t+h*levels[i]/100;}
                 draw(g2, xs, ys, AeUiTheme.focusBlue(), 3f, false);
-                g2.setFont(new Font("Dialog", Font.BOLD, 10));
-                g2.setColor(AeUiTheme.focusMuted());
-                g2.drawString("NORMAL CORRECTION — useful", l + 12, b - 45);
+                g2.setFont(new Font("Dialog", Font.BOLD, 9));
                 g2.setColor(AeUiTheme.red());
-                g2.drawString("EFFECTIVE AccelThreshold", Math.max(l + 10, r - 130), th - 7);
+                g2.drawString("Dashed: effective AccelThreshold", l, 11);
+                g2.setColor(AeUiTheme.focusBlue());
+                g2.drawString("Normal correction: below threshold", l, getHeight()-19);
                 g2.setColor(AeUiTheme.focusGreen());
-                g2.drawString("ACCELERATION OPENING", l + 165, t + 28);
-                g2.setFont(SMALL);
-                g2.setColor(AeUiTheme.focusMuted());
-                g2.drawString("stays below threshold", l + 12, b - 31);
-                g2.drawString("crosses clearly", l + 165, t + 42);
+                g2.drawString("Acceleration opening: crosses threshold", l, getHeight()-6);
             } finally {
                 g2.dispose();
             }
@@ -281,13 +285,13 @@ final class GuidedV019ThresholdFocus extends GuidedV019FocusBase {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int l = 48, r = getWidth() - 16, t = 28, b = getHeight() - 30;
+                int l = 6, r = getWidth() - 6, t = 4, b = getHeight() - 18;
                 if (r <= l || b <= t) return;
                 drawGrid(g2, l, r, t, b);
                 g2.setFont(SMALL);
                 g2.setColor(AeUiTheme.focusMuted());
-                g2.drawString("old", l, b + 18);
-                g2.drawString("now", r - 22, b + 18);
+                g2.drawString("old", l, b + 13);
+                g2.drawString("now", r - 22, b + 13);
 
                 if (size < 2) {
                     g2.drawString("Waiting for rolling production detector data", l + 18, (t + b) / 2);

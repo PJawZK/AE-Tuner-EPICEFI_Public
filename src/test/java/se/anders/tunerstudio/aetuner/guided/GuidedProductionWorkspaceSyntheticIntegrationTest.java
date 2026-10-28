@@ -149,7 +149,7 @@ public final class GuidedProductionWorkspaceSyntheticIntegrationTest {
                     new File(out, "workspace-guided-v019-result-incomplete-light-1180.png")));
 
             click(workspace.diagnosticsButtonForTest());
-            JDialog diagnosticsDialog = (JDialog)field(plugin, "evidenceDiagnosticsWindow");
+            JFrame diagnosticsDialog = (JFrame)field(plugin, "evidenceDiagnosticsWindow");
             require(diagnosticsDialog != null && diagnosticsDialog.isVisible(),
                     "Evidence / Diagnostics did not open");
             flushLayout(diagnosticsDialog);

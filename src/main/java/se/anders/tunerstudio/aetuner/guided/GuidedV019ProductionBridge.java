@@ -1,5 +1,8 @@
 package se.anders.tunerstudio.aetuner.guided;
 
+import se.anders.tunerstudio.aetuner.guided.method.DecelHistoricalResultContext;
+import se.anders.tunerstudio.aetuner.guided.method.DecelHistoricalResultModel;
+import se.anders.tunerstudio.aetuner.guided.method.DecelHistoricalThresholdProposalContext;
 import se.anders.tunerstudio.aetuner.guided.method.GuidedAeMethodModule;
 import se.anders.tunerstudio.aetuner.model.AeProjectSnapshot;
 
@@ -13,21 +16,8 @@ import java.util.EnumMap;
  * GuidedCapturePanel lifecycle. It deliberately delegates to the already-wired
  * production controls/session methods; it owns no tuning math, proposal writer,
  * readback, Restore or Burn behavior.
- *
- * GuidedCapturePanel predates the structural UI port and still encapsulates its
- * action buttons/private Working Tune snapshot. Until that controller/presentation
- * monolith is split, this bridge binds those existing production controls once.
- * Capture state is read directly from the production session so the v0.19 stage
- * machine cannot lag behind a capture that has already started.
  */
 final class GuidedV019ProductionBridge {
-    /*
-     * Completed probe payloads are already owned by the production evidence /
-     * export and recovery paths. The v0.19 bridge only needs to remember that a
-     * recipe had a completed retained session; keeping a second full report,
-     * CSV and copy/paste draft here duplicated large strings that were never
-     * read. Store the bounded sample-count marker only.
-     */
     private final EnumMap<GuidedTuningRecipe, Integer> retainedProbeEvidence =
             new EnumMap<GuidedTuningRecipe, Integer>(GuidedTuningRecipe.class);
 
@@ -69,9 +59,7 @@ final class GuidedV019ProductionBridge {
             throw new IllegalStateException("Could not bind production Guided lifecycle", ex);
         }
         captureControl = new GuidedFocusHub.CaptureControl() {
-            @Override public GuidedCaptureState finishCapture() {
-                return finishActiveCapture();
-            }
+            @Override public GuidedCaptureState finishCapture() { return finishActiveCapture(); }
             @Override public GuidedCaptureState togglePause() {
                 clickSynchronous(pause);
                 return directSelectedCaptureState();
@@ -80,9 +68,7 @@ final class GuidedV019ProductionBridge {
                 production.startSelectedTaskForTest();
                 return directSelectedCaptureState();
             }
-            @Override public GuidedCaptureState captureState() {
-                return directSelectedCaptureState();
-            }
+            @Override public GuidedCaptureState captureState() { return directSelectedCaptureState(); }
             @Override public GuidedTuningRecipe activeRecipe() {
                 GuidedMethodProbeSession probe = probeSession();
                 GuidedAeMethodModule module = probe == null ? null : probe.module();
@@ -98,41 +84,39 @@ final class GuidedV019ProductionBridge {
                 }
                 return selectedTask == null ? null : selectedTask.productionRecipe;
             }
-            @Override public boolean reviewReady() {
-                return directSelectedEvidenceReady();
-            }
-            @Override public boolean canContinueCapture() {
-                return production.startCaptureEnabledForTest();
-            }
-            @Override public boolean canExportEvidence() {
-                return saveReport.isEnabled();
-            }
-            @Override public void exportEvidence() {
-                click(saveReport);
-            }
+            @Override public boolean reviewReady() { return directSelectedEvidenceReady(); }
+            @Override public boolean canContinueCapture() { return production.startCaptureEnabledForTest(); }
+            @Override public boolean canExportEvidence() { return saveReport.isEnabled(); }
+            @Override public void exportEvidence() { click(saveReport); }
+            @Override public boolean liveDataReady() { return production.liveDataReady(); }
         };
         GuidedFocusHub.setCaptureControl(captureControl);
     }
 
-    void select(GuidedProductionTask task) {
-        if (task == null || task.productionRecipe == null) return;
+    boolean select(GuidedProductionTask task) {
+        if (task == null || task.productionRecipe == null) return false;
+        if (production.taskCancelled() && selectedTask != task) return false;
+        BlendDurationGuidedSession activeBlend = blendSession();
+        if (activeBlend != null && activeBlend.snapshot().state.isCaptureInProgress()
+                && task.productionRecipe != GuidedTuningRecipe.BLEND_DURATION) return false;
         GuidedMethodProbeSession probe = probeSession();
         GuidedAeMethodModule current = probe == null ? null : probe.module();
         if (current != null && current.recipe() != task.productionRecipe) {
             GuidedCaptureState currentState = probe.state();
-            if (currentState == GuidedCaptureState.CAPTURING
-                    || currentState == GuidedCaptureState.PAUSED) {
-                return;
-            }
-            retainCompletedProbe(probe, current);
+            if (currentState.isCaptureInProgress()) return false;
+            if (!retainCompletedProbe(probe, current)) return false;
         }
         selectedTask = task;
         production.selectTuningTaskForTest(task.productionRecipe);
+        return true;
     }
 
     AeProjectSnapshot readWorkingTune() {
         clickSynchronous(readWorkingTune);
-        return currentWorkingTune();
+        AeProjectSnapshot snapshot = currentWorkingTune();
+        GuidedV019HistoricalReplayContext.publish(snapshot);
+        DecelHistoricalResultContext.refreshAfterWorkingTune(snapshot);
+        return snapshot;
     }
 
     AeProjectSnapshot currentWorkingTune() {
@@ -145,22 +129,48 @@ final class GuidedV019ProductionBridge {
     }
 
     void editTaskSettings() { click(reviewTaskSettings); }
-    void setBlendArmedRpmBins(double[] bins) {
-        production.setBlendArmedRpmBinsForV019(bins);
-    }
+    void setBlendArmedRpmBins(double[] bins) { production.setBlendArmedRpmBinsForV019(bins); }
     double[] blendArmedRpmBins() { return production.blendArmedRpmBinsForV019(); }
-    void activateFocusControl() { GuidedFocusHub.setCaptureControl(captureControl); }
+    void activateFocusControl() {
+        GuidedFocusHub.setCaptureControl(captureControl);
+        GuidedV019HistoricalReplayContext.publish(currentWorkingTune());
+    }
+
     void startCapture() {
+        if (production.taskCancelled()) return;
         activateFocusControl();
+        if (selectedTask == GuidedProductionTask.DECEL_DETECTION
+                && directSelectedCaptureState() == GuidedCaptureState.IDLE) {
+            if (DecelHistoricalResultContext.targetedCaptureUseful()) {
+                production.startSelectedTaskForTest();
+                return;
+            }
+            final AeProjectSnapshot snapshot = currentWorkingTune();
+            final boolean liveAvailable = production.startCaptureEnabledForTest();
+            GuidedV019DecelEvidenceEntryDialog.choose(production, snapshot,
+                    liveAvailable, new Runnable() {
+                        @Override public void run() { production.startSelectedTaskForTest(); }
+                    });
+            return;
+        }
         production.startSelectedTaskForTest();
     }
+
+    void cancelTask() { production.cancelTask(); }
+    boolean startOverTask() { return production.startOverTask(); }
+    boolean taskCancelled() { return production.taskCancelled(); }
+    boolean canStartOverTask() { return production.canStartOverTask(); }
     void finishCapture() { finishActiveCapture(); }
     void togglePause() { clickSynchronous(pause); }
     void resetSession() {
         GuidedMethodProbeSession probe = probeSession();
         GuidedAeMethodModule current = probe == null ? null : probe.module();
-        retainCompletedProbe(probe, current);
+        if (!retainCompletedProbe(probe, current)) return;
         click(reset);
+        if (selectedTask == GuidedProductionTask.DECEL_DETECTION) {
+            DecelHistoricalResultContext.clear();
+            DecelHistoricalThresholdProposalContext.clear();
+        }
     }
     void reconnect() { click(reconnect); }
     void applyReviewedProposal() { clickSynchronous(apply); }
@@ -170,12 +180,29 @@ final class GuidedV019ProductionBridge {
     boolean readEnabled() { return readWorkingTune.isEnabled(); }
     boolean taskSettingsEnabled() { return reviewTaskSettings.isEnabled(); }
     boolean currentSessionExportAvailable() { return saveReport.isEnabled(); }
-    void exportCurrentSession() {
-        activateFocusControl();
-        click(saveReport);
+    void exportCurrentSession() { activateFocusControl(); click(saveReport); }
+
+    boolean startEnabled() {
+        if (production.taskCancelled()) return false;
+        if (selectedTask == GuidedProductionTask.DECEL_DETECTION
+                && directSelectedCaptureState() == GuidedCaptureState.IDLE) {
+            AeProjectSnapshot snapshot = currentWorkingTune();
+            return snapshot != null && snapshot.hasDecelDetectionSettings();
+        }
+        return production.startCaptureEnabledForTest();
     }
-    boolean startEnabled() { return production.startCaptureEnabledForTest(); }
-    String startText() { return production.startCaptureTextForTest(); }
+
+    String startText() {
+        if (selectedTask == GuidedProductionTask.DECEL_DETECTION
+                && directSelectedCaptureState() == GuidedCaptureState.IDLE) {
+            if (DecelHistoricalResultContext.targetedCaptureUseful()) {
+                return "Capture Missing Regions";
+            }
+            return "Analyze Existing Log…";
+        }
+        return production.startCaptureTextForTest();
+    }
+
     boolean applyEnabled() { return production.applyCurrentProposalEnabledForTest(); }
     boolean restoreEnabled() { return production.restorePreviousApplyEnabledForTest(); }
     boolean saveEnabled() { return saveReport.isEnabled(); }
@@ -186,6 +213,13 @@ final class GuidedV019ProductionBridge {
     String proposalText() { return production.proposalTextForTest(); }
     int retainedProbeSessionCount() { return retainedProbeEvidence.size(); }
 
+    DecelHistoricalResultModel decelHistoricalResult() {
+        return DecelHistoricalResultContext.latest();
+    }
+    boolean decelHistoricalResultReady() { return DecelHistoricalResultContext.reviewReady(); }
+    boolean decelTargetedCaptureUseful() { return DecelHistoricalResultContext.targetedCaptureUseful(); }
+    String decelTargetedRpmText() { return DecelHistoricalResultContext.targetedRpmText(); }
+
     GuidedFocusHub.State focusState(GuidedProductionTask task) {
         GuidedFocusHub.State state = GuidedFocusHub.snapshot();
         if (task == null || task.productionRecipe == null || state == null) return state;
@@ -194,13 +228,9 @@ final class GuidedV019ProductionBridge {
 
     GuidedCaptureState captureState(GuidedProductionTask task) {
         if (task == null || task.productionRecipe == null) return GuidedCaptureState.IDLE;
-
         GuidedMethodProbeSession probe = probeSession();
         GuidedAeMethodModule module = probe == null ? null : probe.module();
-        if (module != null && module.recipe() == task.productionRecipe) {
-            return probe.state();
-        }
-
+        if (module != null && module.recipe() == task.productionRecipe) return probe.state();
         if (task.productionRecipe == GuidedTuningRecipe.BLEND_DURATION) {
             BlendDurationGuidedSession blend = blendSession();
             if (blend != null) {
@@ -208,22 +238,22 @@ final class GuidedV019ProductionBridge {
                 if (state != GuidedCaptureState.IDLE) return state;
             }
         }
-
         GuidedFocusHub.State state = focusState(task);
         return state == null ? GuidedCaptureState.IDLE : state.captureState;
     }
 
-    /**
-     * Capture COMPLETE means only that collection has stopped. Review readiness
-     * is a separate evidence-quality decision and must never be inferred from
-     * the lifecycle state alone.
-     */
     boolean evidenceReady(GuidedProductionTask task) {
+        if (production.taskCancelled()) return false;
         if (task == null || task.productionRecipe == null) return false;
         GuidedMethodProbeSession probe = probeSession();
         GuidedAeMethodModule module = probe == null ? null : probe.module();
-        if (module != null && module.recipe() == task.productionRecipe) {
+        if (module != null && module.recipe() == task.productionRecipe
+                && probe.state() != GuidedCaptureState.IDLE) {
             return probe.reviewReady();
+        }
+        if (task == GuidedProductionTask.DECEL_DETECTION
+                && DecelHistoricalResultContext.reviewReady()) {
+            return true;
         }
         if (task.productionRecipe == GuidedTuningRecipe.BLEND_DURATION) {
             BlendDurationGuidedSession blend = blendSession();
@@ -233,11 +263,10 @@ final class GuidedV019ProductionBridge {
     }
 
     private boolean directSelectedEvidenceReady() {
+        if (production.taskCancelled()) return false;
         GuidedMethodProbeSession probe = probeSession();
         if (probe != null && probe.module() != null
-                && probe.state() != GuidedCaptureState.IDLE) {
-            return probe.reviewReady();
-        }
+                && probe.state() != GuidedCaptureState.IDLE) return probe.reviewReady();
         BlendDurationGuidedSession blend = blendSession();
         if (blend != null && blend.snapshot().state != GuidedCaptureState.IDLE) {
             return blend.snapshot().state == GuidedCaptureState.COMPLETE;
@@ -248,9 +277,7 @@ final class GuidedV019ProductionBridge {
     private GuidedCaptureState directSelectedCaptureState() {
         GuidedMethodProbeSession probe = probeSession();
         if (probe != null && probe.module() != null
-                && probe.state() != GuidedCaptureState.IDLE) {
-            return probe.state();
-        }
+                && probe.state() != GuidedCaptureState.IDLE) return probe.state();
         BlendDurationGuidedSession blend = blendSession();
         if (blend != null && blend.snapshot().state != GuidedCaptureState.IDLE) {
             return blend.snapshot().state;
@@ -263,21 +290,22 @@ final class GuidedV019ProductionBridge {
         return directSelectedCaptureState();
     }
 
-    private void retainCompletedProbe(GuidedMethodProbeSession probe,
+    private boolean retainCompletedProbe(GuidedMethodProbeSession probe,
                                       GuidedAeMethodModule current) {
-        if (probe == null || current == null || probe.state() != GuidedCaptureState.COMPLETE) return;
+        if (!production.allowProbeRetirement()) return false;
+        if (probe == null || current == null || probe.state() != GuidedCaptureState.COMPLETE) return true;
         if (probe.reviewReady()) {
             retainedProbeEvidence.put(current.recipe(), Integer.valueOf(probe.sampleCount()));
             production.markProbeEvidenceExportedForTest();
         }
         probe.reset();
+        return true;
     }
 
     private GuidedMethodProbeSession probeSession() {
         try {
             Object value = probeSessionField.get(production);
-            return value instanceof GuidedMethodProbeSession
-                    ? (GuidedMethodProbeSession)value : null;
+            return value instanceof GuidedMethodProbeSession ? (GuidedMethodProbeSession)value : null;
         } catch (IllegalAccessException ex) {
             throw new IllegalStateException("Could not read production probe session", ex);
         }
@@ -286,8 +314,7 @@ final class GuidedV019ProductionBridge {
     private BlendDurationGuidedSession blendSession() {
         try {
             Object value = blendSessionField.get(production);
-            return value instanceof BlendDurationGuidedSession
-                    ? (BlendDurationGuidedSession)value : null;
+            return value instanceof BlendDurationGuidedSession ? (BlendDurationGuidedSession)value : null;
         } catch (IllegalAccessException ex) {
             throw new IllegalStateException("Could not read production Blend Duration session", ex);
         }

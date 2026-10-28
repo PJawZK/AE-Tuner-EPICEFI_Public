@@ -93,7 +93,6 @@ final class GuidedV019BoundEvidenceFocus extends GuidedV019FocusBase {
                 new JLabel[]{stateValue, recipeValue, reviewValue}));
         lower.add(summaryGrid("Authority", new String[]{"Evidence", "Proposal", "Burn"},
                 new JLabel[]{authorityValue, fixed("existing production engine"), fixed("NEVER")}));
-        lower.setPreferredSize(new java.awt.Dimension(100, 94));
         root.add(lower, BorderLayout.SOUTH);
         return root;
     }
@@ -164,6 +163,7 @@ final class GuidedV019BoundEvidenceFocus extends GuidedV019FocusBase {
             cue.setForeground(AeUiTheme.focusBlue());
             action.setText("Start Capture from the main workflow. Then follow the DO THIS NOW instruction on this screen.");
         }
+        showLiveDataWait(cue, action);
         repaint();
     }
 

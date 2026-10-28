@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.6 — 2026-10-28
+
+Status: PUBLIC RELEASE (replaces v0.4.5).
+
+- Current Guided UI adds explicit Cancel/Start Over, clearer analysis progress,
+  responsive and scrollable pop-outs, wrapping tables and fixed action footers.
+- Historical Decel analysis supports independent physical-event classification
+  and fail-closed compatible cross-log pooling; insufficient upper RPM evidence
+  remains NEED EVIDENCE rather than inferred values.
+- Reliability/performance improvements include report/export caching, recovery
+  lifecycle safeguards, and more deterministic UI/safety regressions.
+- Exact public identity source: baddb47d3a13b2e772d5b6154f735f2f8c2ddb38.
+- Hosted CI #1932 (40725785125): PASS.
+- Artifact ae-tuner-epicefi-0.4.6.jar SHA-256:
+  31e23679f055789be0073f35e810f1ae793e0713dfc381c92e293c98ecdc19dd.
+- Public src/, scripts/ and pom.xml match the qualified CI source exactly.
+- No automatic Apply or Burn. Numerical vehicle acceptance remains task-specific.
+
 ## 0.4.5 — 2026-09-21
 
 Status: **PUBLIC RELEASE**. Replaces `v0.4.4`.

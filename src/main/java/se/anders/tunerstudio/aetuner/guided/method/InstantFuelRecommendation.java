@@ -167,6 +167,7 @@ final class InstantFuelRecommendation {
         review.append("INSTANT FUEL — EVENT-OWNED MULTIPLIER REVIEW\n")
                 .append("Firmware authority: pulse PW = base injection PW × correction curves × tpsExtraShotMult. This pass changes only the final multiplier.\n")
                 .append("Event authority: pulse-counter edge when available; PW rising edge only as fallback. A retained non-zero PW cannot create repeated events.\n")
+                .append("Evidence completeness: early response plus the 1.00–1.80 s late window; at least three valid late lambda/target pairs, with no uncovered interval over 0.20 s. Missing/truncated coverage is incomplete, not a sustained-error pass.\n")
                 .append("Working Tune: multiplier ").append(fmt(current))
                 .append(" | timer ").append(fmt(timer))
                 .append(" engine cycle(s) (timer handled by the setup/inhibit task).\n")

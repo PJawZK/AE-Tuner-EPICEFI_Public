@@ -46,16 +46,10 @@ final class BaselineSurfaceRecommendation {
     }
 
     private static final class CacheEntry {
-        final AeProjectSnapshot snapshot;
-        final int evidenceSize;
-        final long lastNano;
+        final RecommendationCacheKey key;
         final Result result;
-
-        CacheEntry(AeProjectSnapshot snapshot, int evidenceSize,
-                   long lastNano, Result result) {
-            this.snapshot = snapshot;
-            this.evidenceSize = evidenceSize;
-            this.lastNano = lastNano;
+        CacheEntry(AeProjectSnapshot snapshot, List<LiveSample> evidence, Result result) {
+            key = new RecommendationCacheKey(snapshot, evidence);
             this.result = result;
         }
     }
@@ -72,16 +66,10 @@ final class BaselineSurfaceRecommendation {
                                         AeProjectSnapshot snapshot,
                                         List<LiveSample> evidence) {
         if (task == null) return evaluateFresh(null, snapshot, evidence);
-        int size = evidence == null ? 0 : evidence.size();
-        long lastNano = size <= 0 || evidence.get(size - 1) == null
-                ? Long.MIN_VALUE : evidence.get(size - 1).getNanoTime();
         CacheEntry cached = CACHE[task.ordinal()];
-        if (cached != null && cached.snapshot == snapshot
-                && cached.evidenceSize == size && cached.lastNano == lastNano) {
-            return cached.result;
-        }
+        if (cached != null && cached.key.matches(snapshot, evidence)) return cached.result;
         Result result = evaluateFresh(task, snapshot, evidence);
-        CACHE[task.ordinal()] = new CacheEntry(snapshot, size, lastNano, result);
+        CACHE[task.ordinal()] = new CacheEntry(snapshot, evidence, result);
         evaluationCount++;
         return result;
     }

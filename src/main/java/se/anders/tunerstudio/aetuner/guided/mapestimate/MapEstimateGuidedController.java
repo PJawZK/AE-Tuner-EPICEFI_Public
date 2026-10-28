@@ -305,6 +305,9 @@ public final class MapEstimateGuidedController {
     public MapEstimateEvidenceBasis activeEvidenceBasis() { return activeEvidenceBasis; }
     public MapEstimateProposalLimitPolicy activeProposalLimitPolicy() { return activeProposalLimitPolicy; }
     public String status() { return status; }
+    public int minimumSamples() { return minimumSamples; }
+    public double capKpa() { return capKpa; }
+
     public boolean configured() { return session != null; }
     public boolean active() {
         return session != null

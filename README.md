@@ -1,47 +1,34 @@
 # AE Tuner (EPICEFI)
 
-AE Tuner is a TunerStudio plugin for EpicEFI transient-fuelling analysis and guided acceleration-enrichment tuning.
+A TunerStudio plugin for EpicEFI transient-fuelling analysis and guided acceleration-enrichment tuning.
 
-## Public release
+## Latest public release — v0.4.6
 
-Release: **v0.4.5**  
-Plugin: `ae-tuner-epicefi-0.4.5.jar`  
-Java target: Java 8 bytecode  
-SHA-256: `673fdf0c577ea07764519e596a99100c21a4c0450d2c4b02a2178a79ac70efa0`
+- **JAR:** `ae-tuner-epicefi-0.4.6.jar`
+- **Version shown in TunerStudio:** `0.4.6` / `PUBLIC RELEASE`
+- **Java target:** Java 8-compatible bytecode
+- **SHA-256:** `31e23679f055789be0073f35e810f1ae793e0713dfc381c92e293c98ecdc19dd`
+- **Download:** [GitHub Releases](https://github.com/PJawZK/AE-Tuner-EPICEFI_Public/releases/tag/v0.4.6)
+- **Release notes:** [v0.4.6](docs/RELEASE_0.4.6.md)
+- Previous release: [v0.4.5](https://github.com/PJawZK/AE-Tuner-EPICEFI_Public/releases/tag/v0.4.5)
 
-v0.4.5 promotes the vehicle-tested `0.4.5-vehicle-test.16` runtime into the public release line. The previous public release is `v0.4.4`.
+v0.4.6 adds historical Decel cross-log analysis, improved Guided lifecycle/evidence recovery and faster review/export, updated Foundation/Blend/Threshold presentation, scrollable and wrapping pop-outs, fixed footer actions and clearer progress/cancel workflows.
 
-## Highlights
+### Installation
 
-- The normal **Guided v0.19 workspace** remains the production presentation authority for AE Foundation, TPS AE, MAP Predict, Wall Wetting, Instant Fuel and decel/transient work.
-- AE Foundation Focus now uses rolling live graphs so TPS movement, `Fuel: TPS AE change` and `AccelThreshold` can be read together during a road session without changing controller semantics.
-- Blend Duration measurement now uses the **real physical MAP 20→80% response** as primary timing evidence. Predictive/fallback/current-tune replay remains diagnostic/context evidence rather than the physical target.
-- Completed comparable Blend events use the group median as the series result, with clearer Result presentation and truthful recommendation maturity when evidence is only partial.
-- A Blend session can arm **1–4 actual Working Tune RPM bins**. The plugin automatically acquires a stable armed bin, requires a 0.65 s dwell, latches that bin for the event, keeps evidence separated per bin, and releases after outcome/recovery.
-- RPM is an entry/READY condition only for this workflow. Once the throttle opening begins, the event keeps its latched RPM bin and no post-opening RPM ceiling is introduced.
-- Hidden/presentation lifecycle work was reduced while the plugin is not visible, without changing tuning or write semantics.
-- The final multi-bin Blend capture/latching workflow was exercised on the vehicle and behaved as intended.
+1. Download the v0.4.6 JAR and verify its SHA-256.
+2. Exit TunerStudio; remove all older AE Tuner JARs from the active plugin directory.
+3. Install only `ae-tuner-epicefi-0.4.6.jar` and restart TunerStudio.
+4. Confirm version `0.4.6` and **PUBLIC RELEASE**, then **Read Working Tune**.
 
-## Safety boundary
+### Safety and validation
 
-Supported tune changes are explicit **working-tune/RAM** Apply operations from a reviewed `ProposalWritePlan`, followed by exact readback and a verified Restore path. AE Tuner does **not** Burn ECU changes. VE and ignition tuning remain outside AE Tuner tuning authority.
+All ECU writes are explicit **Working Tune/RAM** changes from reviewed plans through `ProposalWritePlan → ProposalApplyCoordinator → exact readback → rollback/Restore`. No automatic Apply, no **Burn**, no VE/ignition tuning.
 
-The authoritative mutation path remains:
+Full software CI passed on the exact 0.4.6 identity. **Not all numerical recommendations have completed physical engine validation.** Use suitable matching engine data, carefully review proposals and report findings; incomplete methods do not gain write authority.
 
-`ProposalWritePlan → ProposalApplyCoordinator → write → exact readback → Restore snapshot`
+### Building from source
 
-Software validation and a successful workflow test do not imply that every numerical recommendation is physically validated. Vehicle `.mlg` evidence remains authoritative for tuning conclusions.
+Java source and tests match the qualified release implementation. The third-party `TunerStudioPluginAPI.jar` is not bundled; supply your own licensed copy as described in [lib/README.md](lib/README.md). Build with `bash scripts/build.sh` and validate with `bash scripts/validate.sh`.
 
-## Install
-
-1. Download `ae-tuner-epicefi-0.4.5.jar` from the v0.4.5 GitHub Release.
-2. Remove older `ae-tuner-epicefi-*.jar` versions from the TunerStudio plugin directory.
-3. Install the v0.4.5 JAR and restart TunerStudio.
-4. Confirm AE Tuner reports version `0.4.5` and `PUBLIC RELEASE` identity.
-5. Use **Read Working Tune** after enabling/disabling an AE method or after changing/applying/restoring tune settings.
-
-## Building from source
-
-The TunerStudio Plugin API JAR is a third-party dependency and is intentionally not redistributed in this repository. See `lib/README.md` for local build setup.
-
-Full release details are in `CHANGELOG.md` and `docs/RELEASE_0.4.5.md`.
+See [release details](docs/RELEASE_0.4.6.md), [known limitations](docs/KNOWN_ISSUES.md), and [current state](docs/CURRENT_STATE.md).

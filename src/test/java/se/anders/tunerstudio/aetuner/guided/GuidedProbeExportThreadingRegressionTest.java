@@ -24,14 +24,14 @@ public final class GuidedProbeExportThreadingRegressionTest {
         String method = source.substring(methodStart, methodEnd);
 
         int worker = method.indexOf("doInBackground() throws Exception");
-        int report = method.indexOf("probeSession.reportText(AeTunerPlugin.VERSION)");
-        int csv = method.indexOf("probeSession.csvText()");
-        int draft = method.indexOf("probeSession.copyPasteBlock()");
-        require(worker >= 0 && report > worker && csv > worker && draft > worker,
-                "probe report/CSV/draft serialization is still performed before SwingWorker background execution");
+        int capture = method.indexOf("probeSession.exportSnapshot(AeTunerPlugin.VERSION, request)");
+        int csv = method.indexOf("exported.csvText()");
+        require(worker >= 0 && capture > worker && csv > capture,
+                "probe package capture/CSV serialization must run inside SwingWorker background execution");
 
         String edtPrefix = method.substring(0, worker);
-        require(!edtPrefix.contains("probeSession.reportText(")
+        require(!edtPrefix.contains("probeSession.exportSnapshot(")
+                        && !edtPrefix.contains("probeSession.reportText(")
                         && !edtPrefix.contains("probeSession.csvText()")
                         && !edtPrefix.contains("probeSession.copyPasteBlock()"),
                 "heavy probe export serialization leaked back onto the EDT path");

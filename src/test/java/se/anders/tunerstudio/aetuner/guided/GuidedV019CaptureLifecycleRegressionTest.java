@@ -20,10 +20,14 @@ public final class GuidedV019CaptureLifecycleRegressionTest {
             GuidedV019ProductionBridge bridge = new GuidedV019ProductionBridge(production);
 
             bridge.select(GuidedProductionTask.DECEL_DETECTION);
-            bridge.startCapture();
+            // Decel's user-visible v0.19 entry is now historical-log-first. The
+            // optional live fallback deliberately delegates to this unchanged
+            // production start path, so exercise that production lifecycle
+            // directly here rather than opening a modal evidence-source chooser.
+            production.startSelectedTaskForTest();
             require(bridge.captureState(GuidedProductionTask.DECEL_DETECTION)
                             == GuidedCaptureState.CAPTURING,
-                    "Start Capture did not synchronously expose CAPTURING to the v0.19 bridge");
+                    "Optional live Decel capture did not synchronously expose CAPTURING to the v0.19 bridge");
 
             GuidedTaskAvailability blocked = GuidedTaskAvailabilityAdapter.evaluate(
                     GuidedProductionTask.THRESHOLD_SENSITIVITY, null);

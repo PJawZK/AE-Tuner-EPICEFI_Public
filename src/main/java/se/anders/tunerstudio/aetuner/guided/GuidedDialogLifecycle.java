@@ -24,8 +24,8 @@ import java.util.WeakHashMap;
  * dispose any still-displayable child window in one operation.
  */
 public final class GuidedDialogLifecycle {
-    private static final Set<JDialog> OWNED = Collections.newSetFromMap(
-            new IdentityHashMap<JDialog, Boolean>());
+    private static final Set<Window> OWNED = Collections.newSetFromMap(
+            new IdentityHashMap<Window, Boolean>());
     private static final Set<Component> ROOTS = Collections.newSetFromMap(
             new WeakHashMap<Component, Boolean>());
     private static boolean listenerInstalled;
@@ -102,8 +102,17 @@ public final class GuidedDialogLifecycle {
     public static JDialog own(final JDialog dialog) {
         if (dialog == null) return null;
         dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        registerWindow(dialog);
+        return dialog;
+    }
+
+    static void ownFrame(javax.swing.JFrame frame) {
+        registerWindow(frame);
+    }
+
+    private static void registerWindow(final Window dialog) {
         synchronized (OWNED) {
-            if (!OWNED.add(dialog)) return dialog;
+            if (!OWNED.add(dialog)) return;
         }
         RuntimePerformanceHub.noteDialogCreated();
         dialog.addWindowListener(new WindowAdapter() {
@@ -116,13 +125,12 @@ public final class GuidedDialogLifecycle {
             }
             @Override public void windowClosed(WindowEvent event) { release(); }
         });
-        return dialog;
     }
 
     public static void disposeAll() {
-        JDialog[] snapshot;
-        synchronized (OWNED) { snapshot = OWNED.toArray(new JDialog[0]); }
-        for (JDialog dialog : snapshot) {
+        Window[] snapshot;
+        synchronized (OWNED) { snapshot = OWNED.toArray(new Window[0]); }
+        for (Window dialog : snapshot) {
             if (dialog != null) dialog.dispose();
         }
     }

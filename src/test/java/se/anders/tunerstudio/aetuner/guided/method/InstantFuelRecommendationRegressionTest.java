@@ -18,6 +18,9 @@ public final class InstantFuelRecommendationRegressionTest {
         zeroMultiplierNeverAutoEnables();
         sustainedErrorIsRejected();
         timerBelongsToSeparateSetupInhibitAuthority();
+        incompleteLateWindowsCannotAuthorizeRecommendations();
+        truncatedFinalEventDoesNotCountTowardMinimum();
+        completeLateCoverageAtGapLimitRemainsAccepted();
         System.out.println("InstantFuelRecommendationRegressionTest passed");
     }
 
@@ -47,12 +50,14 @@ public final class InstantFuelRecommendationRegressionTest {
     }
 
     private static void sustainedErrorIsRejected() {
-        InstantFuelRecommendation.Result result = InstantFuelRecommendation.evaluate(
-                snapshot(true, 1.0, 4.0), evidence(4, 0.06, 0.06));
-        require(result.plan == null,
-                "sustained same-direction error was incorrectly hidden with Instant multiplier");
-        require(result.sustainedRejected >= 3,
-                "sustained-error gate did not reject the synthetic events");
+        for (double error : new double[]{0.06, -0.06}) {
+            InstantFuelRecommendation.Result result = InstantFuelRecommendation.evaluate(
+                    snapshot(true, 1.0, 4.0), evidence(4, error, error));
+            require(result.plan == null,
+                    "sustained same-direction error was incorrectly hidden with Instant multiplier");
+            require(result.sustainedRejected == 4 && result.incompleteRejected == 0,
+                    "complete sustained lean/rich evidence was not classified as sustained");
+        }
     }
 
     private static void timerBelongsToSeparateSetupInhibitAuthority() {
@@ -67,6 +72,71 @@ public final class InstantFuelRecommendationRegressionTest {
         require(result.reviewText.contains("timer handled by the setup/inhibit task")
                         || result.reviewText.contains("timer 9.00 engine cycle(s)"),
                 "review did not preserve separate timer ownership");
+    }
+
+    private static void incompleteLateWindowsCannotAuthorizeRecommendations() {
+        String[] scenarios = {"ends before late window", "missing late lambda",
+                "clustered late samples", "gap inside late window", "missing late target",
+                "truncated late window", "missing beginning of late window"};
+        for (int mode = 0; mode < scenarios.length; mode++) {
+            List<LiveSample> samples = incompleteEvidence(mode);
+            InstantFuelRecommendation.Result result = InstantFuelRecommendation.evaluate(
+                    snapshot(true, 1.0, 4.0), samples);
+            require(result.plan == null && result.acceptedEvents == 0,
+                    scenarios[mode] + " authorized an Instant recommendation");
+            require(result.candidateEvents == 3 && result.incompleteRejected == 3
+                            && result.sustainedRejected == 0,
+                    scenarios[mode] + " was not reported as incomplete evidence");
+            require(TransientEvidenceEvent.acceptedForTask(
+                    TransientEvidenceEvent.Owner.INSTANT, samples).isEmpty(),
+                    scenarios[mode] + " entered the shared Instant task authority");
+        }
+    }
+
+    private static void truncatedFinalEventDoesNotCountTowardMinimum() {
+        List<LiveSample> samples = evidence(3, 0.055, 0.005);
+        // Keep two complete events and only 0.5 seconds of the third.
+        samples = new ArrayList<LiveSample>(samples.subList(0, 2 * 19 + 6));
+        InstantFuelRecommendation.Result result = InstantFuelRecommendation.evaluate(
+                snapshot(true, 1.0, 4.0), samples);
+        require(result.plan == null && result.acceptedEvents == 2 && result.incompleteRejected == 1,
+                "truncated final event incorrectly satisfied the three-event requirement");
+    }
+
+    private static void completeLateCoverageAtGapLimitRemainsAccepted() {
+        List<LiveSample> samples = evidence(3, 0.055, 0.005);
+        samples.removeIf(sample -> {
+            int tenth = (int) Math.round((sample.getSeconds() % 2.5) * 10.0);
+            return tenth >= 10 && tenth % 2 != 0;
+        });
+        InstantFuelRecommendation.Result result = InstantFuelRecommendation.evaluate(
+                snapshot(true, 1.0, 4.0), samples);
+        require(result.plan != null && result.acceptedEvents == 3 && result.incompleteRejected == 0,
+                "valid 200 ms late coverage was incorrectly rejected at floating-point boundaries");
+    }
+
+    private static List<LiveSample> incompleteEvidence(int mode) {
+        List<LiveSample> samples = new ArrayList<LiveSample>();
+        for (int e = 0; e < 3; e++) {
+            double t0 = e * 2.5;
+            for (int i = 0; i <= 18; i++) {
+                if ((mode == 0 && i > 5) || (mode == 5 && i > 13)) continue;
+                double lambda = i < 10 ? 1.055 : 1.005;
+                if (i >= 10 && (mode == 1 || (mode == 2 && i > 12)
+                        || (mode == 3 && i >= 13 && i <= 16)
+                        || (mode == 6 && i <= 15))) lambda = Double.NaN;
+                LiveSample sample = sample(t0 + i * 0.1, 11.0 + e, i == 0 ? 0.8 : 0.0, lambda);
+                if (mode == 4 && i >= 10) {
+                    EnumMap<ChannelRole, Double> values = new EnumMap<ChannelRole, Double>(ChannelRole.class);
+                    for (ChannelRole role : ChannelRole.values()) values.put(role, sample.get(role));
+                    values.put(ChannelRole.TARGET_LAMBDA, Double.NaN);
+                    sample = new LiveSample(sample.getNanoTime(), sample.getSeconds(), values,
+                            sample.getTpsDot(), sample.getMapDot());
+                }
+                samples.add(sample);
+            }
+        }
+        return samples;
     }
 
     private static List<LiveSample> evidence(int events, double earlyError,

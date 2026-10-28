@@ -36,6 +36,7 @@ final class TransientEvidenceEvent {
         final double earlyError;
         final double lateError;
         final int earlySamples;
+        final boolean lateWindowComplete;
         final boolean fuelCut;
         final boolean tpsAeOverlap;
         final boolean wallOverlap;
@@ -45,6 +46,7 @@ final class TransientEvidenceEvent {
         Event(Owner owner, double startSeconds,
               double rpm, double tps, double map, double clt, double deltaTps,
               double earlyError, double lateError, int earlySamples,
+              boolean lateWindowComplete,
               boolean fuelCut, boolean tpsAeOverlap, boolean wallOverlap,
               boolean instantOverlap, boolean mapPredictOverlap) {
             this.owner = owner;
@@ -57,6 +59,7 @@ final class TransientEvidenceEvent {
             this.earlyError = earlyError;
             this.lateError = lateError;
             this.earlySamples = earlySamples;
+            this.lateWindowComplete = lateWindowComplete;
             this.fuelCut = fuelCut;
             this.tpsAeOverlap = tpsAeOverlap;
             this.wallOverlap = wallOverlap;
@@ -65,7 +68,9 @@ final class TransientEvidenceEvent {
         }
 
         boolean complete() {
-            return !fuelCut && earlySamples >= 3 && Double.isFinite(earlyError);
+            return !fuelCut && earlySamples >= 3 && Double.isFinite(earlyError)
+                    && (owner != Owner.INSTANT
+                        || (lateWindowComplete && Double.isFinite(lateError)));
         }
 
         boolean sustainedSameDirection(double limit) {
@@ -86,9 +91,15 @@ final class TransientEvidenceEvent {
 
     private static final double TPS_GAP_SECONDS = 0.45;
     private static final double WALL_GAP_SECONDS = 0.55;
+    private static final double WALL_REARM_SECONDS = 0.20;
+    private static final double TIME_EPSILON = 1.0e-9;
     private static final double INSTANT_GAP_SECONDS = 0.55;
     private static final double LATE_START_SECONDS = 1.00;
     private static final double WINDOW_END_SECONDS = 1.80;
+    // Instant sustained-error rejection needs coverage across the whole late
+    // window, not merely a few clustered samples. Allow at most 200 ms without
+    // valid measured/target lambda, including either window boundary.
+    private static final double MAX_LATE_SAMPLE_GAP_SECONDS = 0.20;
 
     private TransientEvidenceEvent() { }
 
@@ -101,9 +112,11 @@ final class TransientEvidenceEvent {
         double lastInstantCounter = Double.NaN;
         boolean lastInstantPulse = false;
         boolean lastTpsActive = false;
+        WallOpeningGate wallGate = owner == Owner.WALL ? new WallOpeningGate() : null;
 
         for (int i = 0; i < samples.size(); i++) {
             LiveSample start = samples.get(i);
+            boolean wallAnchor = wallGate != null && wallGate.accept(start);
             if (start == null || !Double.isFinite(start.getSeconds())) continue;
 
             double counter = start.get(ChannelRole.INSTANT_PULSE_CNT);
@@ -126,7 +139,7 @@ final class TransientEvidenceEvent {
             if (owner == Owner.TPS_AE) {
                 anchor = tpsEdge;
             } else if (owner == Owner.WALL) {
-                anchor = opening(start) && wallActive(start);
+                anchor = wallAnchor;
             } else {
                 // Once a counter baseline exists, counter edges are authoritative.
                 // If capture begins exactly on the first pulse there is no prior
@@ -145,6 +158,9 @@ final class TransientEvidenceEvent {
             double earlyEnd = owner == Owner.INSTANT ? 0.85 : 0.95;
             List<Double> early = new ArrayList<Double>();
             List<Double> late = new ArrayList<Double>();
+            double lastValidLateTime = LATE_START_SECONDS;
+            boolean lateCoverage = true;
+            boolean observedWindowEnd = false;
             boolean fuelCut = false;
             boolean tpsOverlap = false;
             boolean wallOverlap = false;
@@ -156,6 +172,7 @@ final class TransientEvidenceEvent {
                 LiveSample sample = samples.get(j);
                 if (sample == null || !Double.isFinite(sample.getSeconds())) continue;
                 double dt = sample.getSeconds() - t0;
+                if (dt + TIME_EPSILON >= WINDOW_END_SECONDS) observedWindowEnd = true;
                 if (dt > WINDOW_END_SECONDS) break;
                 if (sample.bool(ChannelRole.DFCO) || sample.bool(ChannelRole.FUEL_CUT)) {
                     fuelCut = true;
@@ -171,7 +188,14 @@ final class TransientEvidenceEvent {
                 if (!validLambda(lambda, target)) continue;
                 double error = lambda - target;
                 if (dt >= earlyStart && dt <= earlyEnd) early.add(error);
-                if (dt >= LATE_START_SECONDS && dt <= WINDOW_END_SECONDS) late.add(error);
+                if (dt >= LATE_START_SECONDS && dt <= WINDOW_END_SECONDS) {
+                    if ((!late.isEmpty() && dt <= lastValidLateTime)
+                            || dt - lastValidLateTime > MAX_LATE_SAMPLE_GAP_SECONDS + TIME_EPSILON) {
+                        lateCoverage = false;
+                    }
+                    lastValidLateTime = dt;
+                    late.add(error);
+                }
             }
 
             double earlyError = robustSignedError(early);
@@ -180,7 +204,11 @@ final class TransientEvidenceEvent {
                     start.get(ChannelRole.RPM), start.get(ChannelRole.TPS),
                     start.get(ChannelRole.MAP), start.get(ChannelRole.COOLANT),
                     start.get(ChannelRole.DELTA_TPS),
-                    earlyError, lateError, early.size(), fuelCut,
+                    earlyError, lateError, early.size(),
+                    observedWindowEnd && late.size() >= 3 && lateCoverage
+                            && WINDOW_END_SECONDS - lastValidLateTime
+                                <= MAX_LATE_SAMPLE_GAP_SECONDS + TIME_EPSILON,
+                    fuelCut,
                     tpsOverlap, wallOverlap, instantOverlap, mapOverlap));
             lastStart = t0;
         }
@@ -198,6 +226,48 @@ final class TransientEvidenceEvent {
             accepted.add(event);
         }
         return Collections.unmodifiableList(accepted);
+    }
+
+    /**
+     * One Wall-active opening per movement. Re-arm requires 200 ms of finite,
+     * continuously observed non-opening movement data; residual Wall correction
+     * need not vanish between separate pedal movements.
+     */
+    private static final class WallOpeningGate {
+        private boolean armed = true;
+        private double quietSince = Double.NaN;
+        private double lastSeconds = Double.NaN;
+
+        boolean accept(LiveSample sample) {
+            if (sample == null || !Double.isFinite(sample.getSeconds())) {
+                quietSince = Double.NaN;
+                lastSeconds = Double.NaN;
+                return false;
+            }
+            double now = sample.getSeconds();
+            // A missing interval cannot prove a continuous quiet period.
+            if (!Double.isFinite(lastSeconds) || now <= lastSeconds
+                    || now - lastSeconds > WALL_REARM_SECONDS + TIME_EPSILON) {
+                quietSince = Double.NaN;
+            }
+            lastSeconds = now;
+            if (opening(sample)) {
+                quietSince = Double.NaN;
+                if (!armed || !wallActive(sample)) return false;
+                // Consume the onset even when collect() later rejects it for
+                // minimum spacing; an ongoing movement must not slide forward.
+                armed = false;
+                return true;
+            }
+            if (!Double.isFinite(sample.getTpsDot())
+                    || !Double.isFinite(sample.get(ChannelRole.SMOOTHED_DELTA_TPS))) {
+                quietSince = Double.NaN;
+                return false;
+            }
+            if (!Double.isFinite(quietSince)) quietSince = now;
+            if (now - quietSince + TIME_EPSILON >= WALL_REARM_SECONDS) armed = true;
+            return false;
+        }
     }
 
     private static boolean opening(LiveSample sample) {

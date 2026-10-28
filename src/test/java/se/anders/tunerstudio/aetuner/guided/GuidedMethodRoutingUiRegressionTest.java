@@ -241,9 +241,15 @@ public final class GuidedMethodRoutingUiRegressionTest {
                     "MAP Predict UI route did not feed its evidence session");
             require(panel.probeActivityEventCountForTest() == 1,
                     "MAP Predict UI did not expose distinct event accumulation");
+            require(panel.proposalTextForTest().contains("Observed coherent samples: 2")
+                            && !panel.proposalTextForTest().contains("Peak smoothedDeltaTps / AccelThreshold"),
+                    "MAP Predict live UI did not use lightweight capture status");
+            require(!panel.applyCurrentProposalEnabledForTest(),
+                    "active capture gained evidence-derived Apply authority");
+            panel.finishSelectedTaskForTest();
             require(panel.proposalTextForTest().contains("CURRENT CAPTURE METRICS")
                             && panel.proposalTextForTest().contains("Peak smoothedDeltaTps / AccelThreshold"),
-                    "MAP Predict review did not expose useful accumulated metrics");
+                    "MAP Predict Finish/Review lost its accumulated metrics");
             require(!panel.applyCurrentProposalEnabledForTest(),
                     "capture evidence alone must not invent a changed ProposalWritePlan");
         } finally {

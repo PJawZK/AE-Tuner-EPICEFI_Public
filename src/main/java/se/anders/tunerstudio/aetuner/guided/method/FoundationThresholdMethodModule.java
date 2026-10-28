@@ -82,6 +82,11 @@ public final class FoundationThresholdMethodModule extends AbstractProbeMethodMo
         return result.plan;
     }
 
+    @Override public synchronized void clearLifecycleCache() {
+        reviewDirty = true;
+        lastEvidenceReview = defaultReviewText();
+    }
+
     private static String defaultReviewText() {
         return "Evidence review will show frozen quiet calibration, guided Normal Correction / Acceleration Opening event counts, rejected physical-shape mismatches, locked effective-space separation and separate static Dynamic/inversion authority. Before sufficient locked evidence exists, no ProposalWritePlan is produced. When eligible, only evidence-backed static tpsAeThresholdValue bins may be proposed; no automatic Apply and no burn.";
     }

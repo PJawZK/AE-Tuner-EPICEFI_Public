@@ -16,6 +16,7 @@ public final class ProposalApplyCoordinatorBitSelectionRegressionTest {
         staleGenericBitIsBlockedBeforeWrite();
         invalidFrozenEnumStateIsBlockedWithoutWrite();
         numericScalarPathRemainsNumeric();
+        optionMutationBeforeExceptionIsRolledBack();
         System.out.println("ProposalApplyCoordinatorBitSelectionRegressionTest passed");
     }
 
@@ -131,6 +132,24 @@ public final class ProposalApplyCoordinatorBitSelectionRegressionTest {
                 "ordinary numeric scalar wrote wrong value");
     }
 
+    private static void optionMutationBeforeExceptionIsRolledBack() {
+        FakeBackend backend = new FakeBackend();
+        String parameter = AeParameterNames.WALL_WETTING_AE_ENABLED;
+        backend.addOption("cfg", parameter, 0, "false", "true");
+        backend.failAfterFirstOptionMutation = true;
+        ProposalApplyCoordinator coordinator = new ProposalApplyCoordinator(backend);
+        ProposalApplyCoordinator.ApplyResult result = coordinator.apply(
+                scalarPlan(parameter, 0.0, 1.0, "Enable Wall Wetting"));
+        require(!result.success && result.message.contains("rollback PASS"),
+                "throwing option write was not recovered: " + result.message);
+        require(backend.optionIndex("cfg", parameter) == 0,
+                "throwing option write escaped rollback");
+        require(backend.optionWriteCount == 2, "option rollback did not use option-selection API");
+        require(backend.scalarWriteCount == 0 && backend.scalarReadCount == 0,
+                "option recovery used shared-word scalar API");
+        require(coordinator.applyDepth() == 0, "failed option Apply created restore history");
+    }
+
     private static ProposalWritePlan scalarPlan(String parameterName,
                                                 double before, double after,
                                                 String label) {
@@ -146,6 +165,7 @@ public final class ProposalApplyCoordinatorBitSelectionRegressionTest {
         int scalarReadCount;
         int scalarWriteCount;
         int optionWriteCount;
+        boolean failAfterFirstOptionMutation;
 
         void addOption(String configurationName, String parameterName,
                        int currentIndex, String... labels) {
@@ -202,6 +222,9 @@ public final class ProposalApplyCoordinatorBitSelectionRegressionTest {
             }
             optionWriteCount++;
             state.currentIndex = optionIndex;
+            if (failAfterFirstOptionMutation && optionWriteCount == 1) {
+                throw new IllegalStateException("option mutation before failure");
+            }
         }
 
         @Override

@@ -85,7 +85,6 @@ final class GuidedV019BlendDurationFocus extends GuidedV019FocusBase {
         lower.add(summaryGrid("Capture context",
                 new String[]{"Entry RPM region", "Existing Blend (context)", "TPS step", "Comparable", "Authority"},
                 new JLabel[]{rpmRegion, currentBlend, tpsStep, accepted, authority}));
-        lower.setPreferredSize(new Dimension(100, 96));
         root.add(lower, BorderLayout.SOUTH);
         return root;
     }
@@ -306,9 +305,8 @@ final class GuidedV019BlendDurationFocus extends GuidedV019FocusBase {
 
                 g2.setFont(SMALL);
                 g2.setColor(AeUiTheme.focusMuted());
-                g2.drawString("Blue: pedal/TPS", a.left + 8, a.bottom - 8);
-                g2.drawString("Green: measured physical MAP — time 20% → 80%", a.left + 112, a.bottom - 8);
-                g2.drawString("Dashed: prediction diagnostic only", a.left + 8, a.mapTop + 12);
+                g2.drawString("Blue TPS / Green measured MAP", a.left, a.bottom - 15);
+                g2.drawString("Dashed prediction: diagnostic only", a.left, a.bottom - 2);
             } finally {
                 g2.dispose();
             }
@@ -388,7 +386,7 @@ final class GuidedV019BlendDurationFocus extends GuidedV019FocusBase {
                         ? "Physical 20→80 " + fmtMillis(model.physicalResponseSeconds)
                             + (model.boundedLateWindow ? " — bounded late-window evidence" : "")
                         : "Physical 20→80 timing in progress";
-                g2.drawString(duration, a.left + 8, a.bottom - 8);
+                g2.drawString(duration, a.left + 8, a.bottom - 2);
             } finally {
                 g2.dispose();
             }
@@ -456,17 +454,18 @@ final class GuidedV019BlendDurationFocus extends GuidedV019FocusBase {
         final int tpsTop, tpsBottom, mapTop, mapBottom;
 
         PlotArea(int width, int height) {
-            left = 48;
-            right = Math.max(left + 80, width - 18);
-            top = 28;
-            bottom = Math.max(top + 120, height - 28);
-            laneGap = 20;
-            int usable = bottom - top - laneGap - 24;
-            int half = Math.max(45, usable / 2);
-            tpsTop = top + 16;
+            left = Math.min(6, Math.max(0, width / 4));
+            right = Math.max(left, width - left);
+            top = 20;
+            bottom = Math.max(0, height - 2);
+            laneGap = 14;
+            // Fit both physical lanes and the captions inside the actual chart,
+            // including the compact Driver layout after window/session controls.
+            tpsTop = Math.min(top + 12, Math.max(0, height / 3));
+            mapBottom = Math.max(tpsTop, height - 28);
+            int half = Math.max(0, (mapBottom - tpsTop - laneGap) / 2);
             tpsBottom = tpsTop + half;
-            mapTop = tpsBottom + laneGap;
-            mapBottom = mapTop + half;
+            mapTop = Math.min(mapBottom, tpsBottom + laneGap);
         }
 
         int x(double fraction) {

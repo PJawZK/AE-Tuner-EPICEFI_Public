@@ -1,49 +1,25 @@
 # AE Tuner current public state
 
-- Release target: **`v0.4.5`**
-- Previous public release: `v0.4.4`
-- Qualified private runtime identity: `0.4.5-vehicle-test.16`
-- Exact qualified private runtime source: `b9ec558a206408dd4e19cff8ce24b2eceb36f331`
-- Private runtime qualification: CI **#1712 / run `35534865479` — PASS**
-- Private post-merge qualification: CI **#1713 / run `35535012493` — PASS**
-- Canonical private vehicle-test JAR SHA-256: `5b6738f29caa5a153ffbd1a8aeaa637321af50dcfc0340eb5c25114b31ac1860`
-- Public runtime promotion commit: `5afb85c416a24026cde53e3148b4787c3a641837`
-- Public release candidate branch: `20260921-release-v045`
-- Public candidate version: `0.4.5`
-- Canonical public JAR target: `ae-tuner-epicefi-0.4.5.jar`
-- Final public qualification/JAR SHA-256: to be recorded from the exact qualified public PR head before merge/release.
-- Java target: Java 8 bytecode
+- Latest public release: **v0.4.6**; previous: **v0.4.5**
+- Source branch: `main`
+- Exact qualified public-identity build source: `baddb47d3a13b2e772d5b6154f735f2f8c2ddb38`
+- GitHub Actions: **#1932 / run 40725785125 — PASS**
+- Canonical public JAR: `ae-tuner-epicefi-0.4.6.jar`
+- JAR SHA-256: `31e23679f055789be0073f35e810f1ae793e0713dfc381c92e293c98ecdc19dd`
+- Java target: Java 8; compilation/CI JDK: Java 17
 
-## Current product state
+## Runtime and capabilities
 
-The normal Guided v0.19 workspace remains the public presentation authority. Capture is read-only. Evidence-derived changes require a review-ready task and an explicit reviewed plan.
+Guided v0.19 remains the production workspace. It offers Foundation, TPS AE, MAP Predict, Wall Wetting, Instant Fuel and Decel/Tip-out workflows. Recent changes improve Cancel/Start Over, current-state coaching, historical Decel analysis and independent cross-log physical-event pooling, responsive scroll/wrap/fixed-footer pop-outs and lifecycle/recovery/export performance.
 
-AE Foundation Focus uses rolling live graphs for TPS movement, `Fuel: TPS AE change` and `AccelThreshold` so the relevant controller behavior can be read together during a road session.
+Decel analysis uses threshold-independent physical event classification (`classification-boundary-v2`) and refuses incompatible cross-log pooling (`detector-compatible-pool-v1`). Unresolved cells are **NEED EVIDENCE**, not inferred zero or extrapolated values.
 
-Blend Duration now treats real physical MAP response as the primary timing authority. Timing is measured over the central 20→80% portion of the observed MAP movement after a stable throttle opening. Predictive/fallback/current-tune replay remains diagnostic/context evidence rather than a physical catch-up target.
+## Safety
 
-A Blend session may arm 1–4 actual Working Tune RPM bins. A stable armed bin is acquired with the existing ±300 RPM entry/READY authority and a 0.65 s dwell, then remains immutable through that event. Evidence/progress is retained per bin and never merged across RPM bins. After the opening begins, RPM is no longer a ceiling for the event.
+Only explicitly reviewed plans can request Working Tune/RAM writes through `ProposalWritePlan → ProposalApplyCoordinator → stale check → write → exact readback → rollback/Restore`. No automatic Apply, no Burn, no VE/ignition tuning.
 
-Completed comparable Blend events use the comparable-group median as the completed series result. Result presentation distinguishes complete evidence from partial recommendation maturity.
+Software safety/regression checks passed; broader vehicle and task-specific numerical tuning qualification remains unfinished. See `docs/KNOWN_ISSUES.md` and `docs/RELEASE_0.4.6.md` for scope.
 
-The final multi-bin Blend selection/latching workflow was exercised on the vehicle and behaved as intended. This is a workflow validation statement, not a blanket claim that every numerical recommendation or AE method is physically validated.
+## Source integrity
 
-## Safety / write authority
-
-Supported working-tune writes remain centralized through:
-
-`ProposalWritePlan → ProposalApplyCoordinator → write → exact readback → Restore snapshot`
-
-Hard constraints:
-
-- no Burn;
-- no alternate writer;
-- no hidden recipe-local mutation path;
-- explicit reviewed plan required for evidence-derived changes;
-- stale-baseline preflight;
-- exact target scope;
-- exact readback verification;
-- rollback after partial failure;
-- verified Restore.
-
-Matching TunerStudio `.mlg` evidence remains the authority for physical engine response.
+Public `src/`, `scripts/`, `pom.xml` are synchronized with the qualified release build source. The third-party TunerStudio Plugin API binary and all private vehicle data are excluded.

@@ -35,7 +35,6 @@ public final class EvidenceRecoveryManager {
     private ScheduledExecutorService executor;
     private boolean cleanupScheduled;
     private final AtomicBoolean writing = new AtomicBoolean();
-    private final Object scheduleLock = new Object();
     private ScheduledFuture<?> dirtyFuture;
     private volatile Path startupRecovery;
     private volatile String status = "Automatic recovery waiting for Guided evidence.";
@@ -79,7 +78,8 @@ public final class EvidenceRecoveryManager {
     }
 
     private ScheduledExecutorService newExecutor() {
-        return Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+        final ScheduledExecutorService previous = executor;
+        ScheduledExecutorService next = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
             @Override public Thread newThread(Runnable runnable) {
                 Thread thread = new Thread(runnable, "ae-tuner-guided-recovery");
                 thread.setDaemon(true);
@@ -87,24 +87,36 @@ public final class EvidenceRecoveryManager {
                 return thread;
             }
         });
+        if (previous != null && !previous.isTerminated()) {
+            // Hide/reopen/final-close can overlap. Drain the prior worker before
+            // a replacement captures or writes, so an older checkpoint cannot
+            // overwrite (or suppress) the authoritative final checkpoint.
+            next.submit(new Runnable() {
+                @Override public void run() {
+                    boolean interrupted = false;
+                    while (!previous.isTerminated()) {
+                        try { previous.awaitTermination(1L, TimeUnit.DAYS); }
+                        catch (InterruptedException ex) { interrupted = true; }
+                    }
+                    if (interrupted) Thread.currentThread().interrupt();
+                }
+            });
+        }
+        return next;
     }
 
-    public void requestCheckpoint() {
-        synchronized (scheduleLock) {
-            ScheduledExecutorService active = executor;
-            if (active == null || active.isShutdown()) return;
-            if (dirtyFuture != null && !dirtyFuture.isDone()) return;
-            dirtyFuture = active.schedule(new Runnable() {
-                @Override public void run() { checkpoint("evidence changed"); }
-            }, DIRTY_DELAY_SECONDS, TimeUnit.SECONDS);
-        }
+    public synchronized void requestCheckpoint() {
+        ScheduledExecutorService active = executor;
+        if (active == null || active.isShutdown()) return;
+        if (dirtyFuture != null && !dirtyFuture.isDone()) return;
+        dirtyFuture = active.schedule(new Runnable() {
+            @Override public void run() { checkpoint("evidence changed"); }
+        }, DIRTY_DELAY_SECONDS, TimeUnit.SECONDS);
     }
 
-    private void cancelDirtyCheckpoint() {
-        synchronized (scheduleLock) {
-            if (dirtyFuture != null && !dirtyFuture.isDone()) dirtyFuture.cancel(false);
-            dirtyFuture = null;
-        }
+    private synchronized void cancelDirtyCheckpoint() {
+        if (dirtyFuture != null && !dirtyFuture.isDone()) dirtyFuture.cancel(false);
+        dirtyFuture = null;
     }
 
     void checkpoint(String reason) {
@@ -182,34 +194,46 @@ public final class EvidenceRecoveryManager {
         return mix(hash, value == null ? 0 : value.hashCode());
     }
 
-    /**
-     * Hide/final close only schedules the final capture on the recovery worker.
-     * If called on Swing EDT it returns immediately; a non-EDT final close may
-     * wait briefly for the worker to finish.
-     */
+    /** Hide only: keep the model available for reopening after its checkpoint. */
     public void flushAndClose() {
-        final ScheduledExecutorService active;
-        synchronized (this) { active = executor; }
-        if (active == null || active.isShutdown()) return;
+        flushAndClose(null);
+    }
 
-        cancelDirtyCheckpoint();
-        active.submit(new Runnable() {
-            @Override public void run() { checkpoint("plugin close"); }
-        });
-        active.shutdown();
+    /**
+     * Final close retains the stopped model until the worker has captured and
+     * saved its immutable recovery snapshot. Cleanup runs on that worker even
+     * if recovery fails. No report generation or disk I/O is moved onto Swing.
+     */
+    public void flushAndClose(final Runnable afterCheckpoint) {
+        final ScheduledExecutorService active;
+        synchronized (this) {
+            if (executor == null || executor.isShutdown()) {
+                if (afterCheckpoint == null) return;
+                // A hidden plugin may never have started periodic recovery.
+                executor = newExecutor();
+            }
+            active = executor;
+            cancelDirtyCheckpoint();
+            active.submit(new Runnable() {
+                @Override public void run() {
+                    try {
+                        checkpoint("plugin close");
+                    } finally {
+                        if (afterCheckpoint != null) afterCheckpoint.run();
+                    }
+                }
+            });
+            active.shutdown();
+        }
 
         if (!SwingUtilities.isEventDispatchThread()) {
             try {
-                if (!active.awaitTermination(NON_EDT_CLOSE_WAIT_SECONDS, TimeUnit.SECONDS)) {
-                    active.shutdownNow();
-                }
+                // A timeout must not cancel the queued final checkpoint or its
+                // cleanup; both remain owned by the worker after close returns.
+                active.awaitTermination(NON_EDT_CLOSE_WAIT_SECONDS, TimeUnit.SECONDS);
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
-                active.shutdownNow();
             }
-        }
-        synchronized (this) {
-            if (executor == active) executor = null;
         }
     }
 

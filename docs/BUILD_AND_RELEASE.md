@@ -43,7 +43,21 @@ A stable or public-test release requires:
 - no TunerStudio Plugin API redistribution;
 - release wording that distinguishes software validation from numerical tuning maturity.
 
-## Current v0.4.5 provenance
+## Current v0.4.6 provenance
+
+- Qualified public release identity source:
+  `baddb47d3a13b2e772d5b6154f735f2f8c2ddb38`
+- Hosted CI #1932 / run `40725785125`: PASS.
+- Canonical JAR: `ae-tuner-epicefi-0.4.6.jar`
+- SHA-256: `31e23679f055789be0073f35e810f1ae793e0713dfc381c92e293c98ecdc19dd`
+- Public `src/` Git tree equals qualified source:
+  `8994413bbe24d7c7d26141831993280e17ab7a5e`
+- Public `scripts/` Git tree equals qualified source:
+  `2b622939f51977315894293acd83963b8908a540`
+- `pom.xml` matches the qualified build source.
+- Proprietary TunerStudio API JAR and private vehicle logs/tunes are excluded.
+
+## Historical v0.4.5 provenance
 
 - qualified private runtime source: `b9ec558a206408dd4e19cff8ce24b2eceb36f331`;
 - exact public-identity qualification source: `5e08562fd31295aab3fd1b150d03b681d3c79738`;

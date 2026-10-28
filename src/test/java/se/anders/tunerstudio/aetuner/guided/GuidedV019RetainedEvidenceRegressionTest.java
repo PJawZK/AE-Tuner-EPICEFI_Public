@@ -18,7 +18,7 @@ public final class GuidedV019RetainedEvidenceRegressionTest {
         String source = new String(Files.readAllBytes(Paths.get(
                 "src/main/java/se/anders/tunerstudio/aetuner/guided/GuidedV019ProductionBridge.java")),
                 StandardCharsets.UTF_8);
-        int start = source.indexOf("private void retainCompletedProbe(");
+        int start = source.indexOf("private boolean retainCompletedProbe(");
         int end = source.indexOf("private GuidedMethodProbeSession probeSession()", start);
         require(start >= 0 && end > start,
                 "could not isolate v0.19 completed-probe retention path");

@@ -78,6 +78,7 @@ final class GuidedTaskSettingsDialog extends JDialog {
         this.workspace = new AeUtilityWorkspacePanel(
                 "Task Settings — " + draft.getTask().displayName,
                 "Review Working Tune → Proposed values. Editing is draft-only until a real plan is staged for Guided Apply.");
+        GuidedTaskControls.install(this);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setContentPane(buildUi());
         setPreferredSize(new Dimension(1060, 720));
@@ -399,6 +400,7 @@ final class GuidedTaskSettingsDialog extends JDialog {
         root.add(buttons, BorderLayout.SOUTH);
         AeUtilityWorkspacePanel.themeTree(root);
 
+        GuidedTaskControls.install(review);
         review.setContentPane(root);
         review.setMinimumSize(new Dimension(720, 500));
         review.setSize(780, 560);
@@ -435,6 +437,7 @@ final class GuidedTaskSettingsDialog extends JDialog {
         root.add(body, BorderLayout.CENTER);
         root.add(footer, BorderLayout.SOUTH);
         AeUtilityWorkspacePanel.themeTree(root);
+        GuidedTaskControls.install(messageDialog);
         messageDialog.setContentPane(root);
         messageDialog.setSize(new Dimension(560, 260));
         messageDialog.setLocationRelativeTo(this);

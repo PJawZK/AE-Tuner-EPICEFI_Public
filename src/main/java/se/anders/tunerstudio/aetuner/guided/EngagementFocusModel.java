@@ -206,6 +206,7 @@ public final class EngagementFocusModel {
             return "TIMING PAIR COMPLETE\n1/2 Delta Window and 2/2 Sample Length are both resolved from accumulated evidence.";
         }
         if (captureState == GuidedCaptureState.PAUSED) return "PAUSED\nResume when safe.";
+        if (captureState.isCaptureInProgress() && !channelsReady) return "WAIT FOR LIVE DATA\nRPM, TPS and AccelThreshold must be available before making a pedal movement.";
         if (captureState == GuidedCaptureState.IDLE) return "START PASSIVE CAPTURE\nThe first usable opening will set a visual TPS reference marker.";
         if (passive.moving) return "LET IT PEAK NATURALLY\nNo exact TPS target and no hold are required.";
         if (passive.settling) return "LET TPS SETTLE\nRelease the pedal and wait for the physical event to re-arm before the next opening.";

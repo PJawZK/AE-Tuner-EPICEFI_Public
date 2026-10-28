@@ -326,6 +326,13 @@ public final class ProposalApplyCoordinator {
                             "multiple scalar writes declared for " + parameterName);
                 }
                 ProposalWritePlan.Change change = changes.get(0);
+                // Reject invalid local option codes before any controller write
+                // can be attempted (including recovery of an earlier parameter).
+                if (isCanonicalBitSelection(parameterName)) {
+                    requireValidBitOptionIndex(requireBitDefinition(parameterName),
+                            integralCode(change.proposedValue, parameterName + " option index"),
+                            parameterName);
+                }
                 double current = readScalarForComparison(configurationName, parameterName);
                 requireMatch(change.expectedValue, current,
                         change.targetText() + " is stale");
@@ -353,15 +360,16 @@ public final class ProposalApplyCoordinator {
                                 LinkedHashMap<String, ParameterState> desired,
                                 boolean restore) {
         String configurationName = plan.getConfigurationName();
-        List<String> written = new ArrayList<String>();
+        List<String> attempted = new ArrayList<String>();
         try {
             verifyCurrentMatches(configurationName, expectedCurrent,
                     restore ? "Restore blocked by stale working tune"
                             : "Apply blocked by stale working tune");
 
             for (ParameterState state : desired.values()) {
+                // A host exception does not prove that the controller was unchanged.
+                attempted.add(state.parameterName);
                 writeState(configurationName, state);
-                written.add(state.parameterName);
             }
 
             verifyCurrentMatches(configurationName, desired,
@@ -374,7 +382,7 @@ public final class ProposalApplyCoordinator {
                             + plan.getDisplayName()
                             + "; read-back PASS; no burn was requested.");
         } catch (Exception failure) {
-            String rollback = rollback(configurationName, expectedCurrent, written);
+            String rollback = rollback(configurationName, expectedCurrent, attempted);
             return ApplyResult.failure(restore,
                     (restore ? "Restore failed: " : "Apply failed: ")
                             + safeMessage(failure) + ". " + rollback);
@@ -383,46 +391,65 @@ public final class ProposalApplyCoordinator {
 
     private String rollback(String configurationName,
                             LinkedHashMap<String, ParameterState> original,
-                            List<String> written) {
-        if (written.isEmpty()) {
-            return "No value had been written.";
+                            List<String> attempted) {
+        if (attempted.isEmpty()) {
+            return "No controller write was attempted.";
         }
-        List<String> reversed = new ArrayList<String>(written);
+        List<String> reversed = new ArrayList<String>(attempted);
         Collections.reverse(reversed);
-        try {
-            for (String parameterName : reversed) {
-                ParameterState state = original.get(parameterName);
-                if (state != null) {
-                    writeState(configurationName, state);
-                }
+        List<String> writeFailures = new ArrayList<String>();
+        for (String parameterName : reversed) {
+            try {
+                writeState(configurationName, original.get(parameterName));
+            } catch (Exception rollbackFailure) {
+                writeFailures.add(parameterName + ": " + safeMessage(rollbackFailure));
             }
-            verifyCurrentMatches(configurationName, original,
-                    "rollback read-back mismatch");
-            return "Best-effort rollback PASS.";
-        } catch (Exception rollbackFailure) {
-            return "ROLLBACK COULD NOT BE VERIFIED: " + safeMessage(rollbackFailure);
         }
+
+        // Readback is authoritative even when a rollback write itself threw.
+        // Check every parameter independently: one failed write/read must not
+        // prevent recovery or verification of the remaining transaction.
+        List<String> verificationFailures = new ArrayList<String>();
+        for (ParameterState state : original.values()) {
+            try {
+                verifyStateMatches(configurationName, state, "rollback read-back mismatch");
+            } catch (Exception verificationFailure) {
+                verificationFailures.add(state.parameterName + ": " + safeMessage(verificationFailure));
+            }
+        }
+        String writeDetails = writeFailures.isEmpty() ? ""
+                : " Rollback write exceptions: " + writeFailures + ".";
+        if (verificationFailures.isEmpty()) {
+            return "Best-effort rollback PASS." + writeDetails;
+        }
+        return "ROLLBACK COULD NOT BE VERIFIED: " + verificationFailures + "."
+                + writeDetails;
     }
 
     private void verifyCurrentMatches(String configurationName,
                                       LinkedHashMap<String, ParameterState> expected,
                                       String prefix) throws Exception {
         for (ParameterState state : expected.values()) {
-            if (state.kind == ProposalWritePlan.Kind.SCALAR) {
-                double current = readScalarForComparison(configurationName, state.parameterName);
-                requireMatch(state.scalar, current,
-                        prefix + " at " + state.parameterName);
-            } else {
-                double[][] current = backend.readArray(configurationName, state.parameterName);
-                if (!sameShape(state.array, current)) {
-                    throw new IllegalStateException(prefix + " at " + state.parameterName
-                            + ": array shape changed");
-                }
-                int count = flatCount(state.array);
-                for (int i = 0; i < count; i++) {
-                    requireMatch(getFlat(state.array, i), getFlat(current, i),
-                            prefix + " at " + state.parameterName + "[" + i + "]");
-                }
+            verifyStateMatches(configurationName, state, prefix);
+        }
+    }
+
+    private void verifyStateMatches(String configurationName, ParameterState state,
+                                    String prefix) throws Exception {
+        if (state.kind == ProposalWritePlan.Kind.SCALAR) {
+            double current = readScalarForComparison(configurationName, state.parameterName);
+            requireMatch(state.scalar, current,
+                    prefix + " at " + state.parameterName);
+        } else {
+            double[][] current = backend.readArray(configurationName, state.parameterName);
+            if (!sameShape(state.array, current)) {
+                throw new IllegalStateException(prefix + " at " + state.parameterName
+                        + ": array shape changed");
+            }
+            int count = flatCount(state.array);
+            for (int i = 0; i < count; i++) {
+                requireMatch(getFlat(state.array, i), getFlat(current, i),
+                        prefix + " at " + state.parameterName + "[" + i + "]");
             }
         }
     }

@@ -29,6 +29,7 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.host.AeApplyRestoreValidationTargetsRegressionTest \
     se.anders.tunerstudio.aetuner.host.GuidedWriteCapabilityMaturityRegressionTest \
     se.anders.tunerstudio.aetuner.host.ProposalApplyCoordinatorRegressionTest \
+    se.anders.tunerstudio.aetuner.host.GuidedTaskCancelRestoreRegressionTest \
     se.anders.tunerstudio.aetuner.host.ProposalApplyCoordinatorMultiCellRegressionTest \
     se.anders.tunerstudio.aetuner.host.ProposalApplyCoordinatorBitSelectionRegressionTest \
     se.anders.tunerstudio.aetuner.host.AeApplyRestoreValidationEngineRegressionTest \
@@ -64,6 +65,7 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.guided.BlendDurationFirmwareContractRegressionTest \
     se.anders.tunerstudio.aetuner.guided.BlendRuntimePresentationRegressionTest \
     se.anders.tunerstudio.aetuner.guided.FoundationLiveGraphPresentationRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedAuditFindingsRegressionTest \
     se.anders.tunerstudio.aetuner.guided.PhaseA2AdaptiveTypeMigrationTest \
     se.anders.tunerstudio.aetuner.guided.GuidedMethodProbeSessionRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedEvidenceReadinessRegressionTest \
@@ -88,6 +90,7 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.guided.GuidedV019RetainedEvidenceRegressionTest \
     se.anders.tunerstudio.aetuner.guided.method.GuidedAeMethodModulesRegressionTest \
     se.anders.tunerstudio.aetuner.guided.method.BaselineRecommendationCacheLifecycleRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.method.RecommendationCacheConcurrencyRegressionTest \
     se.anders.tunerstudio.aetuner.guided.method.TransientEvidenceEventRegressionTest \
     se.anders.tunerstudio.aetuner.guided.method.WallWettingRecommendationRegressionTest \
     se.anders.tunerstudio.aetuner.guided.method.InstantFuelRecommendationRegressionTest \
@@ -97,6 +100,13 @@ if [[ -d src/test/java ]]; then
     se.anders.tunerstudio.aetuner.guided.GuidedProposalValidationSessionRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedMethodRoutingUiRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedLifecycleRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedTaskControlRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedDecelAnalysisProgressRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedHistoricalRecoveryLifecycleRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedDecelCacheLifecycleRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedProbeReviewCacheRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedExportSnapshotRegressionTest \
+    se.anders.tunerstudio.aetuner.guided.GuidedPendingExportRetirementRegressionTest \
     se.anders.tunerstudio.aetuner.RuntimeOverhaulRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedBlendProposalRegressionTest \
     se.anders.tunerstudio.aetuner.guided.GuidedAudioCueRegressionTest \

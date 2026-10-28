@@ -69,7 +69,6 @@ final class GuidedV019InstantFuelFocus extends GuidedV019FocusBase {
         lower.add(summaryGrid("Recommendation authority",
                 new String[]{"Enable", "Global multiplier", "Inhibit cycles"},
                 new JLabel[]{enableAuthority, multAuthority, timerAuthority}));
-        lower.setPreferredSize(new java.awt.Dimension(100, 94));
         root.add(lower, BorderLayout.SOUTH);
         return root;
     }
@@ -128,6 +127,7 @@ final class GuidedV019InstantFuelFocus extends GuidedV019FocusBase {
             cue.setForeground(AeUiTheme.focusBlue());
             action.setText("Read Working Tune with Instant Fuel enabled, then capture after the upstream transient strategy is credible. If Instant Fuel is OFF, this task group remains unavailable.");
         }
+        showLiveDataWait(cue, action);
         repaint();
     }
 

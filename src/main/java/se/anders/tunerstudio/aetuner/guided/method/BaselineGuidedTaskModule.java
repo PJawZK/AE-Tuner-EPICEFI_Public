@@ -236,14 +236,15 @@ final class BaselineGuidedTaskModule extends AbstractProbeMethodModule {
                 || Math.abs(sample.getTpsDot()) > 1.0;
     }
 
-    @Override public ProposalWritePlan reviewedWritePlan(
+    @Override public synchronized ProposalWritePlan reviewedWritePlan(
             AeProjectSnapshot snapshot, List<LiveSample> evidence) {
-        BaselineRecommendationCacheGuard.prepare(recipe, snapshot, evidence);
         BaselineSurfaceRecommendation.Result result =
                 BaselineSurfaceRecommendation.evaluate(recipe, snapshot, evidence);
         lastReview = outputs + "\n\n" + result.reviewText;
         return result.plan;
     }
+
+    @Override public synchronized void clearLifecycleCache() { lastReview = outputs; }
 
     private static ChannelRole[] roles(ChannelRole... roles) { return roles; }
 }

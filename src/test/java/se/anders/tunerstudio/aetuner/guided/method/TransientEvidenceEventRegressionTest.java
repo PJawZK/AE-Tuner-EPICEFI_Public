@@ -17,6 +17,13 @@ public final class TransientEvidenceEventRegressionTest {
         lambdaIsReadFromDelayedWindowNotEventOnset();
         fuelCutEventIsExcludedFromAcceptedAuthority();
         wallAndTpsUseTheirOwnAnchors();
+        sustainedWallOpeningCountsOnce();
+        briefQuietNoiseDoesNotRearmWall();
+        distinctWallMovementsRearmWithCorrectionStillActive();
+        wallCorrectionFlickerDoesNotCreateMovement();
+        suppressedWallOnsetCannotSlideIntoLaterEvent();
+        missingMovementCannotEstablishQuiet();
+        sampleGapCannotEstablishQuiet();
         System.out.println("TransientEvidenceEventRegressionTest passed");
     }
 
@@ -96,6 +103,89 @@ public final class TransientEvidenceEventRegressionTest {
         require(TransientEvidenceEvent.collect(
                 TransientEvidenceEvent.Owner.WALL, evidence).size() == 1,
                 "Wall event did not use Wall-active pedal-opening ownership");
+    }
+
+    private static void sustainedWallOpeningCountsOnce() {
+        List<LiveSample> evidence = new ArrayList<LiveSample>();
+        for (int i = 0; i <= 35; i++) {
+            evidence.add(wallSample(i * 0.1, i <= 15 ? 10.0 : 0.0, true));
+        }
+        require(TransientEvidenceEvent.collect(TransientEvidenceEvent.Owner.WALL, evidence).size() == 1,
+                "one sustained Wall opening manufactured repeated candidates");
+        require(TransientEvidenceEvent.acceptedForTask(TransientEvidenceEvent.Owner.WALL, evidence).size() == 1,
+                "one sustained Wall opening manufactured repeated accepted evidence");
+    }
+
+    private static void briefQuietNoiseDoesNotRearmWall() {
+        List<LiveSample> evidence = new ArrayList<LiveSample>();
+        for (int i = 0; i <= 35; i++) {
+            boolean opening = i <= 15 && i != 6 && i != 12;
+            evidence.add(wallSample(i * 0.1, opening ? 10.0 : 0.0, true));
+        }
+        require(TransientEvidenceEvent.collect(TransientEvidenceEvent.Owner.WALL, evidence).size() == 1,
+                "brief quiet/noisy boundaries re-armed a sustained opening");
+    }
+
+    private static void distinctWallMovementsRearmWithCorrectionStillActive() {
+        List<LiveSample> evidence = new ArrayList<LiveSample>();
+        for (int i = 0; i <= 70; i++) {
+            boolean opening = i == 0 || i == 25 || i == 50;
+            evidence.add(wallSample(i * 0.1, opening ? 10.0 : 0.0, true));
+        }
+        List<TransientEvidenceEvent.Event> events = TransientEvidenceEvent.acceptedForTask(
+                TransientEvidenceEvent.Owner.WALL, evidence);
+        require(events.size() == 3, "distinct re-armed Wall movements were lost");
+        require(events.get(0).startSeconds == 0.0 && events.get(1).startSeconds == 2.5
+                        && events.get(2).startSeconds == 5.0,
+                "Wall response windows moved away from actual movement onsets");
+    }
+
+    private static void wallCorrectionFlickerDoesNotCreateMovement() {
+        List<LiveSample> evidence = new ArrayList<LiveSample>();
+        for (int i = 0; i <= 35; i++) {
+            evidence.add(wallSample(i * 0.1, i <= 15 ? 10.0 : 0.0, i != 6 && i != 12));
+        }
+        require(TransientEvidenceEvent.collect(TransientEvidenceEvent.Owner.WALL, evidence).size() == 1,
+                "Wall correction dropping out re-armed an ongoing opening");
+    }
+
+    private static void suppressedWallOnsetCannotSlideIntoLaterEvent() {
+        List<LiveSample> evidence = new ArrayList<LiveSample>();
+        for (int i = 0; i <= 45; i++) {
+            boolean opening = i == 0 || (i >= 4 && i <= 20) || i == 25;
+            evidence.add(wallSample(i * 0.1, opening ? 10.0 : 0.0, true));
+        }
+        List<TransientEvidenceEvent.Event> events = TransientEvidenceEvent.collect(
+                TransientEvidenceEvent.Owner.WALL, evidence);
+        require(events.size() == 2 && events.get(1).startSeconds == 2.5,
+                "an onset suppressed by minimum spacing slid forward into another event");
+    }
+
+    private static void missingMovementCannotEstablishQuiet() {
+        List<LiveSample> evidence = new ArrayList<LiveSample>();
+        evidence.add(wallSample(0.0, 10.0, true));
+        for (int i = 1; i <= 9; i++) evidence.add(wallSample(i * 0.1, Double.NaN, true));
+        evidence.add(wallSample(1.0, 10.0, true));
+        require(TransientEvidenceEvent.collect(TransientEvidenceEvent.Owner.WALL, evidence).size() == 1,
+                "missing movement data was treated as measured quiet");
+    }
+
+    private static void sampleGapCannotEstablishQuiet() {
+        List<LiveSample> evidence = new ArrayList<LiveSample>();
+        evidence.add(wallSample(0.0, 10.0, true));
+        evidence.add(wallSample(0.1, 0.0, true));
+        evidence.add(wallSample(1.1, 0.0, true));
+        evidence.add(wallSample(1.2, 10.0, true));
+        require(TransientEvidenceEvent.collect(TransientEvidenceEvent.Owner.WALL, evidence).size() == 1,
+                "unobserved sample gap established a quiet re-arm period");
+    }
+
+    private static LiveSample wallSample(double seconds, double tpsDot, boolean wall) {
+        LiveSample source = sample(seconds, Double.NaN, 0.0, wall, false, tpsDot, 1.05, false);
+        EnumMap<ChannelRole, Double> values = new EnumMap<ChannelRole, Double>(ChannelRole.class);
+        for (ChannelRole role : ChannelRole.values()) values.put(role, source.get(role));
+        if (!Double.isFinite(tpsDot)) values.put(ChannelRole.SMOOTHED_DELTA_TPS, Double.NaN);
+        return new LiveSample(source.getNanoTime(), seconds, values, tpsDot, 0.0);
     }
 
     private static void addInstantEvent(List<LiveSample> out, double t0,

@@ -32,6 +32,52 @@ final class GuidedEvidenceRecorder {
     private String finalSummary = "";
     private int sequence;
 
+    GuidedEvidenceRecorder() { }
+
+    private GuidedEvidenceRecorder(GuidedEvidenceRecorder source) {
+        sessionId = source.sessionId;
+        startedAt = source.startedAt;
+        finishedAt = source.finishedAt;
+        startRpm = source.startRpm;
+        armedRpmBins = source.armedRpmBins.clone();
+        heldTps = source.heldTps;
+        targetCount = source.targetCount;
+        gearMode = source.gearMode;
+        finalSummary = source.finalSummary;
+        sequence = source.sequence;
+        for (Record record : source.records) {
+            Record copy = new Record(record.sequence, record.sampleSeconds, record.durationSeconds,
+                    record.decision, record.included, record.acceptedCount, record.groupId,
+                    record.groupCount, record.details, record.trace);
+            copy.disposition = record.disposition;
+            records.add(copy);
+        }
+    }
+
+    /** Only this private copy is serialized; later discard/reset cannot change it. */
+    static final class ExportSnapshot {
+        final String sessionId;
+        final int recordCount;
+        private final GuidedEvidenceRecorder frozen;
+
+        private ExportSnapshot(GuidedEvidenceRecorder frozen) {
+            this.frozen = frozen;
+            sessionId = frozen.sessionId;
+            recordCount = frozen.records.size();
+        }
+
+        String reportText(String version, GuidedSessionSnapshot current, String proposal, String draft) {
+            return frozen.reportText(version, current, proposal, draft);
+        }
+        String diagnosticText() { return frozen.diagnosticText(); }
+        String csvText(String version) { return frozen.csvText(version); }
+        String diagnosticsCsvText(String audioCsv) { return frozen.diagnosticsCsvText(audioCsv); }
+    }
+
+    synchronized ExportSnapshot exportSnapshot() {
+        return new ExportSnapshot(new GuidedEvidenceRecorder(this));
+    }
+
     synchronized void startAdaptive(double configuredStartRpm,
                                     double configuredDesiredStep,
                                     int configuredTargetCount,

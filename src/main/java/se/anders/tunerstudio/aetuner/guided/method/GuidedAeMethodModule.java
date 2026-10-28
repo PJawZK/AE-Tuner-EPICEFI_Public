@@ -94,4 +94,6 @@ public interface GuidedAeMethodModule {
                                                  List<LiveSample> evidence) {
         return null;
     }
+    /** Release mutable recommendation/presentation state at final plugin retirement. */
+    default void clearLifecycleCache() { }
 }

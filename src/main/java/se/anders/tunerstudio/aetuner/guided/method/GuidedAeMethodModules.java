@@ -68,6 +68,7 @@ public final class GuidedAeMethodModules {
 
     /** Final plugin/classloader retirement; ordinary task switches do not call this. */
     public static void clearLifecycleCaches() {
-        BaselineRecommendationCacheGuard.clear();
+        for (GuidedAeMethodModule module : MODULES.values()) module.clearLifecycleCache();
+        BaselineSurfaceRecommendation.clearCache();
     }
 }

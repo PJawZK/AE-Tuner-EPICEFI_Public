@@ -78,7 +78,6 @@ final class GuidedV019TpsTimingFocus extends GuidedV019FocusBase {
         lower.add(summaryGrid("Capture context",
                 new String[]{"AccelThreshold", "Timing pair", "Comparable", "Sound cue"},
                 new JLabel[]{threshold, timing, comparable, sound}));
-        lower.setPreferredSize(new Dimension(100, 82));
         root.add(lower, BorderLayout.SOUTH);
         return root;
     }
@@ -100,7 +99,7 @@ final class GuidedV019TpsTimingFocus extends GuidedV019FocusBase {
         EngagementPassiveCapture.TimingStatus ts = model.timingStatus;
         timing.setText(ts.deltaResolved
                 ? fmt0(ts.deltaWindowMs) + " / " + fmt0(ts.sampleLengthMs) + " ms"
-                : "collecting");
+                : model.channelsReady && model.captureState.isCaptureInProgress() ? "collecting" : "waiting for live data");
         comparable.setText(passive.comparableEvents + " / " + passive.targetComparable);
         sound.setText("production cues");
         review.setEnabled(model.captureState == GuidedCaptureState.COMPLETE || passive.complete());
@@ -141,7 +140,13 @@ final class GuidedV019TpsTimingFocus extends GuidedV019FocusBase {
             String title;
             Color color;
             int active;
-            if (m.captureState == GuidedCaptureState.PAUSED) {
+            if (m.captureState == GuidedCaptureState.IDLE) {
+                title = "NOT STARTED"; color = AeUiTheme.focusMuted(); active = -1;
+            } else if (m.captureState == GuidedCaptureState.COMPLETE) {
+                title = "CAPTURE STOPPED"; color = AeUiTheme.focusAmber(); active = -1;
+            } else if ((!m.channelsReady || !GuidedFocusHub.liveDataReady()) && m.captureState != GuidedCaptureState.PAUSED) {
+                title = "WAITING FOR LIVE DATA"; color = AeUiTheme.focusAmber(); active = -1;
+            } else if (m.captureState == GuidedCaptureState.PAUSED) {
                 title = "PAUSED"; color = AeUiTheme.focusAmber(); active = -1;
             } else if (p.moving) {
                 title = "OPEN NOW"; color = AeUiTheme.focusBlue(); active = 1;
@@ -154,7 +159,11 @@ final class GuidedV019TpsTimingFocus extends GuidedV019FocusBase {
             }
             state.setText("● " + title);
             state.setForeground(color);
-            String action = m.nextActionText();
+            String action = m.captureState.isCaptureInProgress()
+                    && m.captureState != GuidedCaptureState.PAUSED
+                    && (!m.channelsReady || !GuidedFocusHub.liveDataReady())
+                    ? "WAIT FOR LIVE DATA\nNo maneuver requested until the required channels are available."
+                    : m.nextActionText();
             String[] lines = action.split("\\n", 2);
             instruction.setText(lines.length > 0 ? lines[0] : action);
             sub.setText(lines.length > 1 ? lines[1].replace('\n', ' ') : m.detectorStatusText());
@@ -193,7 +202,7 @@ final class GuidedV019TpsTimingFocus extends GuidedV019FocusBase {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int l = 28, r = getWidth() - 18, t = 30, b = getHeight() - 36, w = r - l;
+                int l = 12, r = getWidth() - 8, t = 18, b = getHeight() - 18, w = r - l;
                 g2.setColor(AeUiTheme.chartGridSoft());
                 for (int i = 0; i < 4; i++) {
                     int x = l + w * i / 3;
@@ -202,7 +211,11 @@ final class GuidedV019TpsTimingFocus extends GuidedV019FocusBase {
                 g2.drawLine(l, b, r, b);
                 int[] xs = {l, l + w * 18 / 100, l + w * 28 / 100, l + w * 38 / 100,
                         l + w * 50 / 100, l + w * 62 / 100, r};
-                int[] ys = {b - 18, b - 18, b - 34, b - 95, t + 72, t + 58, t + 58};
+                int height = Math.max(1, b - t - 32);
+                int baseline = b - 16;
+                int[] ys = {baseline, baseline, baseline - height * 8 / 100,
+                        baseline - height * 45 / 100, baseline - height * 80 / 100,
+                        baseline - height * 88 / 100, baseline - height * 88 / 100};
                 draw(g2, xs, ys, AeUiTheme.focusBlue(), 4f, false);
                 g2.setFont(new Font("Dialog", Font.BOLD, 10));
                 g2.setColor(AeUiTheme.focusGreen());
@@ -261,19 +274,19 @@ final class GuidedV019TpsTimingFocus extends GuidedV019FocusBase {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                int l = 50, r = getWidth() - 16, t = 24, b = getHeight() - 28;
+                int l = 6, r = getWidth() - 6, t = 4, b = getHeight() - 16;
                 if (r <= l || b <= t) return;
                 int split = t + (b - t) * 58 / 100;
-                int topT = t + 18, topB = split - 10;
-                int detT = split + 22, detB = b - 8;
+                int topT = t + 14, topB = split - 3;
+                int detT = split + 16, detB = b - 4;
 
                 drawGrid(g2, l, r, t, b, split);
                 g2.setFont(new Font("Dialog", Font.BOLD, 10));
                 g2.setColor(AeUiTheme.focusMuted());
                 g2.drawString("TPS %", l, t + 11);
                 g2.drawString("TPS AE change / AccelThreshold", l, split + 15);
-                g2.drawString("old", l, b + 18);
-                g2.drawString("now", r - 22, b + 18);
+                g2.drawString("old", l, b + 13);
+                g2.drawString("now", r - 22, b + 13);
 
                 if (size < 2) {
                     g2.setFont(SMALL);
@@ -313,7 +326,7 @@ final class GuidedV019TpsTimingFocus extends GuidedV019FocusBase {
                 if (passive != null) {
                     g2.setColor(AeUiTheme.focusMuted());
                     g2.setFont(SMALL);
-                    g2.drawString(trim(passive.lastEvent, 72), l, b + 6);
+                    g2.drawString(trim(passive.lastEvent, Math.max(8, (r - l - 80) / 6)), l + 30, b + 13);
                 }
             } finally {
                 g2.dispose();
@@ -426,7 +439,8 @@ final class GuidedV019TpsTimingFocus extends GuidedV019FocusBase {
     }
 
     private static final class Diagnostics extends JPanel {
-        private final JLabel status = new JLabel(), details = new JLabel();
+        private final JTextArea status = new JTextArea(3, 18);
+        private final JLabel details = new JLabel();
         private final JTextArea reviewArea = new JTextArea();
         private final Timer timer;
 
@@ -443,8 +457,13 @@ final class GuidedV019TpsTimingFocus extends GuidedV019FocusBase {
             body.setOpaque(false);
             JPanel left = card(new BorderLayout(0, 8));
             left.setBorder(cardBorder());
+            status.setEditable(false);
+            status.setOpaque(false);
+            status.setLineWrap(true);
+            status.setWrapStyleWord(true);
             status.setFont(new Font("Dialog", Font.BOLD, 17));
             status.setForeground(AeUiTheme.focusBlue());
+            details.setForeground(AeUiTheme.focusText());
             left.add(status, BorderLayout.NORTH);
             left.add(details, BorderLayout.CENTER);
             body.add(left);

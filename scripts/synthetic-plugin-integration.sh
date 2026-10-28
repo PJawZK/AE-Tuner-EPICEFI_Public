@@ -43,7 +43,48 @@ XVFB=(xvfb-run -a -s '-screen 0 1440x1000x24')
 "${XVFB[@]}" java -Djava.awt.headless=false -cp "$CP" \
   se.anders.tunerstudio.aetuner.guided.BlendDurationFocusSyntheticTest
 
+# Shared workflow actions remain available after closing/reopening task windows.
+"${XVFB[@]}" java -Djava.awt.headless=false -cp "$CP" \
+  se.anders.tunerstudio.aetuner.guided.GuidedTaskControlsSyntheticTest
+
+# Decel analysis stays visibly active and supports cancellation/error recovery.
+"${XVFB[@]}" java -Djava.awt.headless=false -cp "$CP" \
+  se.anders.tunerstudio.aetuner.guided.GuidedDecelAnalysisProgressSyntheticTest
+
+# Presentation under an actual small virtual screen, including native frame lifecycle.
+xvfb-run -a -s '-screen 0 820x640x24' java -Djava.awt.headless=false -cp "$CP" \
+  se.anders.tunerstudio.aetuner.guided.GuidedWindowPresentationSyntheticTest
+
+# Width-first pop-outs keep report actions outside vertical scrolling.
+xvfb-run -a -s '-screen 0 820x640x24' java -Djava.awt.headless=false -cp "$CP" \
+  se.anders.tunerstudio.aetuner.guided.GuidedPopupLayoutSyntheticTest
+
 for required in \
+  popup-prompt-DARK_SIDE.png \
+  popup-prompt-LIGHT_SIDE.png \
+  popup-result-DARK_SIDE.png \
+  popup-result-LIGHT_SIDE.png \
+  presentation-threshold-DARK_SIDE.png \
+  presentation-threshold-LIGHT_SIDE.png \
+  presentation-blend-DARK_SIDE.png \
+  presentation-blend-LIGHT_SIDE.png \
+  presentation-tps-diagnostics-DARK_SIDE.png \
+  presentation-tps-diagnostics-LIGHT_SIDE.png \
+  presentation-focus-DARK_SIDE.png \
+  presentation-focus-LIGHT_SIDE.png \
+  presentation-diagnostics-DARK_SIDE.png \
+  presentation-diagnostics-LIGHT_SIDE.png \
+  decel-analysis-busy-light.png \
+  decel-analysis-cancelled-light.png \
+  decel-analysis-failed-light.png \
+  decel-analysis-complete-light.png \
+  decel-analysis-busy-dark.png \
+  decel-analysis-cancelled-dark.png \
+  decel-analysis-failed-dark.png \
+  decel-analysis-complete-dark.png \
+  workflow-controls-focus-dark.png \
+  workflow-controls-cancelled-dark.png \
+  workflow-controls-workspace-dark.png \
   guided-v019-ui-result.txt \
   workspace-guided-v019-light-1366.png \
   workspace-guided-v019-capture-light-1366.png \

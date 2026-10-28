@@ -6,11 +6,20 @@ Use `docs/CURRENT_STATE.md` for current authority.
 
 ### Physical validation is narrower than software coverage
 
-v0.4.4 has broad regression/CI coverage and Foundation 2's workflow received a successful final real-vehicle process check before release. That does not mean every TPS AE, MAP Predict, Wall Wetting, Instant Fuel or decel recommendation is physically validated. Retain matching `.mlg` evidence when testing.
+v0.4.6 has extensive CI/regression coverage and focused real-vehicle checks for Foundation/Blend workflows. That does not mean every TPS AE, MAP Predict, Wall Wetting, Instant Fuel or decel recommendation is physically validated. Retain matching `.mlg` evidence when testing.
 
-### Foundation 2 visualization is intentionally simple
+### Desktop layout needs wider platform coverage
 
-Threshold / Sensitivity currently presents a moving vertical indicator rather than a scrolling graph-style trace. The workflow/evidence path is functional; richer visualization is a future UX improvement.
+Responsive pop-outs, scrolling, wrapping and fixed action footers pass synthetic
+UI tests; different TunerStudio desktops and OS window managers still need
+feedback from real users.
+
+### Historical Decel evidence limits
+
+Threshold-independent physical-event classification and compatible multi-log
+pooling are software-validated against retained real logs. Numerical threshold
+acceptance on other engines/configurations requires matching physical evidence.
+Upper-RPM cells without credible evidence remain NEED EVIDENCE.
 
 ### Wall Tau automatic inference is withheld
 

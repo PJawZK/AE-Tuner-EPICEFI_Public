@@ -68,7 +68,6 @@ final class GuidedV019TpsAeFocus extends GuidedV019FocusBase {
         lower.add(summaryGrid("Recommendation authority",
                 new String[]{"TPS AE table", "Scaling / compensation", "Apply path"},
                 new JLabel[]{tableAuthority, otherAuthority, fixed("guarded existing path")}));
-        lower.setPreferredSize(new java.awt.Dimension(100, 94));
         root.add(lower, BorderLayout.SOUTH);
         return root;
     }
@@ -126,6 +125,7 @@ final class GuidedV019TpsAeFocus extends GuidedV019FocusBase {
             cue.setForeground(AeUiTheme.focusBlue());
             action.setText("Read Working Tune, then Start Capture for TPS AE Fuel Response / Decay.");
         }
+        showLiveDataWait(cue, action);
         repaint();
     }
 

@@ -17,6 +17,8 @@ public final class GuidedAeMethodModulesRegressionTest {
         engagementDetectionDeclaresPassiveTimingEvidence();
         foundationThresholdDeclaresSensitivityEvidence();
         FoundationThresholdRecommendationRegressionTest.main(new String[0]);
+        DecelHistoricalEvidenceAnalyzerRegressionTest.main(new String[0]);
+        DecelHistoricalLogImporterRegressionTest.main(new String[0]);
         mapPredictCapturesTriggerAndCoherenceEvidence();
         mapEstimateDeclaresSteadyCellEvidence();
         wallWettingDeclaresLambdaAndOverlapEvidence();

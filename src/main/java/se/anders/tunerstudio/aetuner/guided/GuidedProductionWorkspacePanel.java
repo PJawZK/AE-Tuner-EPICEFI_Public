@@ -1,5 +1,9 @@
 package se.anders.tunerstudio.aetuner.guided;
 
+import se.anders.tunerstudio.aetuner.guided.method.DecelHistoricalResultContext;
+import se.anders.tunerstudio.aetuner.guided.method.DecelDetectionMethodModule;
+import se.anders.tunerstudio.aetuner.guided.method.GuidedAeMethodModules;
+import se.anders.tunerstudio.aetuner.guided.method.DecelHistoricalThresholdProposalContext;
 import se.anders.tunerstudio.aetuner.model.AeProjectSnapshot;
 
 import javax.swing.JButton;
@@ -25,14 +29,26 @@ public final class GuidedProductionWorkspacePanel extends JPanel {
         if (productionPanel == null) throw new IllegalArgumentException("productionPanel");
         this.productionPanel = productionPanel;
         this.v019 = new GuidedV019WorkspacePanel(productionPanel, utilities);
+        GuidedV019WorkflowNavigation.register(v019);
         GuidedDialogLifecycle.registerRoot(v019);
         add(v019, BorderLayout.CENTER);
     }
 
     public void setCurrentTune(AeProjectSnapshot snapshot) { v019.setCurrentTune(snapshot); }
 
-    /** Plugin hide/final close owns all short-lived Guided dialogs. */
-    public void disposeOwnedDialogs() { GuidedDialogLifecycle.disposeAll(); }
+    /** Stop presentation on hide/close; model state survives until final recovery. */
+    public void disposeOwnedDialogs() {
+        GuidedDialogLifecycle.disposeAll();
+    }
+
+    /** Model-only retirement on the recovery worker after the final checkpoint attempt. */
+    public void releaseAfterClose() {
+        DecelHistoricalResultContext.clear();
+        DecelHistoricalThresholdProposalContext.clear();
+        GuidedV019HistoricalReplayContext.clear();
+        ((DecelDetectionMethodModule) GuidedAeMethodModules.forRecipe(
+                GuidedTuningRecipe.DECEL_DETECTION)).clearHistoricalReview();
+    }
 
     int taskCountForTest() { return v019.taskCountForTest(); }
     String taskNameForTest(int index) { return v019.taskNameForTest(index); }

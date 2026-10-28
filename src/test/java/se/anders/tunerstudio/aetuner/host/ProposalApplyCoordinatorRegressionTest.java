@@ -17,6 +17,12 @@ public final class ProposalApplyCoordinatorRegressionTest {
         sequentialAppliesRestoreInLifoOrder();
         partialFailureRollsBackEarlierWrites();
         readbackMismatchRollsBackWrittenState();
+        scalarMutationBeforeExceptionIsRolledBack();
+        partialArrayMutationBeforeExceptionIsRolledBack();
+        rollbackFailureDoesNotSkipOtherParameters();
+        rollbackReadFailureDoesNotSkipOtherVerification();
+        rollbackExceptionWithMatchingReadbackIsVerified();
+        failedRestoreRecoversAppliedStateAndRetainsHistory();
         System.out.println("ProposalApplyCoordinatorRegressionTest passed");
     }
 
@@ -237,7 +243,154 @@ public final class ProposalApplyCoordinatorRegressionTest {
                 "readback-failed apply must not enter restore history");
     }
 
-    private static final class FakeBackend
+    private static ProposalWritePlan scalarPlan() {
+        return new ProposalWritePlan("scalar", "Scalar test", "cfg", "",
+                Arrays.asList(ProposalWritePlan.Change.scalar("first", 3.0, 6.0, "first", "")));
+    }
+
+    private static ProposalWritePlan twoScalarPlan() {
+        return new ProposalWritePlan("multi", "Transaction test", "cfg", "",
+                Arrays.asList(
+                        ProposalWritePlan.Change.scalar("first", 3.0, 6.0, "first", ""),
+                        ProposalWritePlan.Change.scalar("second", 4.0, 8.0, "second", "")));
+    }
+
+    private static void scalarMutationBeforeExceptionIsRolledBack() {
+        FakeBackend backend = new FakeBackend() {
+            @Override public void writeScalar(String cfg, String name, double value) {
+                super.writeScalar(cfg, name, value);
+                if (writeCount == 1) throw new IllegalStateException("mutation before failure");
+            }
+        };
+        backend.scalars.put(key("cfg", "first"), 3.0);
+        ProposalApplyCoordinator coordinator = new ProposalApplyCoordinator(backend);
+        ProposalApplyCoordinator.ApplyResult result = coordinator.apply(scalarPlan());
+        require(!result.success, "throwing write must remain a failed Apply");
+        requireClose(3.0, backend.readScalar("cfg", "first"), "throwing scalar write escaped rollback");
+        require(result.message.contains("rollback PASS"), "scalar rollback was not verified");
+        require(coordinator.applyDepth() == 0, "failed Apply created restore history");
+    }
+
+    private static void partialArrayMutationBeforeExceptionIsRolledBack() {
+        FakeBackend backend = new FakeBackend() {
+            @Override public void writeArray(String cfg, String name, double[][] values) {
+                if (writeCount == 0) {
+                    writeCount++;
+                    arrays.get(key(cfg, name))[0][0] = values[0][0];
+                    throw new IllegalStateException("partial array update");
+                }
+                super.writeArray(cfg, name, values);
+            }
+        };
+        backend.arrays.put(key("cfg", "table"), new double[][]{{1.0, 2.0, 9.0}});
+        ProposalWritePlan plan = new ProposalWritePlan("array", "Array test", "cfg", "",
+                Arrays.asList(
+                        ProposalWritePlan.Change.arrayCell("table", 0, 1.0, 4.0, "cell 0", ""),
+                        ProposalWritePlan.Change.arrayCell("table", 1, 2.0, 5.0, "cell 1", "")));
+        ProposalApplyCoordinator coordinator = new ProposalApplyCoordinator(backend);
+        ProposalApplyCoordinator.ApplyResult result = coordinator.apply(plan);
+        require(!result.success && result.message.contains("rollback PASS"), "partial update was not recovered");
+        double[][] actual = backend.readArray("cfg", "table");
+        requireClose(1.0, actual[0][0], "partial mutation escaped rollback");
+        requireClose(2.0, actual[0][1], "unwritten target changed");
+        requireClose(9.0, actual[0][2], "undeclared cell changed");
+        require(coordinator.applyDepth() == 0, "partial failure created restore history");
+    }
+
+    private static void rollbackFailureDoesNotSkipOtherParameters() {
+        final StringBuilder writes = new StringBuilder();
+        FakeBackend backend = new FakeBackend() {
+            @Override public void writeScalar(String cfg, String name, double value) {
+                writes.append(name).append(':').append(value).append(';');
+                if (name.equals("second") && value == 4.0) {
+                    throw new IllegalStateException("rollback unavailable");
+                }
+                super.writeScalar(cfg, name, value);
+                if (name.equals("second")) throw new IllegalStateException("mutation before failure");
+            }
+        };
+        backend.scalars.put(key("cfg", "first"), 3.0);
+        backend.scalars.put(key("cfg", "second"), 4.0);
+        backend.scalars.put(key("cfg", "third"), 5.0);
+        java.util.List<ProposalWritePlan.Change> changes =
+                new java.util.ArrayList<ProposalWritePlan.Change>(twoScalarPlan().getChanges());
+        changes.add(ProposalWritePlan.Change.scalar("third", 5.0, 10.0, "third", ""));
+        ProposalApplyCoordinator coordinator = new ProposalApplyCoordinator(backend);
+        ProposalApplyCoordinator.ApplyResult result = coordinator.apply(
+                new ProposalWritePlan("multi", "Transaction test", "cfg", "", changes));
+        require(!result.success, "injected failure should fail Apply");
+        requireClose(3.0, backend.readScalar("cfg", "first"), "one rollback failure skipped earlier parameter");
+        requireClose(8.0, backend.readScalar("cfg", "second"), "fixture lost unresolved parameter");
+        require(result.message.contains("ROLLBACK COULD NOT BE VERIFIED") && result.message.contains("second"),
+                "unresolved parameter was not identified: " + result.message);
+        require(!result.message.contains("rollback PASS"), "unresolved rollback reported success");
+        require(coordinator.applyDepth() == 0, "failed Apply created history");
+        requireClose(5.0, backend.readScalar("cfg", "third"), "unattempted parameter changed");
+        require(writes.toString().equals("first:6.0;second:8.0;second:4.0;first:3.0;"),
+                "rollback order or attempted-target scope changed: " + writes);
+    }
+
+    private static void rollbackReadFailureDoesNotSkipOtherVerification() {
+        final boolean[] secondVerified = {false};
+        FakeBackend backend = new FakeBackend() {
+            @Override public void writeScalar(String cfg, String name, double value) {
+                super.writeScalar(cfg, name, value);
+                if (writeCount == 2) throw new IllegalStateException("mutation before failure");
+            }
+            @Override public double readScalar(String cfg, String name) {
+                if (writeCount >= 4) {
+                    if (name.equals("first")) throw new IllegalStateException("readback unavailable");
+                    if (name.equals("second")) secondVerified[0] = true;
+                }
+                return super.readScalar(cfg, name);
+            }
+        };
+        backend.scalars.put(key("cfg", "first"), 3.0);
+        backend.scalars.put(key("cfg", "second"), 4.0);
+        ProposalApplyCoordinator.ApplyResult result = new ProposalApplyCoordinator(backend).apply(twoScalarPlan());
+        require(secondVerified[0], "one failed readback skipped remaining verification");
+        require(result.message.contains("ROLLBACK COULD NOT BE VERIFIED") && result.message.contains("first"),
+                "unreadable parameter was not reported: " + result.message);
+        requireClose(3.0, backend.scalars.get(key("cfg", "first")), "first rollback was not attempted");
+        requireClose(4.0, backend.scalars.get(key("cfg", "second")), "second rollback was not attempted");
+    }
+
+    private static void rollbackExceptionWithMatchingReadbackIsVerified() {
+        FakeBackend backend = new FakeBackend() {
+            @Override public void writeScalar(String cfg, String name, double value) {
+                super.writeScalar(cfg, name, value);
+                throw new IllegalStateException("host exception after mutation");
+            }
+        };
+        backend.scalars.put(key("cfg", "first"), 3.0);
+        ProposalApplyCoordinator.ApplyResult result = new ProposalApplyCoordinator(backend).apply(scalarPlan());
+        require(!result.success && result.message.contains("rollback PASS"),
+                "matching final readback should establish recovery despite host exception: " + result.message);
+        require(result.message.contains("first"), "rollback write exception lost its parameter context");
+        requireClose(3.0, backend.readScalar("cfg", "first"), "baseline was not recovered");
+    }
+
+    private static void failedRestoreRecoversAppliedStateAndRetainsHistory() {
+        FakeBackend backend = new FakeBackend() {
+            @Override public void writeScalar(String cfg, String name, double value) {
+                super.writeScalar(cfg, name, value);
+                if (writeCount == 2) throw new IllegalStateException("Restore mutation before failure");
+            }
+        };
+        backend.scalars.put(key("cfg", "first"), 3.0);
+        ProposalApplyCoordinator coordinator = new ProposalApplyCoordinator(backend);
+        require(coordinator.apply(scalarPlan()).success, "setup Apply failed");
+        ProposalApplyCoordinator.ApplyResult result = coordinator.restorePreviousApply();
+        require(!result.success && result.restore && result.message.contains("rollback PASS"),
+                "failed Restore was not rolled back");
+        requireClose(6.0, backend.readScalar("cfg", "first"), "failed Restore did not recover applied state");
+        require(coordinator.applyDepth() == 1, "failed Restore discarded its record");
+        require(coordinator.restorePreviousApply().success, "explicit retry after verified rollback should restore");
+        requireClose(3.0, backend.readScalar("cfg", "first"), "successful Restore lost original baseline");
+        require(coordinator.applyDepth() == 0, "successful Restore retained stale history");
+    }
+
+    private static class FakeBackend
             implements ProposalApplyCoordinator.Backend {
         final Map<String, double[][]> arrays =
                 new LinkedHashMap<String, double[][]>();

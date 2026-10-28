@@ -14,12 +14,44 @@ public final class WallWettingRecommendationRegressionTest {
     private WallWettingRecommendationRegressionTest() { }
 
     public static void main(String[] args) {
+        distinctEvidenceWithMatchingShapeCannotReuseAProposal();
+        lifecycleClearReleasesWallReview();
         repeatedLeanTipInMovesBetaWithoutInventingTau();
         persistenceMismatchIsDiagnosticOnlyUntilTransportAligned();
         zeroBetaNeverAutoEnables();
         advancedModelRoutesToAdvancedTask();
         instantOverlapIsRejected();
+        oneSustainedOpeningCannotQualifyBeta();
         System.out.println("WallWettingRecommendationRegressionTest passed");
+    }
+
+    private static void distinctEvidenceWithMatchingShapeCannotReuseAProposal() {
+        WallWettingMethodModule module = new WallWettingMethodModule();
+        AeProjectSnapshot baseline = snapshot("Basic", true, .80, .40);
+        List<LiveSample> lean = evidence(3, .055, false);
+        List<LiveSample> rich = evidence(3, -.055, false);
+        ProposalWritePlan first = module.reviewedWritePlan(baseline, lean);
+        require(first != null && module.reviewedWritePlan(baseline, lean) == first,
+                "unchanged immutable Wall evidence did not reuse its result");
+        ProposalWritePlan second = module.reviewedWritePlan(baseline, rich);
+        require(second != null && second != first, "distinct equal-size/timestamp Wall evidence reused the earlier plan");
+        require(second.getChanges().get(0).proposedValue < .40,
+                "rich Wall evidence reused a lean Beta recommendation");
+    }
+
+    private static void lifecycleClearReleasesWallReview() {
+        WallWettingMethodModule module = (WallWettingMethodModule)
+                GuidedAeMethodModules.forRecipe(se.anders.tunerstudio.aetuner.guided.GuidedTuningRecipe.WALL_WETTING);
+        GuidedAeMethodModules.clearLifecycleCaches();
+        String initial = module.reviewOutputs();
+        AeProjectSnapshot baseline = snapshot("Basic", true, .80, .40);
+        List<LiveSample> rows = evidence(3, .055, false);
+        ProposalWritePlan first = module.reviewedWritePlan(baseline, rows);
+        require(first != null && !module.reviewOutputs().equals(initial), "Wall lifecycle fixture has no review");
+        GuidedAeMethodModules.clearLifecycleCaches();
+        require(module.reviewOutputs().equals(initial), "retired Wall review remained visible after lifecycle clear");
+        require(module.reviewedWritePlan(baseline, rows) != first, "Wall result survived final cache retirement");
+        GuidedAeMethodModules.clearLifecycleCaches();
     }
 
     private static void repeatedLeanTipInMovesBetaWithoutInventingTau() {
@@ -78,6 +110,18 @@ public final class WallWettingRecommendationRegressionTest {
         require(result.plan == null, "Instant-overlapped events created a Wall plan");
         require(result.rejectedInstantOverlap >= 3,
                 "Instant overlap was not counted as rejected Wall evidence");
+    }
+
+    private static void oneSustainedOpeningCannotQualifyBeta() {
+        List<LiveSample> samples = new ArrayList<LiveSample>();
+        for (int i = 0; i <= 35; i++) {
+            samples.add(sample(i * 0.1, 2500, 20.0 + Math.min(i, 15),
+                    i <= 15 ? 10.0 : 0.0, 0.10, 1.055, 0.08, 0.0));
+        }
+        WallWettingRecommendation.Result result = WallWettingRecommendation.evaluate(
+                snapshot("Basic", true, 0.80, 0.40), samples);
+        require(result.plan == null,
+                "one sustained opening incorrectly qualified repeated-event Beta authority");
     }
 
     private static List<LiveSample> evidence(int events, double lambdaError, boolean instant) {
