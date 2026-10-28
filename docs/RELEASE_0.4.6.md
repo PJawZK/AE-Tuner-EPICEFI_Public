@@ -1,6 +1,6 @@
 # AE Tuner (EPICEFI) v0.4.6
 
-**Public release — 28 October 2026.** Supersedes v0.4.5. This release makes the current Guided UI, reliability improvements and historical Decel analysis available for broader user testing. Software validation is complete; tuning-algorithm numerical/physical maturity is task-specific.
+**Public release — 28 October 2026.** Supersedes v0.4.5. This release provides the completed v0.4.6 Guided UI, reliability improvements and historical Decel analysis as the full stable release. Software validation is complete; tuning-algorithm numerical/physical maturity is task-specific.
 
 ## What is new
 
@@ -10,6 +10,10 @@
 - Lower-overhead report/export, bounded session caching and safer evidence recovery/lifecycle handling; explicit Apply/Restore remains centralized.
 - Decel historical-log analysis with separately classified physical events and fail-closed cross-log pooling when detector configuration matches. Unmeasured RPM cells remain NEED EVIDENCE.
 - Additional validation for Wall Wetting / Instant Fuel evidence handling. Neither result is a universally validated tuning preset.
+
+## Download
+
+[Download the stable v0.4.6 JAR and SHA256SUMS.txt](https://github.com/PJawZK/AE-Tuner-EPICEFI_Public/releases/tag/v0.4.6).
 
 ## Installation
 
