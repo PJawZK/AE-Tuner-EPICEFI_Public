@@ -1,7 +1,7 @@
 # AE Tuner (EPICEFI) — public repository
 
 - Canonical source branch: **main**
-- Public release: **v0.4.6** (previous v0.4.5)
+- Public source version: **0.4.6**; latest published release: **v0.4.5** until the v0.4.6 release assets are verified and published.
 - Qualified source identity: `baddb47d3a13b2e772d5b6154f735f2f8c2ddb38`
 - Private CI validation: #1932, run `40725785125`, PASS
 - Canonical JAR: `ae-tuner-epicefi-0.4.6.jar`
