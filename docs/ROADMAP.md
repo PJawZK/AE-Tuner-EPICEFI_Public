@@ -1,38 +1,24 @@
-# Roadmap
+# Features and limitations
 
-Use `docs/CURRENT_STATE.md` for exact current authority.
+This document is a guide to the capabilities included in the latest public release, **AE Tuner v0.4.6**. For installation, see the [README](../README.md); for changes since v0.4.5, see [release notes](RELEASE_0.4.6.md).
 
-## v0.4.4 baseline
+## Guided tuning areas
 
-v0.4.4 establishes the current task-based Guided v0.19 public baseline with:
+| Area | Available workflows |
+| --- | --- |
+| AE Foundation | TPS movement/timing, Threshold/Sensitivity |
+| TPS AE | Fuel-by-cycle, RPM/temperature compensation, closed-loop handoff and validation |
+| MAP Predict | MAP Estimate, Blend Duration, transient validation |
+| Wall Wetting | Base Tau/Beta, advanced mapping and film validation |
+| Decel / Tip-out | Detection/threshold analysis, compatible historical multi-log evidence review |
+| Optional Instant Fuel | Pulse/inhibit, event strength, operating-condition correction and residual validation |
 
-- AE Foundation workflow and evidence gates;
-- TPS AE evidence/table/compensation/completion/validation routes;
-- MAP Estimate and Blend Duration Guided workflows;
-- Wall Wetting base/advanced/validation routes;
-- Instant Fuel setup/strength/conditions/validation routes;
-- Decel Detection evidence/recommendation support;
-- strict method ON/OFF availability;
-- explicit incomplete-evidence handling and Continue Capture;
-- centralized guarded Apply/readback/Restore with no Burn;
-- lifecycle, dispatcher, cache and recovery hardening.
+Some areas contain informational or planned controls rather than fully qualified automatic recommendations. The interface will withhold proposals when supporting evidence is insufficient.
 
-## Immediate next work
+## Evidence and operating conditions
 
-1. Collect matching screen recording + TunerStudio `.mlg` evidence from the remaining implemented methods.
-2. Refine method-specific coaching/visualization from real use. Foundation 2 currently uses a moving vertical indicator; a richer scrolling/graph-style presentation is a possible UX improvement, not a release blocker.
-3. Physically validate recommendation behavior before broadening numerical authority.
-4. Measure/align lambda transport delay before automatic Wall Tau movement.
-5. Obtain authoritative EGO/trim re-entry evidence before automatic TPS closed-loop handoff movement.
-6. Continue attribution review for combined TPS AE / MAP Predict / Wall Wetting / Instant Fuel operation.
+RPM/TPS alone do not describe all driving conditions. Temperature, MAP, load, gear, fuel and lambda-response delay may change results. Use comparable real-vehicle logs and review all recommendations before applying them.
 
-## Longer-term
+## ECU write boundaries
 
-- mature Decel fuel/MAP tasks after evidence supports them;
-- improve review/simplification guidance across combined transient strategies;
-- expand physical validation across fuels, temperatures and operating regions;
-- consider more autonomous RAM-only tuning only under explicit safety gates.
-
-## Burn
-
-ECU Burn remains outside AE Tuner authority. Do not infer future Burn authorization from explicit guarded working-tune Apply/Restore.
+AE Tuner supports explicit guarded Working Tune/RAM Apply and Restore only. It does not Burn, automatically tune, or edit VE/ignition. See [known limitations](KNOWN_ISSUES.md).
