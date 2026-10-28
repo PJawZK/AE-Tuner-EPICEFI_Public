@@ -1,6 +1,6 @@
 # AE Tuner current public state
 
-- Latest public release: **v0.4.6**; previous: **v0.4.5**
+- Latest published public release: **v0.4.5**. The v0.4.6 source has been synchronized to public `main`; its release JAR is pending publication.
 - Source branch: `main`
 - Exact qualified public-identity build source: `baddb47d3a13b2e772d5b6154f735f2f8c2ddb38`
 - GitHub Actions: **#1932 / run 40725785125 — PASS**
