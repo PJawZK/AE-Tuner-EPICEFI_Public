@@ -2,13 +2,13 @@
 
 A TunerStudio plugin for EpicEFI transient-fuelling analysis and guided acceleration-enrichment tuning.
 
-## Latest public release — v0.4.6
+## v0.4.6 — source synchronized, release asset pending
 
 - **JAR:** `ae-tuner-epicefi-0.4.6.jar`
 - **Version shown in TunerStudio:** `0.4.6` / `PUBLIC RELEASE`
 - **Java target:** Java 8-compatible bytecode
 - **SHA-256:** `31e23679f055789be0073f35e810f1ae793e0713dfc381c92e293c98ecdc19dd`
-- **Download:** [GitHub Releases](https://github.com/PJawZK/AE-Tuner-EPICEFI_Public/releases/tag/v0.4.6)
+- **Download status:** The v0.4.6 release asset has not yet been published. [v0.4.5 remains available](https://github.com/PJawZK/AE-Tuner-EPICEFI_Public/releases/tag/v0.4.5).
 - **Release notes:** [v0.4.6](docs/RELEASE_0.4.6.md)
 - Previous release: [v0.4.5](https://github.com/PJawZK/AE-Tuner-EPICEFI_Public/releases/tag/v0.4.5)
 
@@ -16,7 +16,7 @@ v0.4.6 adds historical Decel cross-log analysis, improved Guided lifecycle/evide
 
 ### Installation
 
-1. Download the v0.4.6 JAR and verify its SHA-256.
+1. Once the stable v0.4.6 release is published, download its JAR and verify its SHA-256.
 2. Exit TunerStudio; remove all older AE Tuner JARs from the active plugin directory.
 3. Install only `ae-tuner-epicefi-0.4.6.jar` and restart TunerStudio.
 4. Confirm version `0.4.6` and **PUBLIC RELEASE**, then **Read Working Tune**.
